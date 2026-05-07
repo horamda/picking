@@ -27,6 +27,7 @@ def search():
     results = query.order_by(Consolidado.processed_at.desc()).all()
     return jsonify([{
         'id': c.id,
+        'uploaded_file_id': c.uploaded_file_id,
         'filename': c.filename,
         'reparto': c.reparto,
         'camion': c.camion,
@@ -52,6 +53,7 @@ def detail(consolidado_id):
     detalles = ConsolidadoDetalle.query.filter_by(consolidado_id=consolidado.id).all()
     return jsonify({
         'id': consolidado.id,
+        'uploaded_file_id': consolidado.uploaded_file_id,
         'filename': consolidado.filename,
         'reparto': consolidado.reparto,
         'camion': consolidado.camion,

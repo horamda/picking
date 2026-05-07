@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 
-from models import Article
+from models import Article, UploadedFile
 from services.csv_import import import_articles_from_csv
+from services.file_storage import create_uploaded_file_record, mark_uploaded_file
 from utils.db import db
 
 articles_bp = Blueprint('articles', __name__)
@@ -66,10 +67,34 @@ def import_csv():
 
     try:
         file_bytes = file.read()
+        uploaded_file = create_uploaded_file_record(
+            file_bytes=file_bytes,
+            filename=filename,
+            original_filename=file.filename or filename,
+            category='csv_articulos',
+            content_type=file.mimetype,
+        )
+        db.session.add(uploaded_file)
+        db.session.commit()
+        uploaded_file_id = uploaded_file.id
+
         result = import_articles_from_csv(file_bytes, mode=mode)
+        result['uploaded_file_id'] = uploaded_file_id
+        if result.get('applied'):
+            mark_uploaded_file(uploaded_file, 'procesado')
+        else:
+            first_error = (result.get('errors') or result.get('duplicates') or [{}])[0]
+            mark_uploaded_file(uploaded_file, 'rechazado', first_error.get('error', 'CSV rechazado'))
+        db.session.commit()
         status = 200 if result.get('applied') else 422
         return jsonify(result), status
     except Exception as exc:
+        db.session.rollback()
+        if 'uploaded_file_id' in locals() and uploaded_file_id:
+            uploaded_file = db.session.get(UploadedFile, uploaded_file_id)
+            if uploaded_file:
+                mark_uploaded_file(uploaded_file, 'error', str(exc))
+                db.session.commit()
         return jsonify({
             'applied': False,
             'errors': [{'row': None, 'error': f'Error interno del servidor: {str(exc)}'}],

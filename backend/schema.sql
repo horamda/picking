@@ -36,9 +36,27 @@ CREATE TABLE lotes_procesamiento (
   estado VARCHAR(80) NOT NULL DEFAULT 'pendiente'
 );
 
+CREATE TABLE archivos_subidos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  batch_id INT,
+  filename VARCHAR(255) NOT NULL,
+  original_filename VARCHAR(255),
+  category VARCHAR(80) NOT NULL,
+  content_type VARCHAR(120),
+  size_bytes INT NOT NULL DEFAULT 0,
+  checksum_sha256 VARCHAR(64) NOT NULL,
+  data LONGBLOB NOT NULL,
+  status VARCHAR(80) NOT NULL DEFAULT 'recibido',
+  error_message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  processed_at DATETIME,
+  FOREIGN KEY (batch_id) REFERENCES lotes_procesamiento(id)
+);
+
 CREATE TABLE consolidados (
   id INT AUTO_INCREMENT PRIMARY KEY,
   batch_id INT NOT NULL,
+  uploaded_file_id INT,
   filename VARCHAR(255) NOT NULL,
   reparto VARCHAR(120),
   camion VARCHAR(120),
@@ -47,7 +65,8 @@ CREATE TABLE consolidados (
   cancha VARCHAR(120),
   almacen VARCHAR(120),
   processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (batch_id) REFERENCES lotes_procesamiento(id)
+  FOREIGN KEY (batch_id) REFERENCES lotes_procesamiento(id),
+  FOREIGN KEY (uploaded_file_id) REFERENCES archivos_subidos(id)
 );
 
 CREATE TABLE consolidado_detalle (
@@ -81,8 +100,10 @@ CREATE TABLE logs (
 
 CREATE TABLE errores_procesamiento (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  uploaded_file_id INT,
   filename VARCHAR(255) NOT NULL,
   error_message TEXT NOT NULL,
   traceback TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (uploaded_file_id) REFERENCES archivos_subidos(id)
 );

@@ -42,6 +42,22 @@ class ExcludedArticle(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class UploadedFile(db.Model):
+    __tablename__ = 'archivos_subidos'
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.Integer, db.ForeignKey('lotes_procesamiento.id'), nullable=True)
+    filename = db.Column(db.String(255), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=True)
+    category = db.Column(db.String(80), nullable=False)
+    content_type = db.Column(db.String(120), nullable=True)
+    size_bytes = db.Column(db.Integer, nullable=False, default=0)
+    checksum_sha256 = db.Column(db.String(64), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    status = db.Column(db.String(80), nullable=False, default='recibido')
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=True)
+
 class ProcessingBatch(db.Model):
     __tablename__ = 'lotes_procesamiento'
     id = db.Column(db.Integer, primary_key=True)
@@ -50,11 +66,13 @@ class ProcessingBatch(db.Model):
     origen = db.Column(db.String(255), nullable=True)
     estado = db.Column(db.String(80), nullable=False, default='pendiente')
     consolidados = db.relationship('Consolidado', backref='batch', lazy=True)
+    uploaded_files = db.relationship('UploadedFile', backref='batch', lazy=True)
 
 class Consolidado(db.Model):
     __tablename__ = 'consolidados'
     id = db.Column(db.Integer, primary_key=True)
     batch_id = db.Column(db.Integer, db.ForeignKey('lotes_procesamiento.id'), nullable=False)
+    uploaded_file_id = db.Column(db.Integer, db.ForeignKey('archivos_subidos.id'), nullable=True)
     filename = db.Column(db.String(255), nullable=False)
     reparto = db.Column(db.String(120), nullable=True)
     camion = db.Column(db.String(120), nullable=True)
@@ -64,6 +82,7 @@ class Consolidado(db.Model):
     almacen = db.Column(db.String(120), nullable=True)
     processed_at = db.Column(db.DateTime, default=datetime.utcnow)
     detalles = db.relationship('ConsolidadoDetalle', backref='consolidado', lazy=True)
+    uploaded_file = db.relationship('UploadedFile', backref='consolidados')
 
 class ConsolidadoDetalle(db.Model):
     __tablename__ = 'consolidado_detalle'
@@ -96,7 +115,9 @@ class LogEntry(db.Model):
 class ProcessingError(db.Model):
     __tablename__ = 'errores_procesamiento'
     id = db.Column(db.Integer, primary_key=True)
+    uploaded_file_id = db.Column(db.Integer, db.ForeignKey('archivos_subidos.id'), nullable=True)
     filename = db.Column(db.String(255), nullable=False)
     error_message = db.Column(db.Text, nullable=False)
     traceback = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_file = db.relationship('UploadedFile', backref='processing_errors')

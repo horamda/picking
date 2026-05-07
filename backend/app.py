@@ -85,6 +85,16 @@ def ensure_runtime_schema():
         if 'bultos_equivalentes' not in columns:
             db.session.execute(text('ALTER TABLE consolidado_detalle ADD COLUMN bultos_equivalentes FLOAT NOT NULL DEFAULT 0'))
             db.session.commit()
+    if 'consolidados' in inspector.get_table_names():
+        columns = {column['name'] for column in inspector.get_columns('consolidados')}
+        if 'uploaded_file_id' not in columns:
+            db.session.execute(text('ALTER TABLE consolidados ADD COLUMN uploaded_file_id INTEGER'))
+            db.session.commit()
+    if 'errores_procesamiento' in inspector.get_table_names():
+        columns = {column['name'] for column in inspector.get_columns('errores_procesamiento')}
+        if 'uploaded_file_id' not in columns:
+            db.session.execute(text('ALTER TABLE errores_procesamiento ADD COLUMN uploaded_file_id INTEGER'))
+            db.session.commit()
 
 def seed_default_exclusions():
     from models import ExcludedArticle
