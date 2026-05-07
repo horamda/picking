@@ -13,10 +13,24 @@ def normalize_database_url(database_url: str) -> str:
 def parse_csv_env(value: str) -> list[str]:
     return [item.strip() for item in value.split(',') if item.strip()]
 
+def is_railway_environment() -> bool:
+    return any(os.getenv(name) for name in ['RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID', 'RAILWAY_SERVICE_ID'])
+
+def get_database_url() -> str:
+    database_url = os.getenv('DATABASE_URL')
+    if is_railway_environment() and not database_url:
+        raise RuntimeError('DATABASE_URL es obligatorio en Railway. Agrega PostgreSQL y vincula ${{Postgres.DATABASE_URL}}.')
+
+    database_url = database_url or 'sqlite:///picking.db'
+    if is_railway_environment() and database_url.startswith('sqlite'):
+        raise RuntimeError('Railway no debe usar SQLite. Configura DATABASE_URL con PostgreSQL para persistir los datos.')
+
+    return normalize_database_url(database_url)
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'supersecret')
     JWT_SECRET = os.getenv('JWT_SECRET', 'jwtsecret')
-    SQLALCHEMY_DATABASE_URI = normalize_database_url(os.getenv('DATABASE_URL', 'sqlite:///picking.db'))
+    SQLALCHEMY_DATABASE_URI = get_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')

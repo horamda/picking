@@ -24,17 +24,22 @@ Proyecto modular basado en Flask + React para una distribuidora de bebidas. Perm
 
 ## PostgreSQL en Railway
 
-1. Crear un servicio PostgreSQL en Railway.
-2. En el servicio backend, definir estas variables:
+1. Crear un proyecto desde el repo de GitHub usando el `Dockerfile` de la raiz.
+2. Crear un servicio PostgreSQL en Railway.
+3. En el servicio web, definir estas variables:
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
    - `SECRET_KEY=<valor_seguro>`
    - `JWT_SECRET=<valor_seguro>`
-   - `CORS_ORIGINS=https://<dominio-del-frontend>`
    - `INIT_DB_ON_STARTUP=1`
-3. En el servicio frontend, definir:
-   - `VITE_API_URL=https://<dominio-del-backend>/api`
+   - `ADMIN_USER=admin`
+   - `ADMIN_PASSWORD=<valor_seguro>`
+   - `FLASK_DEBUG=0`
 4. El backend acepta la URL `postgresql://...` que entrega Railway y la convierte internamente al driver `psycopg`.
 5. En produccion, el backend corre con Gunicorn y escucha el puerto entregado por Railway en `PORT`.
+
+El frontend se compila dentro del mismo contenedor y Flask sirve la SPA. No hace falta crear un servicio separado para React.
+
+Los articulos, historicos, PDFs y CSV subidos persisten en PostgreSQL. En Railway la app falla al iniciar si no existe `DATABASE_URL`, para evitar usar SQLite efimero y perder datos en cada deploy.
 
 ## Ejecucion local sin Docker
 

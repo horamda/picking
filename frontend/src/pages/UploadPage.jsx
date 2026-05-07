@@ -28,9 +28,7 @@ function UploadPage() {
         setStatus('Subiendo archivos...')
         setResult(null)
         try {
-            const response = await axiosClient.post('/uploads/pdf', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            })
+            const response = await axiosClient.post('/uploads/pdf', formData)
             setResult(response.data)
             setFiles([])
             setStatus(`Repartos procesados: ${response.data.processed.length}`)

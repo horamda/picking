@@ -8,6 +8,8 @@ function ArticlesPage() {
     const [importMode, setImportMode] = useState('merge')
     const [importResult, setImportResult] = useState(null)
     const [status, setStatus] = useState('')
+    const role = localStorage.getItem('role')
+    const canImport = ['administrador', 'supervisor'].includes(role)
 
     const loadArticles = async () => {
         const response = await axiosClient.get('/articles')
@@ -25,9 +27,7 @@ function ArticlesPage() {
         formData.append('mode', importMode)
         setStatus('Importando CSV...')
         try {
-            const response = await axiosClient.post('/articles/import-csv', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            })
+            const response = await axiosClient.post('/articles/import-csv', formData)
             setImportResult(response.data)
             setStatus(response.data.applied ? 'CSV aplicado correctamente' : 'CSV rechazado')
             await loadArticles()
@@ -43,7 +43,7 @@ function ArticlesPage() {
                 duplicates: payload.duplicates || [],
                 errors: payload.errors || [{ row: null, error: payload.error || 'Error importando CSV' }],
             })
-            setStatus('CSV rechazado')
+            setStatus(payload.error || 'CSV rechazado')
         }
     }
 
@@ -56,6 +56,11 @@ function ArticlesPage() {
                 </div>
                 <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm xl:w-auto">
                     <p className="mb-3 text-sm font-medium text-slate-700">Importar maestro CSV</p>
+                    {!canImport && (
+                        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Tu rol actual no permite importar maestros. Necesitas administrador o supervisor.
+                        </div>
+                    )}
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                         <input
                             type="file"
@@ -74,7 +79,7 @@ function ArticlesPage() {
                         <button
                             type="button"
                             onClick={importCsv}
-                            disabled={!csvFile}
+                            disabled={!csvFile || !canImport}
                             className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-40"
                         >
                             Importar
