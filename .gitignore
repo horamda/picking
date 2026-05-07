@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Base de datos
+*.db
+instance/
+
+# Archivos subidos y procesados
+uploads/
+processed/
+backend/uploads/
+backend/processed/
+
+# Variables de entorno
+.env
+.env.local
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Claude
+.claude/
