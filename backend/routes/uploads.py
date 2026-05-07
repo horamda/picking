@@ -4,6 +4,7 @@ from io import BytesIO
 
 from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
+from auth import auth_required, roles_required
 from models import ProcessingBatch, Consolidado, ConsolidadoDetalle, ProcessingError, Article, ExcludedArticle, UploadedFile
 from utils.db import db
 from services.pdf_parser import parse_pdf_file
@@ -32,6 +33,7 @@ def parse_pdf_bytes(file_bytes: bytes, filename: str) -> dict:
 
 
 @uploads_bp.route('/pdf', methods=['POST'])
+@roles_required('administrador', 'supervisor', 'operador')
 def upload_pdfs():
     files = request.files.getlist('files')
     if not files:
@@ -142,6 +144,7 @@ def upload_pdfs():
 
 
 @uploads_bp.route('/files', methods=['GET'])
+@auth_required
 def list_uploaded_files():
     args = request.args
     query = UploadedFile.query
@@ -156,6 +159,7 @@ def list_uploaded_files():
 
 
 @uploads_bp.route('/files/<int:file_id>/download', methods=['GET'])
+@auth_required
 def download_uploaded_file(file_id):
     uploaded_file = UploadedFile.query.get_or_404(file_id)
     return send_file(

@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { clearAuthSession, getStoredUser } from '../utils/auth'
 
 const navItems = [
     {
@@ -76,6 +77,15 @@ function Brand() {
 }
 
 function SidebarContent({ onClose }) {
+    const navigate = useNavigate()
+    const user = getStoredUser()
+
+    const handleLogout = () => {
+        clearAuthSession()
+        if (onClose) onClose()
+        navigate('/login', { replace: true })
+    }
+
     return (
         <>
             <div className="flex items-start justify-between">
@@ -112,6 +122,19 @@ function SidebarContent({ onClose }) {
                     </NavLink>
                 ))}
             </nav>
+            <div className="mt-8 border-t border-slate-100 pt-4">
+                <div className="mb-3">
+                    <p className="truncate text-sm font-medium text-slate-800">{user?.username || 'Usuario'}</p>
+                    <p className="truncate text-xs text-slate-400">{user?.role || localStorage.getItem('role') || 'sin rol'}</p>
+                </div>
+                <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center justify-center rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                >
+                    Cerrar sesion
+                </button>
+            </div>
         </>
     )
 }

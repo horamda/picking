@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
+from auth import auth_required
 from models import Article, Consolidado, ConsolidadoDetalle, ExcludedArticle
 from utils.db import db
 
@@ -55,6 +56,7 @@ def serialize_detail(detalle, consolidado, article):
 
 
 @operations_bp.route('/trucks', methods=['GET'])
+@auth_required
 def trucks():
     query = (
         db.session.query(
@@ -98,6 +100,7 @@ def trucks():
 
 
 @operations_bp.route('/picking', methods=['GET'])
+@auth_required
 def picking():
     query = (
         db.session.query(ConsolidadoDetalle, Consolidado, Article)
@@ -111,6 +114,7 @@ def picking():
 
 
 @operations_bp.route('/pallets', methods=['GET'])
+@auth_required
 def pallets():
     query = (
         db.session.query(ConsolidadoDetalle, Consolidado, Article)
@@ -124,6 +128,7 @@ def pallets():
 
 
 @operations_bp.route('/picking-by-cancha', methods=['GET'])
+@auth_required
 def picking_by_cancha():
     query = (
         db.session.query(
@@ -162,6 +167,7 @@ def picking_by_cancha():
 
 
 @operations_bp.route('/by-court', methods=['GET'])
+@auth_required
 def by_court():
     query = (
         db.session.query(

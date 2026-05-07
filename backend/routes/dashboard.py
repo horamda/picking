@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
+from auth import auth_required
 from models import Article, ConsolidadoDetalle, Consolidado, ProcessingBatch
 from sqlalchemy import distinct, func
 from utils.db import db
@@ -8,6 +9,7 @@ from utils.db import db
 dashboard_bp = Blueprint('dashboard', __name__)
 
 @dashboard_bp.route('/summary', methods=['GET'])
+@auth_required
 def summary():
     base = db.session.query(Consolidado).join(ConsolidadoDetalle)
     base = apply_dashboard_filters(base)
@@ -61,6 +63,7 @@ def apply_dashboard_filters(query):
     return query
 
 @dashboard_bp.route('/charts', methods=['GET'])
+@auth_required
 def charts():
     by_day = (
         db.session.query(

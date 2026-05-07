@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 
+from auth import auth_required, roles_required
 from models import ExcludedArticle
 from utils.db import db
 
@@ -7,6 +8,7 @@ exclusions_bp = Blueprint('exclusions', __name__)
 
 
 @exclusions_bp.route('/', methods=['GET'])
+@auth_required
 def list_exclusions():
     rows = ExcludedArticle.query.order_by(ExcludedArticle.sku.asc()).all()
     return jsonify([{
@@ -19,6 +21,7 @@ def list_exclusions():
 
 
 @exclusions_bp.route('/', methods=['POST'])
+@roles_required('administrador', 'supervisor')
 def create_exclusion():
     data = request.json or {}
     sku = str(data.get('sku', '')).strip()
@@ -43,6 +46,7 @@ def create_exclusion():
 
 
 @exclusions_bp.route('/<int:exclusion_id>', methods=['PUT'])
+@roles_required('administrador', 'supervisor')
 def update_exclusion(exclusion_id):
     row = ExcludedArticle.query.get_or_404(exclusion_id)
     data = request.json or {}

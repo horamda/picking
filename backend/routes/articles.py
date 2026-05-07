@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 
+from auth import auth_required, roles_required
 from models import Article, UploadedFile
 from services.csv_import import import_articles_from_csv
 from services.file_storage import create_uploaded_file_record, mark_uploaded_file
@@ -10,6 +11,7 @@ articles_bp = Blueprint('articles', __name__)
 
 
 @articles_bp.route('/', methods=['GET'])
+@auth_required
 def list_articles():
     filters = request.args
     query = Article.query
@@ -35,6 +37,7 @@ def list_articles():
 
 
 @articles_bp.route('/', methods=['POST'])
+@roles_required('administrador', 'supervisor')
 def create_article():
     data = request.json or {}
     article = Article(
@@ -52,6 +55,7 @@ def create_article():
 
 
 @articles_bp.route('/import-csv', methods=['POST'])
+@roles_required('administrador', 'supervisor')
 def import_csv():
     file = request.files.get('file')
     if not file:

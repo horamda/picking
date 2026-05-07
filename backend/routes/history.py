@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify
+from auth import auth_required, roles_required
 from models import Consolidado, ConsolidadoDetalle
 from utils.db import db
 
 history_bp = Blueprint('history', __name__)
 
 @history_bp.route('/search', methods=['GET'])
+@auth_required
 def search():
     args = request.args
     query = Consolidado.query
@@ -39,6 +41,7 @@ def search():
     } for c in results])
 
 @history_bp.route('/<int:consolidado_id>', methods=['DELETE'])
+@roles_required('administrador', 'supervisor')
 def delete(consolidado_id):
     consolidado = Consolidado.query.get_or_404(consolidado_id)
     ConsolidadoDetalle.query.filter_by(consolidado_id=consolidado.id).delete()
@@ -48,6 +51,7 @@ def delete(consolidado_id):
 
 
 @history_bp.route('/<int:consolidado_id>', methods=['GET'])
+@auth_required
 def detail(consolidado_id):
     consolidado = Consolidado.query.get_or_404(consolidado_id)
     detalles = ConsolidadoDetalle.query.filter_by(consolidado_id=consolidado.id).all()

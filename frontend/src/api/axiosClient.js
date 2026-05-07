@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearAuthSession } from '../utils/auth'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -16,5 +17,16 @@ axiosClient.interceptors.request.use((config) => {
     }
     return config
 })
+
+axiosClient.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401 && window.location.pathname !== '/login') {
+            clearAuthSession()
+            window.location.assign('/login')
+        }
+        return Promise.reject(error)
+    }
+)
 
 export default axiosClient
