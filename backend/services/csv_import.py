@@ -1,6 +1,8 @@
 import csv
 import unicodedata
 
+import sqlalchemy as sa
+
 from models import Article
 from utils.db import db
 
@@ -82,6 +84,28 @@ def parse_article_csv(file_path: str) -> dict:
         if not reader.fieldnames:
             return {'articles': [], 'duplicates': [], 'errors': [{'row': 1, 'error': 'CSV sin encabezados'}]}
 
+        normalized_headers = [normalize_key(h) for h in reader.fieldnames]
+
+        sku_cols = {'sku', 'codigo', 'codigo_articulo', 'articulo'}
+        upb_cols = {'unidades_por_bulto', 'unidades por bulto', 'uxb', 'unidades'}
+        bpp_cols = {'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'}
+
+        missing = []
+        if not any(c in normalized_headers for c in sku_cols):
+            missing.append(f'columna SKU (esperado: {", ".join(sorted(sku_cols))})')
+        if not any(c in normalized_headers for c in upb_cols):
+            missing.append(f'columna unidades/bulto (esperado: {", ".join(sorted(upb_cols))})')
+        if not any(c in normalized_headers for c in bpp_cols):
+            missing.append(f'columna bultos/pallet (esperado: {", ".join(sorted(bpp_cols))})')
+
+        if missing:
+            encabezados = ', '.join(normalized_headers)
+            return {
+                'articles': [],
+                'duplicates': [],
+                'errors': [{'row': 1, 'error': f'Columnas faltantes: {"; ".join(missing)}. Encabezados detectados: {encabezados}'}],
+            }
+
         for index, raw_row in enumerate(reader, start=2):
             row = normalize_row(raw_row)
             sku = get_value(row, 'sku', 'codigo', 'codigo_articulo', 'articulo')
@@ -142,7 +166,7 @@ def replace_articles(articles: list[dict], duplicates: list[dict], errors: list[
     deleted = Article.query.count()
     try:
         Article.query.delete(synchronize_session=False)
-        db.session.bulk_insert_mappings(Article, articles)
+        db.session.execute(sa.insert(Article), articles)
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
