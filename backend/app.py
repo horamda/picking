@@ -61,6 +61,22 @@ def initialize_database():
         ensure_runtime_schema()
         AuthService.initialize_roles()
         seed_default_exclusions()
+        seed_admin_user()
+
+def seed_admin_user():
+    from models import User, Role
+    admin_username = os.getenv('ADMIN_USER', 'admin')
+    admin_password = os.getenv('ADMIN_PASSWORD', 'admin1234')
+    if not User.query.filter_by(username=admin_username).first():
+        role = Role.query.filter_by(name='administrador').first()
+        db.session.add(User(
+            username=admin_username,
+            email=os.getenv('ADMIN_EMAIL', f'{admin_username}@picking.local'),
+            password_hash=AuthService.hash_password(admin_password),
+            role=role,
+            active=True,
+        ))
+        db.session.commit()
 
 def ensure_runtime_schema():
     inspector = inspect(db.engine)
