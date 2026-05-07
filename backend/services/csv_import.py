@@ -1,4 +1,5 @@
 import csv
+import io
 import unicodedata
 
 import sqlalchemy as sa
@@ -53,94 +54,91 @@ def parse_bool(value, default=True) -> bool:
     return default
 
 
-def open_csv(file_path: str):
-    for encoding in ['utf-8-sig', 'cp1252', 'latin-1']:
+def decode_csv_bytes(raw: bytes) -> str:
+    for encoding in ['utf-8-sig', 'utf-8', 'cp1252', 'latin-1']:
         try:
-            csvfile = open(file_path, newline='', encoding=encoding)
-            csvfile.read()
-            csvfile.seek(0)
-            return csvfile
-        except UnicodeDecodeError:
-            csvfile.close()
-    return open(file_path, newline='', encoding='latin-1', errors='replace')
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return raw.decode('latin-1', errors='replace')
 
 
-def detect_delimiter(csvfile) -> str:
-    sample = csvfile.read(4096)
-    csvfile.seek(0)
-    if sample.count(';') >= sample.count(','):
-        return ';'
-    return ','
+def detect_delimiter(text: str) -> str:
+    sample = text[:4096]
+    return ';' if sample.count(';') >= sample.count(',') else ','
 
 
-def parse_article_csv(file_path: str) -> dict:
+def parse_article_csv(file_bytes: bytes) -> dict:
     articles = []
     duplicates = []
     errors = []
     seen = set()
 
-    with open_csv(file_path) as csvfile:
-        reader = csv.DictReader(csvfile, delimiter=detect_delimiter(csvfile))
-        if not reader.fieldnames:
-            return {'articles': [], 'duplicates': [], 'errors': [{'row': 1, 'error': 'CSV sin encabezados'}]}
+    text = decode_csv_bytes(file_bytes)
+    delimiter = detect_delimiter(text)
+    csvfile = io.StringIO(text)
+    reader = csv.DictReader(csvfile, delimiter=delimiter)
 
-        normalized_headers = [normalize_key(h) for h in reader.fieldnames]
+    if not reader.fieldnames:
+        return {'articles': [], 'duplicates': [], 'errors': [{'row': 1, 'error': 'CSV sin encabezados'}]}
 
-        sku_cols = {'sku', 'codigo', 'codigo_articulo', 'articulo'}
-        upb_cols = {'unidades_por_bulto', 'unidades por bulto', 'uxb', 'unidades'}
-        bpp_cols = {'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'}
+    normalized_headers = [normalize_key(h) for h in reader.fieldnames]
 
-        missing = []
-        if not any(c in normalized_headers for c in sku_cols):
-            missing.append(f'columna SKU (esperado: {", ".join(sorted(sku_cols))})')
-        if not any(c in normalized_headers for c in upb_cols):
-            missing.append(f'columna unidades/bulto (esperado: {", ".join(sorted(upb_cols))})')
-        if not any(c in normalized_headers for c in bpp_cols):
-            missing.append(f'columna bultos/pallet (esperado: {", ".join(sorted(bpp_cols))})')
+    sku_cols = {'sku', 'codigo', 'codigo_articulo', 'articulo'}
+    upb_cols = {'unidades_por_bulto', 'unidades por bulto', 'uxb', 'unidades'}
+    bpp_cols = {'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'}
 
-        if missing:
-            encabezados = ', '.join(normalized_headers)
-            return {
-                'articles': [],
-                'duplicates': [],
-                'errors': [{'row': 1, 'error': f'Columnas faltantes: {"; ".join(missing)}. Encabezados detectados: {encabezados}'}],
+    missing = []
+    if not any(c in normalized_headers for c in sku_cols):
+        missing.append(f'SKU (ej: sku, codigo)')
+    if not any(c in normalized_headers for c in upb_cols):
+        missing.append(f'unidades/bulto (ej: unidades_por_bulto, uxb)')
+    if not any(c in normalized_headers for c in bpp_cols):
+        missing.append(f'bultos/pallet (ej: bultos_por_pallet, bxp)')
+
+    if missing:
+        encabezados = ', '.join(normalized_headers)
+        return {
+            'articles': [],
+            'duplicates': [],
+            'errors': [{'row': 1, 'error': f'Columnas faltantes: {"; ".join(missing)}. Encabezados detectados: {encabezados}'}],
+        }
+
+    for index, raw_row in enumerate(reader, start=2):
+        row = normalize_row(raw_row)
+        sku = get_value(row, 'sku', 'codigo', 'codigo_articulo', 'articulo')
+
+        if not sku:
+            errors.append({'row': index, 'error': 'SKU faltante'})
+            continue
+
+        sku = str(sku).strip()
+        if sku in seen:
+            duplicates.append({'row': index, 'sku': sku})
+            continue
+        seen.add(sku)
+
+        try:
+            payload = {
+                'sku': sku,
+                'descripcion': get_value(row, 'descripcion', 'descripcion articulo', 'detalle', 'nombre', default=''),
+                'division': get_value(row, 'division', default=''),
+                'calibre': get_value(row, 'calibre', default=''),
+                'unidades_por_bulto': parse_int_field(
+                    get_value(row, 'unidades_por_bulto', 'unidades por bulto', 'uxb', 'unidades'),
+                    'unidades_por_bulto',
+                    min_value=1,
+                ),
+                'bultos_por_pallet': parse_int_field(
+                    get_value(row, 'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'),
+                    'bultos_por_pallet',
+                    min_value=0,
+                ),
+                'activo': parse_bool(get_value(row, 'activo', 'estado'), True),
             }
-
-        for index, raw_row in enumerate(reader, start=2):
-            row = normalize_row(raw_row)
-            sku = get_value(row, 'sku', 'codigo', 'codigo_articulo', 'articulo')
-
-            if not sku:
-                errors.append({'row': index, 'error': 'SKU faltante'})
-                continue
-
-            sku = str(sku).strip()
-            if sku in seen:
-                duplicates.append({'row': index, 'sku': sku})
-                continue
-            seen.add(sku)
-
-            try:
-                payload = {
-                    'sku': sku,
-                    'descripcion': get_value(row, 'descripcion', 'descripcion articulo', 'detalle', 'nombre', default=''),
-                    'division': get_value(row, 'division', default=''),
-                    'calibre': get_value(row, 'calibre', default=''),
-                    'unidades_por_bulto': parse_int_field(
-                        get_value(row, 'unidades_por_bulto', 'unidades por bulto', 'uxb', 'unidades'),
-                        'unidades_por_bulto',
-                        min_value=1,
-                    ),
-                    'bultos_por_pallet': parse_int_field(
-                        get_value(row, 'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'),
-                        'bultos_por_pallet',
-                        min_value=0,
-                    ),
-                    'activo': parse_bool(get_value(row, 'activo', 'estado'), True),
-                }
-                articles.append(payload)
-            except Exception as exc:
-                errors.append({'row': index, 'sku': sku, 'error': str(exc)})
+            articles.append(payload)
+        except Exception as exc:
+            errors.append({'row': index, 'sku': sku, 'error': str(exc)})
 
     return {'articles': articles, 'duplicates': duplicates, 'errors': errors}
 
@@ -208,8 +206,8 @@ def merge_articles(articles: list[dict], duplicates: list[dict], errors: list[di
     return result_payload('merge', True, created=created, updated=updated, unchanged=unchanged, inactive=inactive, duplicates=duplicates, errors=errors)
 
 
-def import_articles_from_csv(file_path: str, mode: str = 'merge') -> dict:
-    parsed = parse_article_csv(file_path)
+def import_articles_from_csv(file_bytes: bytes, mode: str = 'merge') -> dict:
+    parsed = parse_article_csv(file_bytes)
     articles = parsed['articles']
     duplicates = parsed['duplicates']
     errors = parsed['errors']

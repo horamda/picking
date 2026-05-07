@@ -1,6 +1,4 @@
-import os
-
-from flask import Blueprint, current_app, request, jsonify
+from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 
 from models import Article
@@ -57,6 +55,7 @@ def import_csv():
     file = request.files.get('file')
     if not file:
         return jsonify({'error': 'No se recibio archivo CSV'}), 400
+
     mode = request.form.get('mode', request.args.get('mode', 'merge')).lower()
     if mode not in ['merge', 'replace']:
         return jsonify({'error': 'Modo invalido. Usar merge o replace'}), 400
@@ -65,11 +64,15 @@ def import_csv():
     if not filename.lower().endswith('.csv'):
         return jsonify({'error': 'El archivo debe ser CSV'}), 400
 
-    upload_folder = current_app.config['UPLOAD_FOLDER']
-    os.makedirs(upload_folder, exist_ok=True)
-    target = os.path.join(upload_folder, f'articulos_{filename}')
-    file.save(target)
-
-    result = import_articles_from_csv(target, mode=mode)
-    status = 200 if result.get('applied') else 422
-    return jsonify(result), status
+    try:
+        file_bytes = file.read()
+        result = import_articles_from_csv(file_bytes, mode=mode)
+        status = 200 if result.get('applied') else 422
+        return jsonify(result), status
+    except Exception as exc:
+        return jsonify({
+            'applied': False,
+            'errors': [{'row': None, 'error': f'Error interno del servidor: {str(exc)}'}],
+            'duplicates': [],
+            'created': 0, 'updated': 0, 'deleted': 0, 'unchanged': 0, 'inactive': 0,
+        }), 500
