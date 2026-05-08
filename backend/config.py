@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith('${{') or database_url.startswith('$'):
+        raise RuntimeError(
+            'DATABASE_URL no fue resuelto por Railway. En Variables usa DATABASE_URL=${{Postgres.DATABASE_URL}} '
+            'y verifica que el servicio de PostgreSQL se llame Postgres o ajusta el nombre en la referencia.'
+        )
     if database_url.startswith('postgres://'):
         return database_url.replace('postgres://', 'postgresql+psycopg://', 1)
     if database_url.startswith('postgresql://'):
@@ -27,12 +32,18 @@ def get_database_url() -> str:
 
     return normalize_database_url(database_url)
 
+def get_engine_options(database_url: str) -> dict:
+    options = {'pool_pre_ping': True}
+    if database_url.startswith('postgresql'):
+        options['connect_args'] = {'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10'))}
+    return options
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'supersecret')
     JWT_SECRET = os.getenv('JWT_SECRET', 'jwtsecret')
     SQLALCHEMY_DATABASE_URI = get_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
+    SQLALCHEMY_ENGINE_OPTIONS = get_engine_options(SQLALCHEMY_DATABASE_URI)
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads')
     PDF_PROCESSING_FOLDER = os.getenv('PDF_PROCESSING_FOLDER', 'processed')
     TOKEN_EXPIRATION_MINUTES = int(os.getenv('TOKEN_EXPIRATION_MINUTES', '1440'))

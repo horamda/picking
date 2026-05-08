@@ -1,7 +1,8 @@
 import os
+import threading
 from pathlib import Path
 
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from config import Config
 from sqlalchemy import inspect, text
@@ -30,6 +31,9 @@ app.register_blueprint(operations_bp, url_prefix='/api/operations')
 app.register_blueprint(exclusions_bp, url_prefix='/api/exclusions')
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / 'frontend' / 'dist'
+_db_init_lock = threading.Lock()
+_db_initialized = False
+_db_init_error = None
 
 @app.route('/')
 def index():
@@ -40,6 +44,25 @@ def index():
 @app.route('/healthz')
 def healthz():
     return {'status': 'ok'}
+
+@app.route('/readyz')
+def readyz():
+    if ensure_database_ready():
+        return {'status': 'ready'}
+    return {'status': 'degraded', 'database_error': _db_init_error}, 503
+
+@app.before_request
+def ensure_database_for_api():
+    if not request.path.startswith('/api/'):
+        return None
+
+    if ensure_database_ready():
+        return None
+
+    return jsonify({
+        'error': 'Base de datos no disponible',
+        'error_detail': _db_init_error,
+    }), 503
 
 @app.route('/assets/<path:filename>')
 def frontend_assets(filename):
@@ -56,12 +79,33 @@ def frontend_app(filename):
     return send_from_directory(FRONTEND_DIST, 'index.html')
 
 def initialize_database():
+    global _db_initialized, _db_init_error
     with app.app_context():
+        app.logger.info('Inicializando base de datos')
         db.create_all()
         ensure_runtime_schema()
         AuthService.initialize_roles()
         seed_default_exclusions()
         seed_admin_user()
+        _db_initialized = True
+        _db_init_error = None
+        app.logger.info('Base de datos inicializada')
+
+def ensure_database_ready():
+    global _db_init_error
+    if _db_initialized:
+        return True
+
+    with _db_init_lock:
+        if _db_initialized:
+            return True
+        try:
+            initialize_database()
+            return True
+        except Exception as exc:
+            _db_init_error = str(exc)
+            app.logger.exception('No se pudo inicializar la base de datos')
+            return False
 
 def seed_admin_user():
     from models import User, Role
@@ -110,7 +154,7 @@ def seed_default_exclusions():
     db.session.commit()
 
 if Config.INIT_DB_ON_STARTUP:
-    initialize_database()
+    threading.Thread(target=ensure_database_ready, daemon=True).start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=os.getenv('FLASK_DEBUG') == '1')
