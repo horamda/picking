@@ -18,10 +18,17 @@ def ensure_article_import_schema():
         db.create_all()
 
 
+@articles_bp.route('', methods=['GET'])
 @articles_bp.route('/', methods=['GET'])
 @auth_required
 def list_articles():
     filters = request.args
+    try:
+        page = max(int(filters.get('page', 1)), 1)
+        per_page = min(max(int(filters.get('per_page', 50)), 1), 200)
+    except ValueError:
+        return jsonify({'error': 'Parametros de paginacion invalidos'}), 400
+
     query = Article.query
     if filters.get('activo') is not None:
         query = query.filter_by(activo=filters.get('activo') in ['1', 'true', 'True'])
@@ -31,8 +38,8 @@ def list_articles():
         pattern = f"%{filters.get('q')}%"
         query = query.filter((Article.sku.like(pattern)) | (Article.descripcion.like(pattern)))
 
-    articles = query.order_by(Article.sku.asc()).all()
-    return jsonify([{
+    pagination = query.order_by(Article.sku.asc()).paginate(page=page, per_page=per_page, error_out=False)
+    items = [{
         'id': a.id,
         'sku': a.sku,
         'descripcion': a.descripcion,
@@ -41,9 +48,20 @@ def list_articles():
         'unidades_por_bulto': a.unidades_por_bulto,
         'bultos_por_pallet': a.bultos_por_pallet,
         'activo': a.activo,
-    } for a in articles])
+    } for a in pagination.items]
+
+    return jsonify({
+        'items': items,
+        'total': pagination.total,
+        'page': pagination.page,
+        'per_page': pagination.per_page,
+        'pages': pagination.pages,
+        'has_next': pagination.has_next,
+        'has_prev': pagination.has_prev,
+    })
 
 
+@articles_bp.route('', methods=['POST'])
 @articles_bp.route('/', methods=['POST'])
 @roles_required('administrador', 'supervisor')
 def create_article():

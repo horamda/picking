@@ -4,6 +4,10 @@ import { ActiveBadge } from '../components/Badge'
 
 function ArticlesPage() {
     const [articles, setArticles] = useState([])
+    const [articleMeta, setArticleMeta] = useState({ total: 0, page: 1, pages: 1, per_page: 50 })
+    const [query, setQuery] = useState('')
+    const [loadingArticles, setLoadingArticles] = useState(false)
+    const [articlesError, setArticlesError] = useState('')
     const [csvFile, setCsvFile] = useState(null)
     const [importMode, setImportMode] = useState('merge')
     const [importResult, setImportResult] = useState(null)
@@ -12,14 +16,44 @@ function ArticlesPage() {
     const role = localStorage.getItem('role')
     const canImport = ['administrador', 'supervisor'].includes(role)
 
-    const loadArticles = async () => {
-        const response = await axiosClient.get('/articles')
-        setArticles(response.data)
+    const loadArticles = async (page = articleMeta.page, search = query) => {
+        setLoadingArticles(true)
+        setArticlesError('')
+        try {
+            const response = await axiosClient.get('/articles', {
+                params: {
+                    page,
+                    per_page: articleMeta.per_page,
+                    q: search || undefined,
+                },
+            })
+            const payload = Array.isArray(response.data)
+                ? { items: response.data, total: response.data.length, page: 1, pages: 1, per_page: response.data.length || 50 }
+                : response.data
+            setArticles(payload.items || [])
+            setArticleMeta({
+                total: payload.total || 0,
+                page: payload.page || 1,
+                pages: payload.pages || 1,
+                per_page: payload.per_page || 50,
+            })
+        } catch (error) {
+            setArticles([])
+            setArticlesError(error.response?.data?.error_detail || error.response?.data?.error || 'No se pudieron cargar los articulos')
+        } finally {
+            setLoadingArticles(false)
+        }
     }
 
     useEffect(() => {
-        loadArticles()
+        loadArticles(1, '')
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    const handleSearch = (event) => {
+        event.preventDefault()
+        loadArticles(1, query)
+    }
 
     const importCsv = async () => {
         if (!csvFile) return
@@ -186,11 +220,51 @@ function ArticlesPage() {
             )}
 
             <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-                    <h2 className="font-semibold text-slate-900">Maestro de articulos</h2>
-                    <span className="text-sm text-slate-400">{articles.length} articulos</span>
+                <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <h2 className="font-semibold text-slate-900">Maestro de articulos</h2>
+                        <span className="text-sm text-slate-400">
+                            {articleMeta.total} articulos - pagina {articleMeta.page} de {articleMeta.pages || 1}
+                        </span>
+                    </div>
+                    <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <input
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            placeholder="Buscar SKU o descripcion"
+                            className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                        />
+                        <button
+                            type="submit"
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                        >
+                            Buscar
+                        </button>
+                        {query && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setQuery('')
+                                    loadArticles(1, '')
+                                }}
+                                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                            >
+                                Limpiar
+                            </button>
+                        )}
+                    </form>
                 </div>
                 <div className="p-4">
+                    {articlesError && (
+                        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                            {articlesError}
+                        </div>
+                    )}
+                    {loadingArticles && (
+                        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                            Cargando articulos...
+                        </div>
+                    )}
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                             <thead>
@@ -205,7 +279,7 @@ function ArticlesPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {articles.map((article) => (
+                                {!loadingArticles && articles.map((article) => (
                                     <tr key={article.id} className="hover:bg-slate-50">
                                         <td className="py-3 pr-4 font-medium text-slate-900">{article.sku}</td>
                                         <td className="py-3 pr-4 text-slate-600">{article.descripcion}</td>
@@ -216,8 +290,36 @@ function ArticlesPage() {
                                         <td className="py-3"><ActiveBadge activo={article.activo} /></td>
                                     </tr>
                                 ))}
+                                {!loadingArticles && articles.length === 0 && !articlesError && (
+                                    <tr>
+                                        <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                                            No hay articulos para mostrar.
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                        <button
+                            type="button"
+                            disabled={!articleMeta.page || articleMeta.page <= 1 || loadingArticles}
+                            onClick={() => loadArticles(articleMeta.page - 1)}
+                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                            Anterior
+                        </button>
+                        <span className="text-xs text-slate-400">
+                            Mostrando {articles.length} de {articleMeta.total}
+                        </span>
+                        <button
+                            type="button"
+                            disabled={articleMeta.page >= articleMeta.pages || loadingArticles}
+                            onClick={() => loadArticles(articleMeta.page + 1)}
+                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                            Siguiente
+                        </button>
                     </div>
                 </div>
             </section>
