@@ -7,6 +7,7 @@ function ArticlesPage() {
     const [csvFile, setCsvFile] = useState(null)
     const [importMode, setImportMode] = useState('merge')
     const [importResult, setImportResult] = useState(null)
+    const [diagnostics, setDiagnostics] = useState(null)
     const [status, setStatus] = useState('')
     const role = localStorage.getItem('role')
     const canImport = ['administrador', 'supervisor'].includes(role)
@@ -47,6 +48,17 @@ function ArticlesPage() {
         }
     }
 
+    const loadDiagnostics = async () => {
+        try {
+            const response = await axiosClient.get('/articles/import-diagnostics')
+            setDiagnostics(response.data)
+        } catch (error) {
+            setDiagnostics({
+                error: error.response?.data?.error || 'No se pudo obtener diagnostico',
+            })
+        }
+    }
+
     return (
         <div className="bg-slate-50 p-4 sm:p-6">
             <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -84,6 +96,14 @@ function ArticlesPage() {
                         >
                             Importar
                         </button>
+                        <button
+                            type="button"
+                            onClick={loadDiagnostics}
+                            disabled={!canImport}
+                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                            Diagnostico
+                        </button>
                     </div>
                     {importMode === 'replace' && (
                         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
@@ -100,6 +120,36 @@ function ArticlesPage() {
                     )}
                 </div>
             </div>
+
+            {diagnostics && (
+                <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 text-sm shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p className="font-semibold text-slate-900">Diagnostico de importacion</p>
+                            {diagnostics.error ? (
+                                <p className="mt-1 text-red-700">{diagnostics.error}</p>
+                            ) : (
+                                <p className="mt-1 text-slate-500">
+                                    DB {diagnostics.database.dialect}/{diagnostics.database.driver} - Rol {diagnostics.user.role} - {diagnostics.article_count} articulos
+                                </p>
+                            )}
+                        </div>
+                        {!diagnostics.error && (
+                            <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                diagnostics.database.is_postgresql ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                            }`}>
+                                {diagnostics.database.is_postgresql ? 'PostgreSQL persistente' : 'No es PostgreSQL'}
+                            </span>
+                        )}
+                    </div>
+                    {!diagnostics.error && diagnostics.last_csv_upload && (
+                        <p className="mt-3 text-xs text-slate-500">
+                            Ultimo CSV: {diagnostics.last_csv_upload.status} - {diagnostics.last_csv_upload.original_filename} - {diagnostics.last_csv_upload.size_bytes} bytes
+                            {diagnostics.last_csv_upload.error_message ? ` - ${diagnostics.last_csv_upload.error_message}` : ''}
+                        </p>
+                    )}
+                </div>
+            )}
 
             {importResult && (
                 <div className="mb-6 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">

@@ -1,13 +1,21 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, g, request, jsonify, current_app
+from sqlalchemy import inspect
 from werkzeug.utils import secure_filename
 
 from auth import auth_required, roles_required
 from models import Article, UploadedFile
 from services.csv_import import import_articles_from_csv
-from services.file_storage import create_uploaded_file_record, mark_uploaded_file
+from services.file_storage import create_uploaded_file_record, mark_uploaded_file, uploaded_file_to_dict
 from utils.db import db
 
 articles_bp = Blueprint('articles', __name__)
+
+
+def ensure_article_import_schema():
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    if 'articulos' not in tables or 'archivos_subidos' not in tables:
+        db.create_all()
 
 
 @articles_bp.route('/', methods=['GET'])
@@ -57,6 +65,8 @@ def create_article():
 @articles_bp.route('/import-csv', methods=['POST'])
 @roles_required('administrador', 'supervisor')
 def import_csv():
+    ensure_article_import_schema()
+
     file = request.files.get('file')
     if not file:
         return jsonify({'error': 'No se recibio archivo CSV'}), 400
@@ -71,6 +81,9 @@ def import_csv():
 
     try:
         file_bytes = file.read()
+        if not file_bytes:
+            return jsonify({'error': 'El archivo CSV esta vacio'}), 400
+
         uploaded_file = create_uploaded_file_record(
             file_bytes=file_bytes,
             filename=filename,
@@ -94,6 +107,7 @@ def import_csv():
         return jsonify(result), status
     except Exception as exc:
         db.session.rollback()
+        current_app.logger.exception('Error importando CSV de articulos')
         if 'uploaded_file_id' in locals() and uploaded_file_id:
             uploaded_file = db.session.get(UploadedFile, uploaded_file_id)
             if uploaded_file:
@@ -101,7 +115,40 @@ def import_csv():
                 db.session.commit()
         return jsonify({
             'applied': False,
+            'error': 'Error interno importando CSV',
+            'error_detail': str(exc),
             'errors': [{'row': None, 'error': f'Error interno del servidor: {str(exc)}'}],
             'duplicates': [],
             'created': 0, 'updated': 0, 'deleted': 0, 'unchanged': 0, 'inactive': 0,
         }), 500
+
+
+@articles_bp.route('/import-diagnostics', methods=['GET'])
+@roles_required('administrador', 'supervisor')
+def import_diagnostics():
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    last_upload = (
+        UploadedFile.query
+        .filter_by(category='csv_articulos')
+        .order_by(UploadedFile.id.desc())
+        .first()
+        if 'archivos_subidos' in tables else None
+    )
+    return jsonify({
+        'database': {
+            'dialect': db.engine.dialect.name,
+            'driver': db.engine.driver,
+            'is_postgresql': db.engine.dialect.name == 'postgresql',
+        },
+        'user': {
+            'username': g.current_user.username,
+            'role': g.current_user.role.name,
+        },
+        'schema': {
+            'articulos_table': 'articulos' in tables,
+            'archivos_subidos_table': 'archivos_subidos' in tables,
+        },
+        'article_count': Article.query.count() if 'articulos' in tables else 0,
+        'last_csv_upload': uploaded_file_to_dict(last_upload) if last_upload else None,
+    })
