@@ -10,6 +10,23 @@ from utils.db import db
 operations_bp = Blueprint('operations', __name__)
 
 
+def round_metric(value, digits=2):
+    return round(float(value or 0), digits)
+
+
+def row_operational_metrics(detalle, article):
+    pallet_capacity = (article.bultos_por_pallet if article else 0) or 0
+    bultos_palletizados = float(detalle.pallets_completos or 0) * pallet_capacity
+    bultos_picking = max(float(detalle.bultos_equivalentes or 0) - bultos_palletizados, 0)
+    return bultos_palletizados, bultos_picking
+
+
+def operational_sql_expressions():
+    bultos_palletizados = ConsolidadoDetalle.pallets_completos * func.coalesce(Article.bultos_por_pallet, 0)
+    bultos_picking = ConsolidadoDetalle.bultos_equivalentes - bultos_palletizados
+    return bultos_palletizados, bultos_picking
+
+
 def apply_common_filters(query):
     args = request.args
     if args.get('desde'):
@@ -32,6 +49,7 @@ def apply_common_filters(query):
 
 
 def serialize_detail(detalle, consolidado, article):
+    bultos_palletizados, bultos_picking = row_operational_metrics(detalle, article)
     return {
         'id': detalle.id,
         'reparto': consolidado.reparto,
@@ -48,7 +66,10 @@ def serialize_detail(detalle, consolidado, article):
         'unidades': detalle.unidades,
         'bultos_equivalentes': detalle.bultos_equivalentes,
         'pallets_completos': detalle.pallets_completos,
+        'bultos_palletizados': round_metric(bultos_palletizados),
+        'bultos_picking_equivalentes': round_metric(bultos_picking),
         'bultos_pickear': detalle.bultos_pickear,
+        'total_bultos': round_metric(bultos_palletizados + bultos_picking),
         'unidades_sueltas': detalle.unidades_sueltas,
         'prioridad': detalle.prioridad,
         'sku_estado': detalle.sku_estado,
@@ -58,6 +79,7 @@ def serialize_detail(detalle, consolidado, article):
 @operations_bp.route('/trucks', methods=['GET'])
 @auth_required
 def trucks():
+    bultos_palletizados_expr, bultos_picking_expr = operational_sql_expressions()
     query = (
         db.session.query(
             Consolidado.id,
@@ -69,7 +91,10 @@ def trucks():
             func.count(ConsolidadoDetalle.id).label('skus'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos), 0).label('bultos'),
             func.coalesce(func.sum(ConsolidadoDetalle.unidades), 0).label('unidades'),
+            func.coalesce(func.sum(ConsolidadoDetalle.bultos_equivalentes), 0).label('bultos_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.pallets_completos), 0).label('pallets_completos'),
+            func.coalesce(func.sum(bultos_palletizados_expr), 0).label('bultos_palletizados'),
+            func.coalesce(func.sum(bultos_picking_expr), 0).label('bultos_picking_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos_pickear), 0).label('bultos_pickear'),
             func.coalesce(func.sum(ConsolidadoDetalle.unidades_sueltas), 0).label('unidades_sueltas'),
         )
@@ -93,8 +118,12 @@ def trucks():
         'skus': row.skus,
         'bultos': row.bultos,
         'unidades': row.unidades,
+        'bultos_equivalentes': round_metric(row.bultos_equivalentes),
         'pallets_completos': row.pallets_completos,
+        'bultos_palletizados': round_metric(row.bultos_palletizados),
+        'bultos_picking_equivalentes': round_metric(row.bultos_picking_equivalentes),
         'bultos_pickear': row.bultos_pickear,
+        'total_bultos': round_metric((row.bultos_palletizados or 0) + (row.bultos_picking_equivalentes or 0)),
         'unidades_sueltas': row.unidades_sueltas,
     } for row in rows])
 
@@ -130,19 +159,24 @@ def pallets():
 @operations_bp.route('/picking-by-cancha', methods=['GET'])
 @auth_required
 def picking_by_cancha():
+    bultos_palletizados_expr, bultos_picking_expr = operational_sql_expressions()
     query = (
         db.session.query(
             ConsolidadoDetalle.cancha,
             func.count(ConsolidadoDetalle.id).label('skus'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos_equivalentes), 0).label('bultos_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.pallets_completos), 0).label('pallets_completos'),
+            func.coalesce(func.sum(bultos_palletizados_expr), 0).label('bultos_palletizados'),
+            func.coalesce(func.sum(bultos_picking_expr), 0).label('bultos_picking_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos_pickear), 0).label('bultos_pickear'),
             func.coalesce(func.sum(ConsolidadoDetalle.unidades_sueltas), 0).label('unidades_sueltas'),
         )
         .join(Consolidado, Consolidado.id == ConsolidadoDetalle.consolidado_id)
         .join(Article, Article.sku == ConsolidadoDetalle.sku)
         .filter(
-            (ConsolidadoDetalle.bultos_pickear > 0) | (ConsolidadoDetalle.unidades_sueltas > 0),
+            (ConsolidadoDetalle.bultos_pickear > 0)
+            | (ConsolidadoDetalle.unidades_sueltas > 0)
+            | (ConsolidadoDetalle.pallets_completos > 0),
             ConsolidadoDetalle.sku_estado == 'encontrado',
             ~ConsolidadoDetalle.sku.in_(
                 db.session.query(ExcludedArticle.sku).filter(ExcludedArticle.activo == True)
@@ -156,19 +190,28 @@ def picking_by_cancha():
         .order_by(ConsolidadoDetalle.cancha.asc())
         .all()
     )
-    return jsonify([{
-        'cancha': row.cancha,
-        'skus': row.skus,
-        'bultos_equivalentes': round(float(row.bultos_equivalentes), 2),
-        'pallets_completos': row.pallets_completos,
-        'bultos_pickear': row.bultos_pickear,
-        'unidades_sueltas': row.unidades_sueltas,
-    } for row in rows])
+    payload = []
+    for row in rows:
+        bultos_palletizados = float(row.bultos_palletizados or 0)
+        bultos_picking = float(row.bultos_picking_equivalentes or 0)
+        payload.append({
+            'cancha': row.cancha,
+            'skus': row.skus,
+            'bultos_equivalentes': round(float(row.bultos_equivalentes), 2),
+            'pallets_completos': row.pallets_completos,
+            'bultos_palletizados': round(bultos_palletizados, 2),
+            'bultos_picking_equivalentes': round(bultos_picking, 2),
+            'bultos_pickear': row.bultos_pickear,
+            'total_bultos': round(bultos_palletizados + bultos_picking, 2),
+            'unidades_sueltas': row.unidades_sueltas,
+        })
+    return jsonify(payload)
 
 
 @operations_bp.route('/by-court', methods=['GET'])
 @auth_required
 def by_court():
+    bultos_palletizados_expr, bultos_picking_expr = operational_sql_expressions()
     query = (
         db.session.query(
             ConsolidadoDetalle.cancha,
@@ -176,6 +219,8 @@ def by_court():
             func.count(ConsolidadoDetalle.id).label('skus'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos_equivalentes), 0).label('bultos_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.pallets_completos), 0).label('pallets_completos'),
+            func.coalesce(func.sum(bultos_palletizados_expr), 0).label('bultos_palletizados'),
+            func.coalesce(func.sum(bultos_picking_expr), 0).label('bultos_picking_equivalentes'),
             func.coalesce(func.sum(ConsolidadoDetalle.bultos_pickear), 0).label('bultos_pickear'),
             func.coalesce(func.sum(ConsolidadoDetalle.unidades_sueltas), 0).label('unidades_sueltas'),
         )
@@ -195,6 +240,9 @@ def by_court():
         'skus': row.skus,
         'bultos_equivalentes': round(row.bultos_equivalentes, 2),
         'pallets_completos': row.pallets_completos,
+        'bultos_palletizados': round_metric(row.bultos_palletizados),
+        'bultos_picking_equivalentes': round_metric(row.bultos_picking_equivalentes),
         'bultos_pickear': row.bultos_pickear,
+        'total_bultos': round_metric((row.bultos_palletizados or 0) + (row.bultos_picking_equivalentes or 0)),
         'unidades_sueltas': row.unidades_sueltas,
     } for row in rows])

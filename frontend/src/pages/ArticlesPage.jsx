@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import axiosClient from '../api/axiosClient'
 import { ActiveBadge } from '../components/Badge'
+import {
+    cellClass,
+    headerCellClass,
+    headerNumberCellClass,
+    headerRowClass,
+    numberCellClass,
+    rowClass,
+    strongCellClass,
+    tableClass,
+} from '../components/tableStyles'
+import { formatNumber } from '../utils/format'
 
 function ArticlesPage() {
     const [articles, setArticles] = useState([])
@@ -266,33 +277,33 @@ function ArticlesPage() {
                         </div>
                     )}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
+                        <table className={tableClass}>
                             <thead>
-                                <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                                    <th className="pb-3 pr-4">SKU</th>
-                                    <th className="pb-3 pr-4">Descripcion</th>
-                                    <th className="pb-3 pr-4">Division</th>
-                                    <th className="pb-3 pr-4">Calibre</th>
-                                    <th className="pb-3 pr-4 text-right">Uds/Bulto</th>
-                                    <th className="pb-3 pr-4 text-right">Bultos/Pallet</th>
-                                    <th className="pb-3">Estado</th>
+                                <tr className={headerRowClass}>
+                                    <th className={headerCellClass}>SKU</th>
+                                    <th className={headerCellClass}>Descripcion</th>
+                                    <th className={headerCellClass}>Division</th>
+                                    <th className={headerCellClass}>Calibre</th>
+                                    <th className={headerNumberCellClass}>Uds/Bulto</th>
+                                    <th className={headerNumberCellClass}>Bultos/Pallet</th>
+                                    <th className={headerCellClass}>Estado</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody>
                                 {!loadingArticles && articles.map((article) => (
-                                    <tr key={article.id} className="hover:bg-slate-50">
-                                        <td className="py-3 pr-4 font-medium text-slate-900">{article.sku}</td>
-                                        <td className="py-3 pr-4 text-slate-600">{article.descripcion}</td>
-                                        <td className="py-3 pr-4 text-slate-600">{article.division}</td>
-                                        <td className="py-3 pr-4 text-slate-600">{article.calibre}</td>
-                                        <td className="py-3 pr-4 text-right text-slate-600">{article.unidades_por_bulto}</td>
-                                        <td className="py-3 pr-4 text-right text-slate-600">{article.bultos_por_pallet}</td>
-                                        <td className="py-3"><ActiveBadge activo={article.activo} /></td>
+                                    <tr key={article.id} className={rowClass}>
+                                        <td className={strongCellClass}>{article.sku}</td>
+                                        <td className={cellClass}>{article.descripcion}</td>
+                                        <td className={cellClass}>{article.division}</td>
+                                        <td className={cellClass}>{article.calibre}</td>
+                                        <td className={numberCellClass}>{formatNumber(article.unidades_por_bulto)}</td>
+                                        <td className={numberCellClass}>{formatNumber(article.bultos_por_pallet)}</td>
+                                        <td className={cellClass}><ActiveBadge activo={article.activo} /></td>
                                     </tr>
                                 ))}
                                 {!loadingArticles && articles.length === 0 && !articlesError && (
                                     <tr>
-                                        <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                                        <td colSpan={7} className="border border-slate-200 py-8 text-center text-sm text-slate-500">
                                             No hay articulos para mostrar.
                                         </td>
                                     </tr>

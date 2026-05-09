@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import axiosClient from '../api/axiosClient'
 import { ActiveBadge } from '../components/Badge'
+import {
+    cellClass,
+    headerCellClass,
+    headerRowClass,
+    rowClass,
+    strongCellClass,
+    tableClass,
+} from '../components/tableStyles'
 
 function ExclusionsPage() {
     const [rows, setRows] = useState([])
@@ -87,24 +95,24 @@ function ExclusionsPage() {
                 </div>
                 <div className="p-4">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
+                        <table className={tableClass}>
                             <thead>
-                                <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                                    <th className="pb-3 pr-4">SKU</th>
-                                    <th className="pb-3 pr-4">Descripcion</th>
-                                    <th className="pb-3 pr-4">Motivo</th>
-                                    <th className="pb-3 pr-4">Estado</th>
-                                    <th className="pb-3"></th>
+                                <tr className={headerRowClass}>
+                                    <th className={headerCellClass}>SKU</th>
+                                    <th className={headerCellClass}>Descripcion</th>
+                                    <th className={headerCellClass}>Motivo</th>
+                                    <th className={headerCellClass}>Estado</th>
+                                    <th className={headerCellClass}></th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody>
                                 {rows.map((row) => (
-                                    <tr key={row.id} className="hover:bg-slate-50">
-                                        <td className="py-3 pr-4 font-medium text-slate-900">{row.sku}</td>
-                                        <td className="py-3 pr-4 text-slate-600">{row.descripcion}</td>
-                                        <td className="py-3 pr-4 text-slate-600">{row.motivo}</td>
-                                        <td className="py-3 pr-4"><ActiveBadge activo={row.activo} /></td>
-                                        <td className="py-3 text-right">
+                                    <tr key={row.id} className={rowClass}>
+                                        <td className={strongCellClass}>{row.sku}</td>
+                                        <td className={cellClass}>{row.descripcion}</td>
+                                        <td className={cellClass}>{row.motivo}</td>
+                                        <td className={cellClass}><ActiveBadge activo={row.activo} /></td>
+                                        <td className={`${cellClass} text-right`}>
                                             <button
                                                 type="button"
                                                 onClick={() => toggle(row)}

@@ -1,13 +1,31 @@
 import { useEffect, useState } from 'react'
 import axiosClient from '../api/axiosClient'
 import { EstadoBadge } from '../components/Badge'
+import {
+    cellClass,
+    headerCellClass,
+    headerNumberCellClass,
+    headerRowClass,
+    numberCellClass,
+    rowClass,
+    strongCellClass,
+    strongNumberCellClass,
+    tableClass,
+    totalCellClass,
+    totalHeaderCellClass,
+    totalLabelCellClass,
+    totalNumberCellClass,
+    totalRowClass,
+    totalRowValueCellClass,
+} from '../components/tableStyles'
+import { formatNumber } from '../utils/format'
 
 const tabs = [
     { id: 'trucks', label: 'Camiones' },
     { id: 'picking-by-cancha', label: 'Picking x cancha' },
     { id: 'by-court', label: 'Por cancha' },
     { id: 'picking', label: 'Picking' },
-    { id: 'pallets', label: 'Pallets completos' },
+    { id: 'pallets', label: 'Bultos pallets' },
 ]
 
 function OperationsPage() {
@@ -38,7 +56,7 @@ function OperationsPage() {
             <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div>
                     <h1 className="text-2xl font-semibold text-slate-900">Operacion</h1>
-                    <p className="mt-1 text-sm text-slate-500">Separacion automatica entre pallets completos y picking manual.</p>
+                    <p className="mt-1 text-sm text-slate-500">Bultos equivalentes de picking, bultos de pallets completos y total operativo.</p>
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200">
                     {tabs.map((tab) => (
@@ -89,7 +107,7 @@ function OperationsPage() {
                     {activeTab === 'trucks' && <TruckTable rows={rows} />}
                     {activeTab === 'picking-by-cancha' && <PickingByCanchaTable rows={rows} />}
                     {activeTab === 'by-court' && <CourtTable rows={rows} />}
-                    {['picking', 'pallets'].includes(activeTab) && <DetailTable rows={rows} mode={activeTab} />}
+                    {['picking', 'pallets'].includes(activeTab) && <DetailTable rows={rows} />}
                 </div>
             </section>
         </div>
@@ -105,43 +123,43 @@ function EmptyRows() {
 function PickingByCanchaTable({ rows }) {
     if (!rows.length) return <EmptyRows />
     const totalEquiv = rows.reduce((acc, r) => acc + (r.bultos_equivalentes || 0), 0)
-    const totalPallets = rows.reduce((acc, r) => acc + (r.pallets_completos || 0), 0)
-    const totalBultos = rows.reduce((acc, r) => acc + (r.bultos_pickear || 0), 0)
-    const totalUnidades = rows.reduce((acc, r) => acc + (r.unidades_sueltas || 0), 0)
+    const totalPalletBultos = rows.reduce((acc, r) => acc + (r.bultos_palletizados || 0), 0)
+    const totalPickingBultos = rows.reduce((acc, r) => acc + (r.bultos_picking_equivalentes || 0), 0)
+    const totalBultos = rows.reduce((acc, r) => acc + (r.total_bultos || 0), 0)
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className={tableClass}>
                 <thead>
-                    <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        <th className="pb-3 pr-4">Cancha</th>
-                        <th className="pb-3 pr-4 text-right">SKUs</th>
-                        <th className="pb-3 pr-4 text-right">Bultos equiv.</th>
-                        <th className="pb-3 pr-4 text-right">Pallets</th>
-                        <th className="pb-3 pr-4 text-right">Bultos picking</th>
-                        <th className="pb-3 text-right">Unid. sueltas</th>
+                    <tr className={headerRowClass}>
+                        <th className={headerCellClass}>Cancha</th>
+                        <th className={headerNumberCellClass}>SKUs</th>
+                        <th className={headerNumberCellClass}>Bultos picking equiv.</th>
+                        <th className={headerNumberCellClass}>Bultos pallets</th>
+                        <th className={totalHeaderCellClass}>Total bultos</th>
+                        <th className={headerNumberCellClass}>Bultos equiv.</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody>
                     {rows.map((row) => (
-                        <tr key={row.cancha} className="hover:bg-slate-50">
-                            <td className="py-3 pr-4 font-medium text-slate-900">{row.cancha || '—'}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.skus}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{(row.bultos_equivalentes || 0).toFixed(2)}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.pallets_completos}</td>
-                            <td className="py-3 pr-4 text-right font-semibold text-slate-900">{row.bultos_pickear}</td>
-                            <td className="py-3 text-right text-slate-600">{row.unidades_sueltas}</td>
+                        <tr key={row.cancha} className={rowClass}>
+                            <td className={strongCellClass}>{row.cancha || '-'}</td>
+                            <td className={numberCellClass}>{formatNumber(row.skus)}</td>
+                            <td className={strongNumberCellClass}>{formatNumber(row.bultos_picking_equivalentes)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_palletizados)}</td>
+                            <td className={totalCellClass}>{formatNumber(row.total_bultos)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_equivalentes)}</td>
                         </tr>
                     ))}
                 </tbody>
                 <tfoot>
-                    <tr className="border-t-2 border-slate-200 font-semibold text-slate-700">
-                        <td className="pt-3 pr-4">TOTAL</td>
-                        <td className="pt-3 pr-4 text-right">{rows.reduce((acc, r) => acc + (r.skus || 0), 0)}</td>
-                        <td className="pt-3 pr-4 text-right">{totalEquiv.toFixed(2)}</td>
-                        <td className="pt-3 pr-4 text-right">{totalPallets}</td>
-                        <td className="pt-3 pr-4 text-right text-slate-900">{totalBultos}</td>
-                        <td className="pt-3 text-right">{totalUnidades}</td>
+                    <tr className={totalRowClass}>
+                        <td className={totalLabelCellClass}>TOTAL</td>
+                        <td className={totalNumberCellClass}>{formatNumber(rows.reduce((acc, r) => acc + (r.skus || 0), 0))}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
+                        <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalEquiv)}</td>
                     </tr>
                 </tfoot>
             </table>
@@ -151,33 +169,47 @@ function PickingByCanchaTable({ rows }) {
 
 function CourtTable({ rows }) {
     if (!rows.length) return <EmptyRows />
+    const totalEquiv = rows.reduce((acc, r) => acc + (r.bultos_equivalentes || 0), 0)
+    const totalPalletBultos = rows.reduce((acc, r) => acc + (r.bultos_palletizados || 0), 0)
+    const totalPickingBultos = rows.reduce((acc, r) => acc + (r.bultos_picking_equivalentes || 0), 0)
+    const totalBultos = rows.reduce((acc, r) => acc + (r.total_bultos || 0), 0)
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className={tableClass}>
                 <thead>
-                    <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        <th className="pb-3 pr-4">Cancha</th>
-                        <th className="pb-3 pr-4">Almacen</th>
-                        <th className="pb-3 pr-4 text-right">SKUs</th>
-                        <th className="pb-3 pr-4 text-right">Bultos equiv.</th>
-                        <th className="pb-3 pr-4 text-right">Pallets</th>
-                        <th className="pb-3 pr-4 text-right">Picking</th>
-                        <th className="pb-3 text-right">Unid.</th>
+                    <tr className={headerRowClass}>
+                        <th className={headerCellClass}>Cancha</th>
+                        <th className={headerCellClass}>Almacen</th>
+                        <th className={headerNumberCellClass}>SKUs</th>
+                        <th className={headerNumberCellClass}>Bultos picking equiv.</th>
+                        <th className={headerNumberCellClass}>Bultos pallets</th>
+                        <th className={totalHeaderCellClass}>Total bultos</th>
+                        <th className={headerNumberCellClass}>Bultos equiv.</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody>
                     {rows.map((row) => (
-                        <tr key={`${row.cancha}-${row.almacen}`} className="hover:bg-slate-50">
-                            <td className="py-3 pr-4 font-medium text-slate-900">{row.cancha}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.almacen}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.skus}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.bultos_equivalentes}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.pallets_completos}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.bultos_pickear}</td>
-                            <td className="py-3 text-right text-slate-600">{row.unidades_sueltas}</td>
+                        <tr key={`${row.cancha}-${row.almacen}`} className={rowClass}>
+                            <td className={strongCellClass}>{row.cancha || '-'}</td>
+                            <td className={cellClass}>{row.almacen || '-'}</td>
+                            <td className={numberCellClass}>{formatNumber(row.skus)}</td>
+                            <td className={strongNumberCellClass}>{formatNumber(row.bultos_picking_equivalentes)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_palletizados)}</td>
+                            <td className={totalCellClass}>{formatNumber(row.total_bultos)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_equivalentes)}</td>
                         </tr>
                     ))}
                 </tbody>
+                <tfoot>
+                    <tr className={totalRowClass}>
+                        <td className={totalLabelCellClass} colSpan={2}>TOTAL</td>
+                        <td className={totalNumberCellClass}>{formatNumber(rows.reduce((acc, r) => acc + (r.skus || 0), 0))}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
+                        <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalEquiv)}</td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     )
@@ -185,89 +217,101 @@ function CourtTable({ rows }) {
 
 function TruckTable({ rows }) {
     if (!rows.length) return <EmptyRows />
+    const totalEquiv = rows.reduce((acc, r) => acc + (r.bultos_equivalentes || 0), 0)
+    const totalPalletBultos = rows.reduce((acc, r) => acc + (r.bultos_palletizados || 0), 0)
+    const totalPickingBultos = rows.reduce((acc, r) => acc + (r.bultos_picking_equivalentes || 0), 0)
+    const totalBultos = rows.reduce((acc, r) => acc + (r.total_bultos || 0), 0)
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className={tableClass}>
                 <thead>
-                    <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        <th className="pb-3 pr-4">Reparto</th>
-                        <th className="pb-3 pr-4">Camion</th>
-                        <th className="pb-3 pr-4">Chofer</th>
-                        <th className="pb-3 pr-4 text-right">SKUs</th>
-                        <th className="pb-3 pr-4 text-right">Bultos</th>
-                        <th className="pb-3 pr-4 text-right">Unidades</th>
-                        <th className="pb-3 pr-4 text-right">Pallets</th>
-                        <th className="pb-3 pr-4 text-right">Bultos pick</th>
-                        <th className="pb-3 text-right">Unid. sueltas</th>
+                    <tr className={headerRowClass}>
+                        <th className={headerCellClass}>Reparto</th>
+                        <th className={headerCellClass}>Camion</th>
+                        <th className={headerCellClass}>Chofer</th>
+                        <th className={headerNumberCellClass}>SKUs</th>
+                        <th className={headerNumberCellClass}>Bultos picking equiv.</th>
+                        <th className={headerNumberCellClass}>Bultos pallets</th>
+                        <th className={totalHeaderCellClass}>Total bultos</th>
+                        <th className={headerNumberCellClass}>Bultos equiv.</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody>
                     {rows.map((row) => (
-                        <tr key={row.id} className="hover:bg-slate-50">
-                            <td className="py-3 pr-4 font-medium text-slate-900">{row.reparto}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.camion}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.chofer}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.skus}</td>
-                            <td className="py-3 pr-4 text-right font-semibold text-slate-900">{row.bultos}</td>
-                            <td className="py-3 pr-4 text-right font-semibold text-slate-900">{row.unidades}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.pallets_completos}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.bultos_pickear}</td>
-                            <td className="py-3 text-right text-slate-600">{row.unidades_sueltas}</td>
+                        <tr key={row.id} className={rowClass}>
+                            <td className={strongCellClass}>{row.reparto}</td>
+                            <td className={cellClass}>{row.camion}</td>
+                            <td className={cellClass}>{row.chofer}</td>
+                            <td className={numberCellClass}>{formatNumber(row.skus)}</td>
+                            <td className={strongNumberCellClass}>{formatNumber(row.bultos_picking_equivalentes)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_palletizados)}</td>
+                            <td className={totalCellClass}>{formatNumber(row.total_bultos)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_equivalentes)}</td>
                         </tr>
                     ))}
                 </tbody>
+                <tfoot>
+                    <tr className={totalRowClass}>
+                        <td className={totalLabelCellClass} colSpan={3}>TOTAL</td>
+                        <td className={totalNumberCellClass}>{formatNumber(rows.reduce((acc, r) => acc + (r.skus || 0), 0))}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
+                        <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalEquiv)}</td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     )
 }
 
-function DetailTable({ rows, mode }) {
+function DetailTable({ rows }) {
     if (!rows.length) return <EmptyRows />
-    const totalBultos = rows.reduce((acc, r) => acc + (r.bultos || 0), 0)
-    const totalUnidades = rows.reduce((acc, r) => acc + (r.unidades || 0), 0)
-    const totalPick = rows.reduce((acc, r) => acc + (mode === 'pallets' ? (r.pallets_completos || 0) : (r.bultos_pickear || 0)), 0)
-    const totalUnidadesSueltas = rows.reduce((acc, r) => acc + (r.unidades_sueltas || 0), 0)
+    const totalEquiv = rows.reduce((acc, r) => acc + (r.bultos_equivalentes || 0), 0)
+    const totalPalletBultos = rows.reduce((acc, r) => acc + (r.bultos_palletizados || 0), 0)
+    const totalPickingBultos = rows.reduce((acc, r) => acc + (r.bultos_picking_equivalentes || 0), 0)
+    const totalBultos = rows.reduce((acc, r) => acc + (r.total_bultos || 0), 0)
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className={tableClass}>
                 <thead>
-                    <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        <th className="pb-3 pr-4">SKU</th>
-                        <th className="pb-3 pr-4">Descripcion</th>
-                        <th className="pb-3 pr-4">Reparto</th>
-                        <th className="pb-3 pr-4">Cancha</th>
-                        <th className="pb-3 pr-4">Almacen</th>
-                        <th className="pb-3 pr-4 text-right">Bultos</th>
-                        <th className="pb-3 pr-4 text-right">Unidades</th>
-                        <th className="pb-3 pr-4 text-right">{mode === 'pallets' ? 'Pallets' : 'Bultos pick'}</th>
-                        <th className="pb-3 pr-4 text-right">Unid. sueltas</th>
-                        <th className="pb-3">Estado</th>
+                    <tr className={headerRowClass}>
+                        <th className={headerCellClass}>SKU</th>
+                        <th className={headerCellClass}>Descripcion</th>
+                        <th className={headerCellClass}>Reparto</th>
+                        <th className={headerCellClass}>Cancha</th>
+                        <th className={headerCellClass}>Almacen</th>
+                        <th className={headerNumberCellClass}>Bultos picking equiv.</th>
+                        <th className={headerNumberCellClass}>Bultos pallets</th>
+                        <th className={totalHeaderCellClass}>Total bultos</th>
+                        <th className={headerNumberCellClass}>Bultos equiv.</th>
+                        <th className={headerCellClass}>Estado</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody>
                     {rows.map((row) => (
-                        <tr key={row.id} className="hover:bg-slate-50">
-                            <td className="py-3 pr-4 font-medium text-slate-900">{row.sku}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.descripcion}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.reparto}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.cancha}</td>
-                            <td className="py-3 pr-4 text-slate-600">{row.almacen}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.bultos}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.unidades}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{mode === 'pallets' ? row.pallets_completos : row.bultos_pickear}</td>
-                            <td className="py-3 pr-4 text-right text-slate-600">{row.unidades_sueltas}</td>
-                            <td className="py-3"><EstadoBadge estado={row.sku_estado} /></td>
+                        <tr key={row.id} className={rowClass}>
+                            <td className={strongCellClass}>{row.sku}</td>
+                            <td className={cellClass}>{row.descripcion}</td>
+                            <td className={cellClass}>{row.reparto}</td>
+                            <td className={cellClass}>{row.cancha}</td>
+                            <td className={cellClass}>{row.almacen}</td>
+                            <td className={strongNumberCellClass}>{formatNumber(row.bultos_picking_equivalentes)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_palletizados)}</td>
+                            <td className={totalCellClass}>{formatNumber(row.total_bultos)}</td>
+                            <td className={numberCellClass}>{formatNumber(row.bultos_equivalentes)}</td>
+                            <td className={cellClass}><EstadoBadge estado={row.sku_estado} /></td>
                         </tr>
                     ))}
                 </tbody>
                 <tfoot>
-                    <tr className="border-t-2 border-slate-200 font-semibold text-slate-700">
-                        <td className="pt-3 pr-4" colSpan={5}>TOTAL</td>
-                        <td className="pt-3 pr-4 text-right text-slate-900">{totalBultos}</td>
-                        <td className="pt-3 pr-4 text-right text-slate-900">{totalUnidades}</td>
-                        <td className="pt-3 pr-4 text-right">{totalPick}</td>
-                        <td className="pt-3 pr-4 text-right">{totalUnidadesSueltas}</td>
+                    <tr className={totalRowClass}>
+                        <td className={totalLabelCellClass} colSpan={5}>TOTAL</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
+                        <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>
+                        <td className={totalNumberCellClass}>{formatNumber(totalEquiv)}</td>
                         <td></td>
                     </tr>
                 </tfoot>

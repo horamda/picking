@@ -1,6 +1,25 @@
 import { useEffect, useState } from 'react'
 import axiosClient from '../api/axiosClient'
 import { EstadoBadge } from '../components/Badge'
+import {
+    cellClass,
+    headerCellClass,
+    headerNumberCellClass,
+    headerRowClass,
+    numberCellClass,
+    rowClass,
+    selectedRowClass,
+    strongCellClass,
+    strongNumberCellClass,
+    tableClass,
+    totalCellClass,
+    totalHeaderCellClass,
+    totalLabelCellClass,
+    totalNumberCellClass,
+    totalRowClass,
+    totalRowValueCellClass,
+} from '../components/tableStyles'
+import { formatNumber } from '../utils/format'
 
 function HistoryPage() {
     const [items, setItems] = useState([])
@@ -52,6 +71,12 @@ function HistoryPage() {
         }
     }
 
+    const selectedDetails = selected?.detalles || []
+    const totalPickingBultos = selectedDetails.reduce((acc, row) => acc + (row.bultos_picking_equivalentes || 0), 0)
+    const totalPalletBultos = selectedDetails.reduce((acc, row) => acc + (row.bultos_palletizados || 0), 0)
+    const totalBultos = selectedDetails.reduce((acc, row) => acc + (row.total_bultos || 0), 0)
+    const totalEquiv = selectedDetails.reduce((acc, row) => acc + (row.bultos_equivalentes || 0), 0)
+
     return (
         <div className="bg-slate-50 p-4 sm:p-6">
             <div className="mb-6 flex items-center justify-between gap-4">
@@ -85,26 +110,26 @@ function HistoryPage() {
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
+                                <table className={tableClass}>
                                     <thead>
-                                        <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                                            <th className="pb-3 pr-4">Reparto</th>
-                                            <th className="pb-3 pr-4">Camion</th>
-                                            <th className="pb-3 pr-4">Chofer</th>
-                                            <th className="pb-3"></th>
+                                        <tr className={headerRowClass}>
+                                            <th className={headerCellClass}>Reparto</th>
+                                            <th className={headerCellClass}>Camion</th>
+                                            <th className={headerCellClass}>Chofer</th>
+                                            <th className={headerCellClass}></th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody>
                                         {items.map((item) => (
                                             <tr
                                                 key={item.id}
-                                                className={`cursor-pointer hover:bg-slate-50 ${selected?.id === item.id ? 'bg-brand-50' : ''}`}
+                                                className={`cursor-pointer ${rowClass} ${selected?.id === item.id ? selectedRowClass : ''}`}
                                                 onClick={() => loadDetail(item.id)}
                                             >
-                                                <td className="py-3 pr-4 font-medium text-slate-900">{item.reparto}</td>
-                                                <td className="py-3 pr-4 text-slate-600">{item.camion}</td>
-                                                <td className="py-3 pr-4 text-slate-600">{item.chofer}</td>
-                                                <td className="py-3 text-right">
+                                                <td className={strongCellClass}>{item.reparto}</td>
+                                                <td className={cellClass}>{item.camion}</td>
+                                                <td className={cellClass}>{item.chofer}</td>
+                                                <td className={`${cellClass} text-right`}>
                                                     {confirmDeleteId === item.id ? (
                                                         <span className="inline-flex items-center gap-1">
                                                             <span className="mr-1 text-xs text-slate-500">¿Eliminar?</span>
@@ -155,29 +180,43 @@ function HistoryPage() {
                         )}
                         {selected && (
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
+                                <table className={tableClass}>
                                     <thead>
-                                        <tr className="border-b border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
-                                            <th className="pb-3 pr-4">SKU</th>
-                                            <th className="pb-3 pr-4">Descripcion</th>
-                                            <th className="pb-3 pr-4 text-right">Bultos</th>
-                                            <th className="pb-3 pr-4 text-right">Unid.</th>
-                                            <th className="pb-3 pr-4">Almacen</th>
-                                            <th className="pb-3">Estado</th>
+                                        <tr className={headerRowClass}>
+                                            <th className={headerCellClass}>SKU</th>
+                                            <th className={headerCellClass}>Descripcion</th>
+                                            <th className={headerCellClass}>Almacen</th>
+                                            <th className={headerNumberCellClass}>Bultos picking equiv.</th>
+                                            <th className={headerNumberCellClass}>Bultos pallets</th>
+                                            <th className={totalHeaderCellClass}>Total bultos</th>
+                                            <th className={headerNumberCellClass}>Bultos equiv.</th>
+                                            <th className={headerCellClass}>Estado</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody>
                                         {selected.detalles.map((item) => (
-                                            <tr key={item.id} className="hover:bg-slate-50">
-                                                <td className="py-3 pr-4 font-medium text-slate-900">{item.sku}</td>
-                                                <td className="py-3 pr-4 text-slate-600">{item.descripcion}</td>
-                                                <td className="py-3 pr-4 text-right text-slate-600">{item.bultos}</td>
-                                                <td className="py-3 pr-4 text-right text-slate-600">{item.unidades}</td>
-                                                <td className="py-3 pr-4 text-slate-600">{item.almacen}</td>
-                                                <td className="py-3"><EstadoBadge estado={item.sku_estado} /></td>
+                                            <tr key={item.id} className={rowClass}>
+                                                <td className={strongCellClass}>{item.sku}</td>
+                                                <td className={cellClass}>{item.descripcion}</td>
+                                                <td className={cellClass}>{item.almacen}</td>
+                                                <td className={strongNumberCellClass}>{formatNumber(item.bultos_picking_equivalentes)}</td>
+                                                <td className={numberCellClass}>{formatNumber(item.bultos_palletizados)}</td>
+                                                <td className={totalCellClass}>{formatNumber(item.total_bultos)}</td>
+                                                <td className={numberCellClass}>{formatNumber(item.bultos_equivalentes)}</td>
+                                                <td className={cellClass}><EstadoBadge estado={item.sku_estado} /></td>
                                             </tr>
                                         ))}
                                     </tbody>
+                                    <tfoot>
+                                        <tr className={totalRowClass}>
+                                            <td className={totalLabelCellClass} colSpan={3}>TOTAL</td>
+                                            <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
+                                            <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
+                                            <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>
+                                            <td className={totalNumberCellClass}>{formatNumber(totalEquiv)}</td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         )}

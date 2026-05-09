@@ -2,10 +2,22 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify
 from auth import auth_required, roles_required
-from models import Consolidado, ConsolidadoDetalle
+from models import Article, Consolidado, ConsolidadoDetalle
 from utils.db import db
 
 history_bp = Blueprint('history', __name__)
+
+
+def round_metric(value, digits=2):
+    return round(float(value or 0), digits)
+
+
+def row_operational_metrics(item, article):
+    pallet_capacity = (article.bultos_por_pallet if article else 0) or 0
+    bultos_palletizados = float(item.pallets_completos or 0) * pallet_capacity
+    bultos_picking = max(float(item.bultos_equivalentes or 0) - bultos_palletizados, 0)
+    return bultos_palletizados, bultos_picking
+
 
 @history_bp.route('/search', methods=['GET'])
 @auth_required
@@ -54,7 +66,12 @@ def delete(consolidado_id):
 @auth_required
 def detail(consolidado_id):
     consolidado = Consolidado.query.get_or_404(consolidado_id)
-    detalles = ConsolidadoDetalle.query.filter_by(consolidado_id=consolidado.id).all()
+    detalles = (
+        db.session.query(ConsolidadoDetalle, Article)
+        .outerjoin(Article, Article.sku == ConsolidadoDetalle.sku)
+        .filter(ConsolidadoDetalle.consolidado_id == consolidado.id)
+        .all()
+    )
     return jsonify({
         'id': consolidado.id,
         'uploaded_file_id': consolidado.uploaded_file_id,
@@ -66,18 +83,26 @@ def detail(consolidado_id):
         'cancha': consolidado.cancha,
         'almacen': consolidado.almacen,
         'processed_at': consolidado.processed_at.isoformat(),
-        'detalles': [{
-            'id': item.id,
-            'sku': item.sku,
-            'descripcion': item.descripcion,
-            'bultos': item.bultos,
-            'unidades': item.unidades,
-            'pallets_completos': item.pallets_completos,
-            'bultos_pickear': item.bultos_pickear,
-            'unidades_sueltas': item.unidades_sueltas,
-            'almacen': item.almacen,
-            'cancha': item.cancha,
-            'prioridad': item.prioridad,
-            'sku_estado': item.sku_estado,
-        } for item in detalles]
+        'detalles': [
+            {
+                'id': item.id,
+                'sku': item.sku,
+                'descripcion': item.descripcion,
+                'bultos': item.bultos,
+                'unidades': item.unidades,
+                'bultos_equivalentes': round_metric(item.bultos_equivalentes),
+                'pallets_completos': item.pallets_completos,
+                'bultos_palletizados': round_metric(bultos_palletizados),
+                'bultos_picking_equivalentes': round_metric(bultos_picking),
+                'bultos_pickear': item.bultos_pickear,
+                'total_bultos': round_metric(bultos_palletizados + bultos_picking),
+                'unidades_sueltas': item.unidades_sueltas,
+                'almacen': item.almacen,
+                'cancha': item.cancha,
+                'prioridad': item.prioridad,
+                'sku_estado': item.sku_estado,
+            }
+            for item, article in detalles
+            for bultos_palletizados, bultos_picking in [row_operational_metrics(item, article)]
+        ]
     })
