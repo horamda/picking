@@ -19,7 +19,7 @@ import {
     totalRowClass,
     totalRowValueCellClass,
 } from '../components/tableStyles'
-import { formatNumber } from '../utils/format'
+import { formatDate, formatNumber } from '../utils/format'
 
 function HistoryPage() {
     const [items, setItems] = useState([])
@@ -114,6 +114,7 @@ function HistoryPage() {
                                     <thead>
                                         <tr className={headerRowClass}>
                                             <th className={headerCellClass}>Reparto</th>
+                                            <th className={headerCellClass}>Fecha reparto</th>
                                             <th className={headerCellClass}>Camion</th>
                                             <th className={headerCellClass}>Chofer</th>
                                             <th className={headerCellClass}></th>
@@ -127,6 +128,7 @@ function HistoryPage() {
                                                 onClick={() => loadDetail(item.id)}
                                             >
                                                 <td className={strongCellClass}>{item.reparto}</td>
+                                                <td className={cellClass}>{formatDate(item.fecha_reparto)}</td>
                                                 <td className={cellClass}>{item.camion}</td>
                                                 <td className={cellClass}>{item.chofer}</td>
                                                 <td className={`${cellClass} text-right`}>

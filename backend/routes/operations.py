@@ -27,14 +27,23 @@ def operational_sql_expressions():
     return bultos_palletizados, bultos_picking
 
 
+def reparto_date_expr():
+    return func.coalesce(Consolidado.fecha_reparto, Consolidado.processed_at)
+
+
+def serialize_datetime(value):
+    return value.isoformat() if value else None
+
+
 def apply_common_filters(query):
     args = request.args
+    fecha = reparto_date_expr()
     if args.get('desde'):
         desde = datetime.fromisoformat(args.get('desde'))
-        query = query.filter(Consolidado.processed_at >= desde)
+        query = query.filter(fecha >= desde)
     if args.get('hasta'):
         hasta = datetime.fromisoformat(args.get('hasta')) + timedelta(days=1)
-        query = query.filter(Consolidado.processed_at < hasta)
+        query = query.filter(fecha < hasta)
     if args.get('reparto'):
         query = query.filter(Consolidado.reparto == args.get('reparto'))
     if args.get('camion'):
@@ -53,6 +62,8 @@ def serialize_detail(detalle, consolidado, article):
     return {
         'id': detalle.id,
         'reparto': consolidado.reparto,
+        'fecha_reparto': serialize_datetime(consolidado.fecha_reparto or consolidado.processed_at),
+        'processed_at': serialize_datetime(consolidado.processed_at),
         'camion': consolidado.camion,
         'chofer': consolidado.chofer,
         'deposito': consolidado.deposito,
@@ -80,10 +91,12 @@ def serialize_detail(detalle, consolidado, article):
 @auth_required
 def trucks():
     bultos_palletizados_expr, bultos_picking_expr = operational_sql_expressions()
+    fecha_expr = reparto_date_expr()
     query = (
         db.session.query(
             Consolidado.id,
             Consolidado.reparto,
+            fecha_expr.label('fecha_reparto'),
             Consolidado.camion,
             Consolidado.chofer,
             Consolidado.deposito,
@@ -104,17 +117,26 @@ def trucks():
     query = apply_common_filters(query)
     rows = (
         query
-        .group_by(Consolidado.id)
-        .order_by(Consolidado.processed_at.desc())
+        .group_by(
+            Consolidado.id,
+            Consolidado.reparto,
+            Consolidado.fecha_reparto,
+            Consolidado.camion,
+            Consolidado.chofer,
+            Consolidado.deposito,
+            Consolidado.processed_at,
+        )
+        .order_by(fecha_expr.desc())
         .all()
     )
     return jsonify([{
         'id': row.id,
         'reparto': row.reparto,
+        'fecha_reparto': serialize_datetime(row.fecha_reparto),
         'camion': row.camion,
         'chofer': row.chofer,
         'deposito': row.deposito,
-        'processed_at': row.processed_at.isoformat(),
+        'processed_at': serialize_datetime(row.processed_at),
         'skus': row.skus,
         'bultos': row.bultos,
         'unidades': row.unidades,

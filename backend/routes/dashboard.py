@@ -47,6 +47,12 @@ def classify_temporada(processed_at):
         return 'Invierno'
     return 'Media temporada'
 
+def reparto_date_expr():
+    return func.coalesce(Consolidado.fecha_reparto, Consolidado.processed_at)
+
+def reparto_datetime(consolidado):
+    return consolidado.fecha_reparto or consolidado.processed_at
+
 def serialize_bar_rows(rows, label_key='label', value_key='bultos_pick'):
     total = sum(to_float(row[value_key]) for row in rows)
     return [
@@ -142,10 +148,11 @@ def summary():
 
 def apply_dashboard_filters(query):
     args = request.args
+    fecha = reparto_date_expr()
     if args.get('desde'):
-        query = query.filter(Consolidado.processed_at >= datetime.fromisoformat(args.get('desde')))
+        query = query.filter(fecha >= datetime.fromisoformat(args.get('desde')))
     if args.get('hasta'):
-        query = query.filter(Consolidado.processed_at < datetime.fromisoformat(args.get('hasta')) + timedelta(days=1))
+        query = query.filter(fecha < datetime.fromisoformat(args.get('hasta')) + timedelta(days=1))
     if args.get('camion'):
         query = query.filter(Consolidado.camion == args.get('camion'))
     if args.get('reparto'):
@@ -180,7 +187,8 @@ def charts():
 
         division = classify_division(article.division if article else None, detalle.descripcion)
         total_detalle = bultos_palletizados + bultos_manuales
-        fecha = consolidado.processed_at.date().isoformat() if consolidado.processed_at else 'Sin fecha'
+        fecha_operativa = reparto_datetime(consolidado)
+        fecha = fecha_operativa.date().isoformat() if fecha_operativa else 'Sin fecha'
 
         day_totals[fecha]['picking'] += bultos_manuales
         day_totals[fecha]['pallets'] += bultos_palletizados
@@ -191,7 +199,7 @@ def charts():
         sku_totals[detalle.sku]['descripcion'] = detalle.descripcion
         sku_totals[detalle.sku]['picking'] += bultos_manuales
 
-        temporada = classify_temporada(consolidado.processed_at)
+        temporada = classify_temporada(fecha_operativa)
         temporada_totals[temporada]['palletizados'] += bultos_palletizados
         temporada_totals[temporada]['manuales'] += bultos_manuales
         temporada_totals[temporada]['pallets_completos'] += detalle.pallets_completos

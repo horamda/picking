@@ -64,6 +64,7 @@ CREATE TABLE consolidados (
   deposito VARCHAR(120),
   cancha VARCHAR(120),
   almacen VARCHAR(120),
+  fecha_reparto DATETIME,
   processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (batch_id) REFERENCES lotes_procesamiento(id),
   FOREIGN KEY (uploaded_file_id) REFERENCES archivos_subidos(id)

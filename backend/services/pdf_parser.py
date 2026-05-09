@@ -1,5 +1,7 @@
 import re
 import unicodedata
+from collections import Counter
+from datetime import datetime
 
 import pdfplumber
 
@@ -22,6 +24,23 @@ def parse_int(value) -> int:
         return 0
 
 
+def parse_pdf_date(value: str):
+    value = compact_line(value)
+    for fmt in ('%d/%m/%y', '%d/%m/%Y'):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def most_common_date(items: list[dict]):
+    dates = [item.get('fecha_reparto') for item in items if item.get('fecha_reparto')]
+    if not dates:
+        return None
+    return Counter(dates).most_common(1)[0][0]
+
+
 def get_or_create_consolidado(consolidados: dict, metadata: dict) -> dict:
     reparto = metadata.get('reparto') or 'sin_reparto'
     if reparto not in consolidados:
@@ -30,6 +49,7 @@ def get_or_create_consolidado(consolidados: dict, metadata: dict) -> dict:
             'camion': metadata.get('camion'),
             'chofer': metadata.get('chofer'),
             'deposito': metadata.get('deposito'),
+            'fecha_reparto': metadata.get('fecha_reparto'),
             'cancha': None,
             'almacen': None,
             'items': [],
@@ -136,6 +156,7 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
         return None
 
     sku = row[0]['text']
+    fecha_reparto = parse_pdf_date(row[date_idx]['text'])
     descripcion = ' '.join(w['text'] for w in row[1:date_idx])
     num_words = [w for w in row[date_idx + 1:] if re.match(r'^\d+$', w['text'])]
 
@@ -156,7 +177,13 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
         if len(num_words) >= 2:
             unidades = int(num_words[1]['text'])
 
-    return {'sku': sku, 'descripcion': descripcion, 'bultos': bultos, 'unidades': unidades}
+    return {
+        'sku': sku,
+        'descripcion': descripcion,
+        'fecha_reparto': fecha_reparto,
+        'bultos': bultos,
+        'unidades': unidades,
+    }
 
 
 def parse_pdf_file(path: str) -> dict:
@@ -218,6 +245,7 @@ def parse_pdf_file(path: str) -> dict:
     for consolidado in consolidados.values():
         if not consolidado.get('items'):
             continue
+        consolidado['fecha_reparto'] = consolidado.get('fecha_reparto') or most_common_date(consolidado['items'])
         consolidado['raw_items_count'] = len(consolidado['items'])
         consolidado['items'] = aggregate_items(consolidado['items'])
         parsed_consolidados.append(consolidado)

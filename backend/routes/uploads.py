@@ -129,7 +129,8 @@ def upload_pdfs():
                     chofer=consolidado_data.get('chofer'),
                     deposito=consolidado_data.get('deposito'),
                     cancha=consolidado_data.get('cancha'),
-                    almacen=consolidado_data.get('almacen')
+                    almacen=consolidado_data.get('almacen'),
+                    fecha_reparto=consolidado_data.get('fecha_reparto')
                 )
                 db.session.add(consolidado)
                 db.session.flush()
@@ -161,6 +162,7 @@ def upload_pdfs():
                     'filename': filename,
                     'uploaded_file_id': uploaded_file.id,
                     'reparto': consolidado.reparto,
+                    'fecha_reparto': consolidado.fecha_reparto.isoformat() if consolidado.fecha_reparto else None,
                     'items': len(consolidado_data.get('items', [])) - skipped,
                     'excluded': skipped
                 })

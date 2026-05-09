@@ -18,7 +18,7 @@ import {
     totalRowClass,
     totalRowValueCellClass,
 } from '../components/tableStyles'
-import { formatNumber } from '../utils/format'
+import { formatDate, formatNumber, todayInputValue } from '../utils/format'
 
 const tabs = [
     { id: 'trucks', label: 'Camiones' },
@@ -50,6 +50,13 @@ function OperationsPage() {
     }, [activeTab, filters])
 
     const setFilter = (key) => (e) => setFilters((prev) => ({ ...prev, [key]: e.target.value }))
+    const selectToday = () => {
+        const today = todayInputValue()
+        setFilters((prev) => ({ ...prev, desde: today, hasta: today }))
+    }
+    const clearDateFilters = () => {
+        setFilters((prev) => ({ ...prev, desde: '', hasta: '' }))
+    }
 
     return (
         <div className="bg-slate-50 p-4 sm:p-6">
@@ -77,10 +84,10 @@ function OperationsPage() {
             </div>
 
             <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-[repeat(5,minmax(0,1fr))_auto_auto] xl:items-end">
                     {[
-                        { key: 'desde', label: 'Desde', type: 'date' },
-                        { key: 'hasta', label: 'Hasta', type: 'date' },
+                        { key: 'desde', label: 'Desde reparto', type: 'date' },
+                        { key: 'hasta', label: 'Hasta reparto', type: 'date' },
                         { key: 'camion', label: 'Camion', type: 'text' },
                         { key: 'reparto', label: 'Reparto', type: 'text' },
                         { key: 'cancha', label: 'Cancha', type: 'text' },
@@ -95,6 +102,21 @@ function OperationsPage() {
                             />
                         </label>
                     ))}
+                    <button
+                        type="button"
+                        onClick={selectToday}
+                        className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                    >
+                        Hoy
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearDateFilters}
+                        disabled={!filters.desde && !filters.hasta}
+                        className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                        Limpiar fecha
+                    </button>
                 </div>
             </div>
 
@@ -227,6 +249,7 @@ function TruckTable({ rows }) {
                 <thead>
                     <tr className={headerRowClass}>
                         <th className={headerCellClass}>Reparto</th>
+                        <th className={headerCellClass}>Fecha reparto</th>
                         <th className={headerCellClass}>Camion</th>
                         <th className={headerCellClass}>Chofer</th>
                         <th className={headerNumberCellClass}>SKUs</th>
@@ -240,6 +263,7 @@ function TruckTable({ rows }) {
                     {rows.map((row) => (
                         <tr key={row.id} className={rowClass}>
                             <td className={strongCellClass}>{row.reparto}</td>
+                            <td className={cellClass}>{formatDate(row.fecha_reparto)}</td>
                             <td className={cellClass}>{row.camion}</td>
                             <td className={cellClass}>{row.chofer}</td>
                             <td className={numberCellClass}>{formatNumber(row.skus)}</td>
@@ -252,7 +276,7 @@ function TruckTable({ rows }) {
                 </tbody>
                 <tfoot>
                     <tr className={totalRowClass}>
-                        <td className={totalLabelCellClass} colSpan={3}>TOTAL</td>
+                        <td className={totalLabelCellClass} colSpan={4}>TOTAL</td>
                         <td className={totalNumberCellClass}>{formatNumber(rows.reduce((acc, r) => acc + (r.skus || 0), 0))}</td>
                         <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
                         <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
@@ -280,6 +304,7 @@ function DetailTable({ rows }) {
                         <th className={headerCellClass}>SKU</th>
                         <th className={headerCellClass}>Descripcion</th>
                         <th className={headerCellClass}>Reparto</th>
+                        <th className={headerCellClass}>Fecha reparto</th>
                         <th className={headerCellClass}>Cancha</th>
                         <th className={headerCellClass}>Almacen</th>
                         <th className={headerNumberCellClass}>Bultos picking equiv.</th>
@@ -295,6 +320,7 @@ function DetailTable({ rows }) {
                             <td className={strongCellClass}>{row.sku}</td>
                             <td className={cellClass}>{row.descripcion}</td>
                             <td className={cellClass}>{row.reparto}</td>
+                            <td className={cellClass}>{formatDate(row.fecha_reparto)}</td>
                             <td className={cellClass}>{row.cancha}</td>
                             <td className={cellClass}>{row.almacen}</td>
                             <td className={strongNumberCellClass}>{formatNumber(row.bultos_picking_equivalentes)}</td>
@@ -307,7 +333,7 @@ function DetailTable({ rows }) {
                 </tbody>
                 <tfoot>
                     <tr className={totalRowClass}>
-                        <td className={totalLabelCellClass} colSpan={5}>TOTAL</td>
+                        <td className={totalLabelCellClass} colSpan={6}>TOTAL</td>
                         <td className={totalNumberCellClass}>{formatNumber(totalPickingBultos)}</td>
                         <td className={totalNumberCellClass}>{formatNumber(totalPalletBultos)}</td>
                         <td className={totalRowValueCellClass}>{formatNumber(totalBultos)}</td>

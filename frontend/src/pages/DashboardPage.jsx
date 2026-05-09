@@ -14,7 +14,7 @@ import {
     totalRowClass,
     totalRowValueCellClass,
 } from '../components/tableStyles'
-import { formatNumber } from '../utils/format'
+import { formatNumber, todayInputValue } from '../utils/format'
 
 const KPI_CONFIG = [
     { key: 'pdfs_procesados', label: 'PDFs procesados', color: 'bg-brand-50 text-brand-500' },
@@ -175,29 +175,83 @@ function SeasonPanel({ rows }) {
 function DashboardPage() {
     const [metrics, setMetrics] = useState(null)
     const [charts, setCharts] = useState(null)
+    const [filters, setFilters] = useState({ desde: '', hasta: '' })
     const [error, setError] = useState(null)
 
     useEffect(() => {
         async function loadDashboard() {
             try {
+                const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
                 const [summaryResponse, chartsResponse] = await Promise.all([
-                    axiosClient.get('/dashboard/summary'),
-                    axiosClient.get('/dashboard/charts'),
+                    axiosClient.get('/dashboard/summary', { params }),
+                    axiosClient.get('/dashboard/charts', { params }),
                 ])
                 setMetrics(summaryResponse.data)
                 setCharts(chartsResponse.data)
+                setError(null)
             } catch {
                 setError('No se pudo cargar el resumen operativo.')
             }
         }
         loadDashboard()
-    }, [])
+    }, [filters])
+
+    const setFilter = (key) => (event) => {
+        setFilters((prev) => ({ ...prev, [key]: event.target.value }))
+    }
+
+    const clearFilters = () => {
+        setFilters({ desde: '', hasta: '' })
+    }
+
+    const selectToday = () => {
+        const today = todayInputValue()
+        setFilters({ desde: today, hasta: today })
+    }
 
     return (
         <div className="bg-slate-50 p-4 sm:p-6">
             <div className="mb-8">
                 <h1 className="text-2xl font-semibold text-slate-900">Dashboard operativo</h1>
                 <p className="mt-1 text-sm text-slate-500">KPIs en bultos equivalentes: picking, pallets completos y total operativo.</p>
+            </div>
+
+            <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end">
+                    <label className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-slate-500">Desde reparto</span>
+                        <input
+                            type="date"
+                            value={filters.desde}
+                            onChange={setFilter('desde')}
+                            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                        />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-slate-500">Hasta reparto</span>
+                        <input
+                            type="date"
+                            value={filters.hasta}
+                            onChange={setFilter('hasta')}
+                            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={selectToday}
+                        className="rounded-xl bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                    >
+                        Hoy
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearFilters}
+                        disabled={!filters.desde && !filters.hasta}
+                        className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                        Limpiar
+                    </button>
+                </div>
             </div>
 
             {error && (

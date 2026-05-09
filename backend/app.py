@@ -84,6 +84,7 @@ def initialize_database():
         app.logger.info('Inicializando base de datos')
         db.create_all()
         ensure_runtime_schema()
+        backfill_missing_reparto_dates()
         AuthService.initialize_roles()
         seed_default_exclusions()
         seed_admin_user()
@@ -134,6 +135,47 @@ def ensure_runtime_schema():
         if 'uploaded_file_id' not in columns:
             db.session.execute(text('ALTER TABLE consolidados ADD COLUMN uploaded_file_id INTEGER'))
             db.session.commit()
+        if 'fecha_reparto' not in columns:
+            date_type = 'TIMESTAMP' if db.engine.dialect.name == 'postgresql' else 'DATETIME'
+            db.session.execute(text(f'ALTER TABLE consolidados ADD COLUMN fecha_reparto {date_type}'))
+            db.session.commit()
+
+def backfill_missing_reparto_dates():
+    from models import Consolidado
+    from routes.uploads import parse_pdf_bytes
+
+    missing = (
+        Consolidado.query
+        .filter(Consolidado.fecha_reparto.is_(None), Consolidado.uploaded_file_id.isnot(None))
+        .all()
+    )
+    if not missing:
+        return
+
+    parsed_by_file = {}
+    updated = 0
+    for consolidado in missing:
+        uploaded_file = consolidado.uploaded_file
+        if not uploaded_file or not uploaded_file.data:
+            continue
+
+        if uploaded_file.id not in parsed_by_file:
+            try:
+                parsed = parse_pdf_bytes(uploaded_file.data, uploaded_file.filename or 'archivo.pdf')
+                parsed_by_file[uploaded_file.id] = parsed.get('consolidados') or [parsed]
+            except Exception as exc:
+                app.logger.warning('No se pudo leer fecha de reparto desde %s: %s', uploaded_file.filename, exc)
+                parsed_by_file[uploaded_file.id] = []
+
+        for parsed_consolidado in parsed_by_file[uploaded_file.id]:
+            same_reparto = str(parsed_consolidado.get('reparto') or '').strip() == str(consolidado.reparto or '').strip()
+            if same_reparto and parsed_consolidado.get('fecha_reparto'):
+                consolidado.fecha_reparto = parsed_consolidado['fecha_reparto']
+                updated += 1
+                break
+
+    if updated:
+        db.session.commit()
     if 'errores_procesamiento' in inspector.get_table_names():
         columns = {column['name'] for column in inspector.get_columns('errores_procesamiento')}
         if 'uploaded_file_id' not in columns:

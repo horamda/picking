@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import axiosClient from '../api/axiosClient'
+import { formatDate } from '../utils/format'
 
 function UploadPage() {
     const [files, setFiles] = useState([])
@@ -106,7 +107,7 @@ function UploadPage() {
                             <ul className="mt-3 space-y-2 text-slate-700">
                                 {result.processed.map((item) => (
                                     <li key={`${item.filename}-${item.reparto}`} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-                                        Reparto {item.reparto}: {item.items} items
+                                        Reparto {item.reparto} - Fecha {formatDate(item.fecha_reparto)}: {item.items} items
                                     </li>
                                 ))}
                             </ul>

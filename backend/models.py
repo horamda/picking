@@ -80,6 +80,7 @@ class Consolidado(db.Model):
     deposito = db.Column(db.String(120), nullable=True)
     cancha = db.Column(db.String(120), nullable=True)
     almacen = db.Column(db.String(120), nullable=True)
+    fecha_reparto = db.Column(db.DateTime, nullable=True)
     processed_at = db.Column(db.DateTime, default=datetime.utcnow)
     detalles = db.relationship('ConsolidadoDetalle', backref='consolidado', lazy=True)
     uploaded_file = db.relationship('UploadedFile', backref='consolidados')
