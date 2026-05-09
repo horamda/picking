@@ -31,9 +31,11 @@ function UploadPage() {
             const response = await axiosClient.post('/uploads/pdf', formData)
             setResult(response.data)
             setFiles([])
-            setStatus(`Repartos procesados: ${response.data.processed.length}`)
-        } catch {
-            setStatus('Error durante la carga')
+            const processed = response.data.processed?.length || 0
+            const errors = response.data.errors?.length || 0
+            setStatus(errors ? `Repartos procesados: ${processed}. Rechazados: ${errors}` : `Repartos procesados: ${processed}`)
+        } catch (error) {
+            setStatus(error.response?.data?.error || 'Error durante la carga')
         }
     }
 

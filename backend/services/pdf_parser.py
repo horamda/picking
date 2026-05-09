@@ -45,7 +45,7 @@ def parse_metadata(lines: list[str]) -> dict:
         line = compact_line(line)
         plain = strip_accents(line)
 
-        reparto_match = re.search(r'Reparto\s+Nro:\s*([^|\s]+)', plain, re.IGNORECASE)
+        reparto_match = re.search(r'Reparto\s*(?:\(\s*)?Nro\.?\s*:\s*([^\)|\s]+)', plain, re.IGNORECASE)
         if reparto_match:
             metadata['reparto'] = reparto_match.group(1)
 

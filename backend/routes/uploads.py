@@ -3,6 +3,7 @@ import tempfile
 from io import BytesIO
 
 from flask import Blueprint, request, jsonify, send_file
+from sqlalchemy import func
 from werkzeug.utils import secure_filename
 from auth import auth_required, roles_required
 from models import ProcessingBatch, Consolidado, ConsolidadoDetalle, ProcessingError, Article, ExcludedArticle, UploadedFile
@@ -17,6 +18,38 @@ ALLOWED_EXTENSIONS = {'pdf'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def normalize_reparto(value) -> str:
+    return str(value or '').strip()
+
+
+def duplicate_reparto_message(reparto: str, existing=None) -> str:
+    if not existing:
+        return f'Reparto {reparto} duplicado en esta carga. No se proceso nuevamente.'
+    processed_at = existing.processed_at.strftime('%d/%m/%Y %H:%M') if existing.processed_at else 'fecha desconocida'
+    return (
+        f'Reparto {reparto} ya fue procesado el {processed_at} '
+        f'en el archivo {existing.filename}. No se permite cargarlo nuevamente.'
+    )
+
+
+def validate_repartos(consolidado_items: list[dict], seen_repartos: set[str]) -> list[str]:
+    repartos = []
+    local_seen = set()
+    for consolidado_data in consolidado_items:
+        reparto = normalize_reparto(consolidado_data.get('reparto'))
+        if not reparto:
+            raise ValueError('No se pudo leer el Nro de reparto del PDF. No se proceso para evitar duplicados.')
+        if reparto in local_seen or reparto in seen_repartos:
+            raise ValueError(duplicate_reparto_message(reparto))
+        existing = Consolidado.query.filter(func.trim(Consolidado.reparto) == reparto).first()
+        if existing:
+            raise ValueError(duplicate_reparto_message(reparto, existing))
+        consolidado_data['reparto'] = reparto
+        local_seen.add(reparto)
+        repartos.append(reparto)
+    return repartos
 
 
 def parse_pdf_bytes(file_bytes: bytes, filename: str) -> dict:
@@ -45,6 +78,7 @@ def upload_pdfs():
 
     saved = []
     errors = []
+    seen_repartos = set()
     excluded_skus = {
         item.sku for item in ExcludedArticle.query.filter_by(activo=True).all()
     }
@@ -83,6 +117,7 @@ def upload_pdfs():
             consolidado_items = parsed.get('consolidados') or [parsed]
             if not consolidado_items:
                 raise ValueError('No se encontraron items de carga en el PDF')
+            validated_repartos = validate_repartos(consolidado_items, seen_repartos)
 
             for consolidado_data in consolidado_items:
                 consolidado = Consolidado(
@@ -129,6 +164,7 @@ def upload_pdfs():
                     'items': len(consolidado_data.get('items', [])) - skipped,
                     'excluded': skipped
                 })
+            seen_repartos.update(validated_repartos)
             mark_uploaded_file(uploaded_file, 'procesado')
             db.session.commit()
         except Exception as exc:
