@@ -69,6 +69,14 @@ def parse_metadata(lines: list[str]) -> dict:
         if reparto_match:
             metadata['reparto'] = reparto_match.group(1)
 
+        # "Reparto Nro: 00066447 | Fecha: 11/05/2026" — pipe may or may not be extracted
+        if not metadata.get('fecha_reparto'):
+            fecha_match = re.search(r'\bFecha:\s*(\d{2}/\d{2}/\d{2,4})\b', plain, re.IGNORECASE)
+            if fecha_match:
+                parsed = parse_pdf_date(fecha_match.group(1))
+                if parsed:
+                    metadata['fecha_reparto'] = parsed
+
         transport_match = re.search(
             r'Transporte:\s*(.*?)\s*\|\s*Chofer:\s*(.*?)\s*\|\s*Deposito:\s*(.*)',
             plain,
@@ -149,7 +157,7 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
     # Find the date word
     date_idx = None
     for i, w in enumerate(row):
-        if re.match(r'^\d{2}/\d{2}/\d{2}$', w['text']):
+        if re.match(r'^\d{2}/\d{2}/\d{2,4}$', w['text']):
             date_idx = i
             break
     if date_idx is None:

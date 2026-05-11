@@ -139,6 +139,11 @@ def ensure_runtime_schema():
             date_type = 'TIMESTAMP' if db.engine.dialect.name == 'postgresql' else 'DATETIME'
             db.session.execute(text(f'ALTER TABLE consolidados ADD COLUMN fecha_reparto {date_type}'))
             db.session.commit()
+    if 'errores_procesamiento' in inspector.get_table_names():
+        columns = {column['name'] for column in inspector.get_columns('errores_procesamiento')}
+        if 'uploaded_file_id' not in columns:
+            db.session.execute(text('ALTER TABLE errores_procesamiento ADD COLUMN uploaded_file_id INTEGER'))
+            db.session.commit()
 
 def backfill_missing_reparto_dates():
     from models import Consolidado
@@ -176,11 +181,6 @@ def backfill_missing_reparto_dates():
 
     if updated:
         db.session.commit()
-    if 'errores_procesamiento' in inspector.get_table_names():
-        columns = {column['name'] for column in inspector.get_columns('errores_procesamiento')}
-        if 'uploaded_file_id' not in columns:
-            db.session.execute(text('ALTER TABLE errores_procesamiento ADD COLUMN uploaded_file_id INTEGER'))
-            db.session.commit()
 
 def seed_default_exclusions():
     from models import ExcludedArticle

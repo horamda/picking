@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy import func
 from auth import auth_required, roles_required
 from models import Article, Consolidado, ConsolidadoDetalle
@@ -62,6 +62,43 @@ def search():
         'almacen': c.almacen,
         'processed_at': serialize_datetime(c.processed_at),
     } for c in results])
+
+@history_bp.route('/fix-fechas', methods=['POST'])
+@roles_required('administrador')
+def fix_fechas():
+    """Re-parse fecha_reparto from stored PDFs for all consolidados."""
+    from routes.uploads import parse_pdf_bytes
+
+    consolidados = Consolidado.query.filter(Consolidado.uploaded_file_id.isnot(None)).all()
+    parsed_cache = {}
+    updated = 0
+    skipped = 0
+
+    for consolidado in consolidados:
+        uploaded_file = consolidado.uploaded_file
+        if not uploaded_file or not uploaded_file.data:
+            skipped += 1
+            continue
+
+        if uploaded_file.id not in parsed_cache:
+            try:
+                parsed = parse_pdf_bytes(uploaded_file.data, uploaded_file.filename or 'archivo.pdf')
+                parsed_cache[uploaded_file.id] = parsed.get('consolidados') or [parsed]
+            except Exception as exc:
+                current_app.logger.warning('fix-fechas: error leyendo %s: %s', uploaded_file.filename, exc)
+                parsed_cache[uploaded_file.id] = []
+
+        for parsed_consolidado in parsed_cache[uploaded_file.id]:
+            reparto_ok = str(parsed_consolidado.get('reparto') or '').strip() == str(consolidado.reparto or '').strip()
+            nueva_fecha = parsed_consolidado.get('fecha_reparto')
+            if reparto_ok and nueva_fecha and nueva_fecha != consolidado.fecha_reparto:
+                consolidado.fecha_reparto = nueva_fecha
+                updated += 1
+                break
+
+    db.session.commit()
+    return jsonify({'updated': updated, 'skipped': skipped, 'total': len(consolidados)})
+
 
 @history_bp.route('/<int:consolidado_id>', methods=['DELETE'])
 @roles_required('administrador', 'supervisor')

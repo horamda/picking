@@ -162,9 +162,12 @@ def upload_pdfs():
                     'filename': filename,
                     'uploaded_file_id': uploaded_file.id,
                     'reparto': consolidado.reparto,
+                    'camion': consolidado.camion,
+                    'chofer': consolidado.chofer,
+                    'deposito': consolidado.deposito,
                     'fecha_reparto': consolidado.fecha_reparto.isoformat() if consolidado.fecha_reparto else None,
                     'items': len(consolidado_data.get('items', [])) - skipped,
-                    'excluded': skipped
+                    'excluded': skipped,
                 })
             seen_repartos.update(validated_repartos)
             mark_uploaded_file(uploaded_file, 'procesado')
