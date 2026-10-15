@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import LoadControlPage from './LoadControlPage'
 import axiosClient from '../api/axiosClient'
 import { EstadoBadge } from '../components/Badge'
 import {
@@ -21,6 +23,7 @@ import {
 import { formatDate, formatNumber, todayInputValue } from '../utils/format'
 
 const tabs = [
+    { id: 'control', label: 'Control de cargas' },
     { id: 'trucks', label: 'Camiones' },
     { id: 'picking-by-cancha', label: 'Picking x cancha' },
     { id: 'by-court', label: 'Por cancha' },
@@ -29,12 +32,16 @@ const tabs = [
 ]
 
 function OperationsPage() {
-    const [activeTab, setActiveTab] = useState('trucks')
+    const [searchParams, setSearchParams] = useSearchParams()
+    const selectedTab = searchParams.get('tab')
+    const activeTab = tabs.some(tab => tab.id === selectedTab) ? selectedTab : 'trucks'
+    const setActiveTab = tab => setSearchParams(tab === 'trucks' ? {} : { tab })
     const [rows, setRows] = useState([])
     const [loading, setLoading] = useState(false)
     const [filters, setFilters] = useState({ desde: '', hasta: '', camion: '', reparto: '', cancha: '' })
 
     useEffect(() => {
+        if (activeTab === 'control') return
         async function loadRows() {
             setRows([])
             setLoading(true)
@@ -57,6 +64,18 @@ function OperationsPage() {
     const clearDateFilters = () => {
         setFilters((prev) => ({ ...prev, desde: '', hasta: '' }))
     }
+
+    if (activeTab === 'control') return (
+        <div>
+            <div className="flex flex-wrap gap-2 px-3 pt-4 sm:px-5" aria-label="Secciones de operacion">
+                {tabs.map(tab => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
+                    className={`min-h-12 rounded-xl px-4 py-2 text-sm font-medium ${activeTab === tab.id ? 'bg-brand-500 text-white' : 'border border-slate-300 bg-white text-slate-700'}`}>
+                    {tab.label}
+                </button>)}
+            </div>
+            <LoadControlPage />
+        </div>
+    )
 
     return (
         <div className="bg-slate-50 p-4 sm:p-6">

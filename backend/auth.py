@@ -47,7 +47,7 @@ class AuthService:
 
     @staticmethod
     def initialize_roles():
-        for name in ['administrador', 'supervisor', 'operador']:
+        for name in ['administrador', 'supervisor', 'operador', 'controlador']:
             if not Role.query.filter_by(name=name).first():
                 db.session.add(Role(name=name, description=f'Rol {name}'))
         db.session.commit()

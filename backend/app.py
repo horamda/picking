@@ -16,6 +16,7 @@ from routes.dashboard import dashboard_bp
 from routes.history import history_bp
 from routes.operations import operations_bp
 from routes.exclusions import exclusions_bp
+from routes.load_control import load_control_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -29,6 +30,7 @@ app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
 app.register_blueprint(history_bp, url_prefix='/api/history')
 app.register_blueprint(operations_bp, url_prefix='/api/operations')
 app.register_blueprint(exclusions_bp, url_prefix='/api/exclusions')
+app.register_blueprint(load_control_bp, url_prefix='/api/load-control')
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / 'frontend' / 'dist'
 _db_init_lock = threading.Lock()
@@ -40,6 +42,10 @@ def index():
     if FRONTEND_DIST.exists():
         return send_from_directory(FRONTEND_DIST, 'index.html')
     return {'status': 'ok', 'service': 'picking-analytics'}
+
+@app.route('/api/runtime-config')
+def runtime_config():
+    return {'mode': Config.APP_MODE, 'shared_database': not Config.SQLALCHEMY_DATABASE_URI.startswith('sqlite')}
 
 @app.route('/healthz')
 def healthz():
@@ -82,12 +88,26 @@ def initialize_database():
     global _db_initialized, _db_init_error
     with app.app_context():
         app.logger.info('Inicializando base de datos')
-        db.create_all()
-        ensure_runtime_schema()
-        backfill_missing_reparto_dates()
-        AuthService.initialize_roles()
-        seed_default_exclusions()
-        seed_admin_user()
+        existing_database = not Config.SQLALCHEMY_DATABASE_URI.startswith('sqlite')
+        if existing_database:
+            # Shared databases are changed only through reviewed migrations.
+            inspector = inspect(db.engine)
+            existing = set(inspector.get_table_names())
+            missing = set(db.metadata.tables) - existing
+            if missing:
+                raise RuntimeError('Falta una migracion revisada para: ' + ', '.join(sorted(missing)))
+            for name, table in db.metadata.tables.items():
+                columns = {column['name'] for column in inspector.get_columns(name)}
+                missing_columns = set(table.columns.keys()) - columns
+                if missing_columns:
+                    raise RuntimeError('Falta una migracion revisada para columnas de ' + name + ': ' + ', '.join(sorted(missing_columns)))
+        else:
+            db.create_all()
+            ensure_runtime_schema()
+            backfill_missing_reparto_dates()
+            AuthService.initialize_roles()
+            seed_default_exclusions()
+            seed_admin_user()
         _db_initialized = True
         _db_init_error = None
         app.logger.info('Base de datos inicializada')
@@ -199,4 +219,4 @@ if Config.INIT_DB_ON_STARTUP:
     threading.Thread(target=ensure_database_ready, daemon=True).start()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=os.getenv('FLASK_DEBUG') == '1')
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5001')), debug=os.getenv('FLASK_DEBUG') == '1')

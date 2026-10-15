@@ -9,3 +9,8 @@ body {
 * {
   @apply outline-none;
 }
+
+.load-control :is(button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid #0ea5e9;
+  outline-offset: 3px;
+}

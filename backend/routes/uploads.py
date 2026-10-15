@@ -110,6 +110,7 @@ def upload_pdfs():
             continue
 
         try:
+            file_saved = []
             mark_uploaded_file(uploaded_file, 'procesando')
             db.session.commit()
 
@@ -158,7 +159,7 @@ def upload_pdfs():
                         sku_estado='encontrado' if article else 'no encontrado'
                     )
                     db.session.add(detalle)
-                saved.append({
+                file_saved.append({
                     'filename': filename,
                     'uploaded_file_id': uploaded_file.id,
                     'reparto': consolidado.reparto,
@@ -169,9 +170,10 @@ def upload_pdfs():
                     'items': len(consolidado_data.get('items', [])) - skipped,
                     'excluded': skipped,
                 })
-            seen_repartos.update(validated_repartos)
             mark_uploaded_file(uploaded_file, 'procesado')
             db.session.commit()
+            saved.extend(file_saved)
+            seen_repartos.update(validated_repartos)
         except Exception as exc:
             db.session.rollback()
             uploaded_file = db.session.get(UploadedFile, uploaded_file_id)

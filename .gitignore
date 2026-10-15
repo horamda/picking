@@ -8,6 +8,7 @@ env/
 
 # Base de datos
 *.db
+.backups/
 instance/
 
 # Archivos subidos y procesados

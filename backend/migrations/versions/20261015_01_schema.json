@@ -1,0 +1,646 @@
+{
+  "archivos_subidos": {
+    "columns": {
+      "batch_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      },
+      "category": {
+        "nullable": false,
+        "type": "VARCHAR(80)"
+      },
+      "checksum_sha256": {
+        "nullable": false,
+        "type": "VARCHAR(64)"
+      },
+      "content_type": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "created_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "data": {
+        "nullable": false,
+        "type": "BYTEA"
+      },
+      "error_message": {
+        "nullable": true,
+        "type": "TEXT"
+      },
+      "filename": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "original_filename": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      },
+      "processed_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "size_bytes": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "status": {
+        "nullable": false,
+        "type": "VARCHAR(80)"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "batch_id"
+        ],
+        "lotes_procesamiento",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "articulos": {
+    "columns": {
+      "activo": {
+        "nullable": true,
+        "type": "BOOLEAN"
+      },
+      "bultos_por_pallet": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "calibre": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "created_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "descripcion": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "division": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "sku": {
+        "nullable": false,
+        "type": "VARCHAR(128)"
+      },
+      "unidades_por_bulto": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "updated_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      }
+    },
+    "foreign_keys": [],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "sku"
+      ]
+    ]
+  },
+  "articulos_excluidos": {
+    "columns": {
+      "activo": {
+        "nullable": true,
+        "type": "BOOLEAN"
+      },
+      "created_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "descripcion": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "motivo": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      },
+      "sku": {
+        "nullable": false,
+        "type": "VARCHAR(128)"
+      },
+      "updated_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      }
+    },
+    "foreign_keys": [],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "sku"
+      ]
+    ]
+  },
+  "consolidado_detalle": {
+    "columns": {
+      "almacen": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "bultos": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "bultos_equivalentes": {
+        "nullable": false,
+        "type": "DOUBLE PRECISION"
+      },
+      "bultos_pickear": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "cancha": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "consolidado_id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "descripcion": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "pallets_completos": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "prioridad": {
+        "nullable": true,
+        "type": "VARCHAR(50)"
+      },
+      "sku": {
+        "nullable": false,
+        "type": "VARCHAR(128)"
+      },
+      "sku_estado": {
+        "nullable": true,
+        "type": "VARCHAR(80)"
+      },
+      "unidades": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "unidades_equivalentes": {
+        "nullable": false,
+        "type": "DOUBLE PRECISION"
+      },
+      "unidades_sueltas": {
+        "nullable": false,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "consolidado_id"
+        ],
+        "consolidados",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "consolidados": {
+    "columns": {
+      "almacen": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "batch_id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "camion": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "cancha": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "chofer": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "deposito": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "fecha_reparto": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "filename": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "processed_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "reparto": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "uploaded_file_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "batch_id"
+        ],
+        "lotes_procesamiento",
+        [
+          "id"
+        ]
+      ],
+      [
+        [
+          "uploaded_file_id"
+        ],
+        "archivos_subidos",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "control_camiones": {
+    "columns": {
+      "branch": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "load_date": {
+        "nullable": false,
+        "type": "VARCHAR(10)"
+      },
+      "state": {
+        "nullable": false,
+        "type": "JSON"
+      },
+      "truck": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "version": {
+        "nullable": false,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "branch",
+        "load_date",
+        "truck"
+      ]
+    ]
+  },
+  "control_planillas": {
+    "columns": {
+      "branch": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "content": {
+        "nullable": false,
+        "type": "JSON"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "load_date": {
+        "nullable": false,
+        "type": "VARCHAR(10)"
+      },
+      "reparto": {
+        "nullable": false,
+        "type": "VARCHAR(120)"
+      },
+      "source_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      },
+      "truck_id": {
+        "nullable": false,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "truck_id"
+        ],
+        "control_camiones",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "branch",
+        "load_date",
+        "reparto"
+      ],
+      [
+        "source_id"
+      ]
+    ]
+  },
+  "control_temporizadores": {
+    "columns": {
+      "check_id": {
+        "nullable": false,
+        "type": "VARCHAR(32)"
+      },
+      "user_id": {
+        "nullable": false,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "user_id"
+        ],
+        "users",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "unique": [
+      [
+        "check_id"
+      ]
+    ]
+  },
+  "errores_procesamiento": {
+    "columns": {
+      "created_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "error_message": {
+        "nullable": false,
+        "type": "TEXT"
+      },
+      "filename": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "traceback": {
+        "nullable": true,
+        "type": "TEXT"
+      },
+      "uploaded_file_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "uploaded_file_id"
+        ],
+        "archivos_subidos",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "logs": {
+    "columns": {
+      "action": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "details": {
+        "nullable": true,
+        "type": "TEXT"
+      },
+      "entity": {
+        "nullable": true,
+        "type": "VARCHAR(120)"
+      },
+      "entity_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "timestamp": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "user_id": {
+        "nullable": true,
+        "type": "INTEGER"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "user_id"
+        ],
+        "users",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "lotes_procesamiento": {
+    "columns": {
+      "estado": {
+        "nullable": false,
+        "type": "VARCHAR(80)"
+      },
+      "fecha": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "nombre": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "origen": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      }
+    },
+    "foreign_keys": [],
+    "primary_key": [
+      "id"
+    ],
+    "unique": []
+  },
+  "roles": {
+    "columns": {
+      "description": {
+        "nullable": true,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "name": {
+        "nullable": false,
+        "type": "VARCHAR(50)"
+      }
+    },
+    "foreign_keys": [],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "name"
+      ]
+    ]
+  },
+  "users": {
+    "columns": {
+      "active": {
+        "nullable": true,
+        "type": "BOOLEAN"
+      },
+      "created_at": {
+        "nullable": true,
+        "type": "TIMESTAMP"
+      },
+      "email": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "password_hash": {
+        "nullable": false,
+        "type": "VARCHAR(255)"
+      },
+      "role_id": {
+        "nullable": false,
+        "type": "INTEGER"
+      },
+      "username": {
+        "nullable": false,
+        "type": "VARCHAR(128)"
+      }
+    },
+    "foreign_keys": [
+      [
+        [
+          "role_id"
+        ],
+        "roles",
+        [
+          "id"
+        ]
+      ]
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "unique": [
+      [
+        "email"
+      ],
+      [
+        "username"
+      ]
+    ]
+  }
+}

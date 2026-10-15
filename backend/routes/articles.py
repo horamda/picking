@@ -1,6 +1,7 @@
 from flask import Blueprint, g, request, jsonify, current_app
 from sqlalchemy import inspect
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import ServiceUnavailable
 
 from auth import auth_required, roles_required
 from models import Article, UploadedFile
@@ -15,7 +16,7 @@ def ensure_article_import_schema():
     inspector = inspect(db.engine)
     tables = set(inspector.get_table_names())
     if 'articulos' not in tables or 'archivos_subidos' not in tables:
-        db.create_all()
+        raise ServiceUnavailable('Falta una migracion revisada para importar articulos.')
 
 
 @articles_bp.route('', methods=['GET'])

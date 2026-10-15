@@ -146,6 +146,8 @@ function Sidebar({ isOpen, onClose }) {
                 <SidebarContent />
             </aside>
             <aside
+                aria-hidden={!isOpen}
+                inert={!isOpen ? '' : undefined}
                 className={`fixed inset-y-0 left-0 z-30 w-64 border-r border-slate-200 bg-white p-5 transition-transform duration-200 xl:hidden ${
                     isOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}

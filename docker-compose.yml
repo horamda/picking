@@ -1,50 +1,13 @@
-version: '3.8'
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: picking_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: picking_db
-      POSTGRES_USER: picking_user
-      POSTGRES_PASSWORD: picking_password
-    ports:
-      - '5432:5432'
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
+﻿services:
   backend:
-    build: ./backend
+    build: .
     container_name: picking_backend
     ports:
-      - '5000:5000'
+      - '5001:5000'
+    env_file:
+      - ./backend/.env
     environment:
-      - FLASK_ENV=development
-      - FLASK_DEBUG=1
-      - SECRET_KEY=replace_with_strong_key
-      - JWT_SECRET=replace_with_jwt_secret
-      - DATABASE_URL=postgresql://picking_user:picking_password@postgres:5432/picking_db
-      - CORS_ORIGINS=http://localhost:4173,http://127.0.0.1:4173
-      - UPLOAD_FOLDER=/app/uploads
-      - PDF_PROCESSING_FOLDER=/app/processed
-    volumes:
-      - ./backend:/app
-      - ./backend/uploads:/app/uploads
-    depends_on:
-      - postgres
-
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_URL: http://localhost:5000/api
-    container_name: picking_frontend
-    ports:
-      - '5173:4173'
-    environment:
-      - VITE_API_URL=http://localhost:5000/api
-    volumes:
-      - ./frontend:/app
-
-volumes:
-  postgres_data:
+      PORT: '5000'
+      APP_MODE: prueba
+      FLASK_DEBUG: '0'
+      INIT_DB_ON_STARTUP: '1'

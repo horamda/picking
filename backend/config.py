@@ -1,7 +1,8 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / '.env')
 
 def normalize_database_url(database_url: str) -> str:
     if database_url.startswith('${{') or database_url.startswith('$'):
@@ -22,15 +23,19 @@ def is_railway_environment() -> bool:
     return any(os.getenv(name) for name in ['RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID', 'RAILWAY_SERVICE_ID'])
 
 def get_database_url() -> str:
-    database_url = os.getenv('DATABASE_URL')
-    if is_railway_environment() and not database_url:
-        raise RuntimeError('DATABASE_URL es obligatorio en Railway. Agrega PostgreSQL y vincula ${{Postgres.DATABASE_URL}}.')
-
-    database_url = database_url or 'sqlite:///picking.db'
-    if is_railway_environment() and database_url.startswith('sqlite'):
-        raise RuntimeError('Railway no debe usar SQLite. Configura DATABASE_URL con PostgreSQL para persistir los datos.')
-
+    database_url = os.getenv('DATABASE_URL', '').strip()
+    isolated_tests = os.getenv('ALLOW_SQLITE_FOR_TESTS') == '1'
+    if not database_url:
+        raise RuntimeError('Falta DATABASE_URL. Configurá la conexión PostgreSQL de Railway; en local usá su URL pública.')
+    if database_url.startswith('sqlite'):
+        if not isolated_tests or is_railway_environment():
+            raise RuntimeError('SQLite está deshabilitado. Usá la base de Railway; SQLite solo se admite en pruebas automáticas aisladas.')
+    elif not database_url.startswith(('postgres://', 'postgresql://', 'postgresql+psycopg://')):
+        raise RuntimeError('DATABASE_URL debe apuntar a PostgreSQL de Railway.')
+    if not is_railway_environment() and '.railway.internal' in database_url:
+        raise RuntimeError('La URL interna de Railway no funciona desde esta PC. Usá DATABASE_PUBLIC_URL del servicio PostgreSQL como DATABASE_URL local.')
     return normalize_database_url(database_url)
+
 
 def get_engine_options(database_url: str) -> dict:
     options = {'pool_pre_ping': True}
@@ -39,6 +44,7 @@ def get_engine_options(database_url: str) -> dict:
     return options
 
 class Config:
+    APP_MODE = os.getenv('APP_MODE', 'produccion' if is_railway_environment() else 'prueba')
     SECRET_KEY = os.getenv('SECRET_KEY', 'supersecret')
     JWT_SECRET = os.getenv('JWT_SECRET', 'jwtsecret')
     SQLALCHEMY_DATABASE_URI = get_database_url()
