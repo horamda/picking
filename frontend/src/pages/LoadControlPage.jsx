@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api/axiosClient'
 import { getStoredUser } from '../utils/auth'
+import { todayInputValue } from '../utils/format'
+import { groupControlTrucks } from '../utils/controlTrucks'
+import ControlTruckCard from '../components/ControlTruckCard'
 
 const base = '/load-control'
 const stages = ['Picking', 'Control 1', 'Control 2', 'Activos']
@@ -30,7 +33,7 @@ export default function LoadControlPage() {
     const [loaded, setLoaded] = useState(false)
     const [view, setView] = useState('loads')
     const [search, setSearch] = useState('')
-    const [date, setDate] = useState('')
+    const [date, setDate] = useState(todayInputValue())
     const [assetTruck, setAssetTruck] = useState(null)
     const [report, setReport] = useState(null)
     const [users, setUsers] = useState([])
@@ -85,16 +88,20 @@ export default function LoadControlPage() {
         if (viewName === 'loads') await refresh()
     }
     const matches = (truck, reparto = '') => (!date || truck.load_date === date) && `${truck.truck} ${reparto} ${truck.branch}`.toLowerCase().includes(search.toLowerCase())
+    const allGroups = useMemo(() => groupControlTrucks(trucks, sources), [trucks, sources])
+    const groupedTrucks = allGroups.filter(t => matches(t, [...t.loads, ...t.pending].map(l => l.reparto).join(' ')))
     const shortages = trucks.flatMap(t => t.status.shortages.map(s => ({ ...s, truck: t })))
+    const selectedGroup = load && allGroups.find(t => t.loads.some(l => l.id === load.id))
+    const nextLoad = selectedGroup?.loads.find(l => l.id !== load?.id && !l.canchas.every(c => c.status.done))
     const selectedTruck = load && trucks.find(t => t.loads.some(l => l.id === load.id))
 
     return <div className={`load-control mx-auto space-y-5 p-3 pb-24 sm:p-5 md:p-8 ${work ? "max-w-3xl" : "max-w-7xl"}`}>
         <header className={`flex flex-wrap items-start justify-between gap-4 ${work ? "hidden md:flex" : ""}`}>
-            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">Control de cargas</h1><p className="mt-1 text-sm text-slate-500">Picking, doble control por cancha y activos de salida.</p></div>
+            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">Picking, doble control por cancha y activos de salida.</p></div>
             <button className={secondary} disabled={busy} onClick={() => act(() => go(view))}>Actualizar</button>
         </header>
-        <nav className={`flex flex-wrap gap-2 ${work ? "hidden" : ""}`} aria-label="Secciones de control de cargas">
-            {[['loads', 'Cargas'], ...(manager ? [['shortages', 'Faltantes y Chess'], ['performance', 'Tiempos y errores'], ['users', 'Usuarios']] : [])].map(([key, label]) => <button key={key} disabled={busy} className={view === key ? button : secondary} onClick={() => act(() => go(key))}>{label}</button>)}
+        <nav className={`grid gap-3 ${manager ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"} ${work ? "hidden" : ""}`} aria-label="Secciones de control de cargas">
+            {[['loads', 'Control operativo', 'Camiones y cargas'], ...(manager ? [['shortages', 'Supervisión', 'Faltantes y autorizaciones'], ['performance', 'Rendimiento', 'Tiempos y errores'], ['users', 'Administración', 'Usuarios y roles']] : [])].map(([key, label, description]) => <button key={key} disabled={busy} aria-current={view === key ? "page" : undefined} className={`${view === key ? button : secondary} text-left p-4`} onClick={() => act(() => go(key))}><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs opacity-80">{description}</span></button>)}
         </nav>
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>}
         {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</div>}
@@ -102,23 +109,23 @@ export default function LoadControlPage() {
         <fieldset disabled={busy} className="min-w-0 space-y-5 disabled:opacity-75">
         {view === 'loads' && !load && !assetTruck && <>
             <div className="flex flex-wrap gap-3"><label className="min-w-48 flex-1 text-sm">Buscar camión o reparto<input className={input} value={search} onChange={e => setSearch(e.target.value)} placeholder="Patente, reparto o depósito" /></label><label className="text-sm">Fecha de reparto<input type="date" className={input} value={date} onChange={e => setDate(e.target.value)} /></label></div>
-            <section className={card}><h2 className="font-semibold">Repartos de los PDFs cargados</h2><p className="mb-3 text-sm text-slate-500">Usamos las mismas planillas de <Link className="text-brand-600 underline" to="/upload">Carga PDF</Link>. Elegí un reparto para comenzar.</p>
-                <div className="max-h-72 space-y-2 overflow-auto">{sources.filter(s => matches({ truck: s.camion, branch: s.deposito, load_date: s.fecha?.slice(0, 10) }, s.reparto)).map(s => <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 py-3"><div><strong>Reparto {s.reparto}</strong><p className="text-sm text-slate-500">{s.camion || 'Sin camión'} · {s.fecha?.slice(0, 10) || 'Sin fecha'} · {s.deposito}</p></div><button className={button} onClick={() => act(() => activate(s.id))}>Abrir para controlar</button></div>)}{loaded && !sources.length && <p className="text-sm text-slate-500">No hay repartos pendientes de incorporar al control.</p>}</div>
-            </section>
-            {trucks.filter(t => matches(t, t.loads.map(l => l.reparto).join(' '))).map(t => <section className={card} key={t.id}>
-                <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">Camión {t.truck}</h2><span className={`rounded-full px-3 py-1 text-xs font-semibold ${t.status.released_at ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{t.status.released_at ? 'Liberado en aplicación' : 'Pendiente'}</span></div>
-                <p className="mb-3 text-sm text-slate-500">{t.load_date} · {t.branch} · {t.loads.length} planilla(s)</p>
-                {t.loads.map(l => <div key={l.id} className="flex items-center justify-between gap-2 border-t py-3"><div><b>Reparto {l.reparto}</b><p className="text-sm text-slate-500">{l.canchas.filter(c => c.status.done).length}/{l.canchas.length} canchas con doble control</p></div><button className={secondary} onClick={() => act(() => openLoad(l.id))}>Ver canchas</button></div>)}
-                {t.status.pending_sources?.length > 0 && <p className="my-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Hay {t.status.pending_sources.length} reparto(s) de este camión todavía sin incorporar. Abrilos desde los PDFs cargados para completar la salida.</p>}
-                <p className="my-3 text-sm text-slate-600">Activos: {t.status.assets ? 'confirmados' : 'pendientes'} · Faltantes sin autorizar: {t.status.shortages.filter(s => !s.approved_by).length}</p>
-                <div className="flex flex-wrap gap-2">{t.status.complete && !t.status.assets && <button className={button} onClick={() => act(async () => { const { data } = await api.post(`${base}/trucks/${t.id}/assets/start`); setAssetTruck({ ...t, check: data }) })}>Registrar activos de salida</button>}{manager && <button className={secondary} onClick={() => act(async () => setAudit({ truck: t.truck, rows: (await api.get(`${base}/trucks/${t.id}/audit`)).data }))}>Ver trazabilidad</button>}</div>
-                {t.status.assets && <details className="mt-3 text-sm"><summary className="cursor-pointer">Activos registrados · {localTime(t.status.assets.created_at)}</summary><div className="mt-2 grid grid-cols-2 gap-1">{Object.entries(t.status.assets.quantities).map(([name, count]) => <p key={name}>{name}: <b>{count}</b></p>)}</div></details>}
-            </section>)}
-            {loaded && !sources.length && !trucks.length && <p className={card}>Todavía no hay repartos. Subí las planillas desde Carga PDF.</p>}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
+                ['Camiones', groupedTrucks.length],
+                ['Cargas del filtro', groupedTrucks.reduce((n, t) => n + t.total, 0)],
+                ['Cargas controladas', groupedTrucks.reduce((n, t) => n + t.completed, 0)],
+                ['Camiones liberados', groupedTrucks.filter(t => t.released).length],
+            ].map(([label, value]) => <div className="rounded-2xl border border-slate-200 bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-bold">{value}</p></div>)}</div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-sm text-slate-600">Cada carga se controla por separado. El camión queda liberado al completar todas sus cargas, los activos y las autorizaciones de faltantes.</p><div className="flex gap-2"><button className={secondary} onClick={() => setDate(todayInputValue())}>Hoy</button><button className={secondary} onClick={() => { setDate(''); setSearch('') }}>Ver todas las fechas</button></div></div>
+            <div className="grid items-start gap-5 xl:grid-cols-2">{groupedTrucks.map(t => <ControlTruckCard key={t.key} truck={t} manager={manager}
+                onOpen={id => act(() => openLoad(id))} onActivate={id => act(() => activate(id))}
+                onAssets={() => act(async () => { const { data } = await api.post(`${base}/trucks/${t.id}/assets/start`); setAssetTruck({ ...t, check: data }) })}
+                onAudit={() => act(async () => setAudit({ truck: t.truck, rows: (await api.get(`${base}/trucks/${t.id}/audit`)).data }))} />)}</div>
+            {loaded && !groupedTrucks.length && <section className={`${card} text-center`}><h2 className="font-semibold">No hay camiones para este filtro</h2><p className="mt-2 text-sm text-slate-500">Probá otra fecha o consultá los PDFs ya importados.</p><Link className="mt-4 inline-block min-h-12 py-3 font-semibold text-brand-600" to="/upload">Ir a Carga PDF</Link></section>}
             {audit && <section className={card}><div className="flex justify-between"><h2 className="font-semibold">Trazabilidad · {audit.truck}</h2><button className={secondary} onClick={() => setAudit(null)}>Cerrar</button></div><div className="mt-4 max-h-96 overflow-auto">{audit.rows.map(r => <details key={r.id} className="border-t py-2 text-sm"><summary>{localTime(r.at + 'Z')} · {r.username} · {r.action.replaceAll('_', ' ')}</summary><pre className="overflow-auto whitespace-pre-wrap p-2 text-xs">{JSON.stringify(r.details, null, 2)}</pre></details>)}</div></section>}
         </>}
         {view === 'loads' && load && !work && <>
             <button className={secondary} onClick={() => { setLoad(null); setWork(null) }}>← Camiones</button>
+            {selectedGroup && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50 p-4"><p className="text-sm"><b>Camión {selectedGroup.truck}</b> · {selectedGroup.completed} de {selectedGroup.total} cargas controladas</p>{load.canchas.every(c => c.status.done) && (nextLoad || selectedGroup.pending.length > 0) && <button className={button} onClick={() => act(() => nextLoad ? openLoad(nextLoad.id) : activate(selectedGroup.pending[0].id))}>Continuar con la siguiente carga</button>}</div>}
             <section className={card}><h2 className="text-lg font-semibold">Reparto {load.reparto} · {load.camion}</h2><p className="text-sm text-slate-500">{load.fecha} · {load.chofer} · {load.deposito}</p><p className="mt-3 text-sm">Seleccioná una cancha. Cada proceso registra su operador y tiempo activo. Si el picking ya se hizo, podés comenzar directamente el primer control; ese picking quedará sin tiempo medido.</p></section>
             <div className="grid gap-4 md:grid-cols-2">{load.canchas.map(c => <section key={c.numero} className={card}>
                 <h3 className="text-lg font-semibold">Cancha {c.numero}</h3><p className="mb-3 text-sm text-slate-500">{c.productos.length} productos · {c.status.done ? 'Doble control completo' : 'Pendiente'}</p>

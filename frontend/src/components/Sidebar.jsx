@@ -21,7 +21,7 @@ const navItems = [
         ),
     },
     {
-        label: 'Operacion',
+        label: 'Camiones y controles',
         path: '/operacion',
         icon: (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -103,14 +103,16 @@ function SidebarContent({ onClose }) {
                     </button>
                 )}
             </div>
-            <nav className="space-y-1">
-                {navItems.map((item) => (
+            <nav className="space-y-5" aria-label="Navegacion principal">
+                {[['Operacion diaria', ['/operacion', '/upload']], ['Seguimiento', ['/', '/historial']], ['Catalogos', ['/articulos', '/exclusiones']]].map(([title, paths]) => <section key={title}>
+                    <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h2>
+                    <div className="space-y-1">{paths.map(path => navItems.find(item => item.path === path)).map((item) => (
                     <NavLink
                         key={item.path}
                         to={item.path}
                         onClick={onClose}
                         className={({ isActive }) =>
-                            `flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                            `flex items-center gap-3 min-h-12 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors ${
                                 isActive
                                     ? 'bg-brand-500 text-white'
                                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -120,7 +122,7 @@ function SidebarContent({ onClose }) {
                         {item.icon}
                         {item.label}
                     </NavLink>
-                ))}
+                ))}</div></section>)}
             </nav>
             <div className="mt-8 border-t border-slate-100 pt-4">
                 <div className="mb-3">

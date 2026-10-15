@@ -287,6 +287,35 @@ class ControlFlowTest(unittest.TestCase):
         self.assertEqual(truck['status']['pending_sources'], [pending.id])
         self.assertFalse(truck['status']['complete'])
 
+    def test_truck_with_two_loads_releases_only_after_both_are_controlled(self):
+        second = Consolidado(batch_id=self.batch_id, filename='second.pdf', reparto='0002',
+            camion='ABC123', deposito='Central', fecha_reparto=datetime(2026,10,15))
+        db.session.add(second); db.session.flush()
+        for sku in ['1001', '1002']:
+            db.session.add(ConsolidadoDetalle(consolidado_id=second.id, sku=sku,
+                descripcion='Producto', bultos=1, unidades=0, cancha='1'))
+        db.session.commit()
+        sources = self.call('get', '/sources')
+        self.assertEqual(sources[0]['camion_control'], 'ABC123')
+        self.complete(1, 'ana'); self.complete(2, 'ben')
+        self.call('post', f'/trucks/{self.truck_id}/assets/start', 'ben', expected=409)
+        first_id = self.load_id
+        self.load_id = self.call('post', '/sources/'+str(second.id), 'ana', expected=201)['id']
+        trucks = self.call('get', '/trucks')
+        self.assertEqual(len(trucks), 1)
+        self.assertEqual(len(trucks[0]['loads']), 2)
+        self.assertTrue(self.call('get', '/loads/'+str(first_id))['canchas'][0]['status']['done'])
+        self.assertFalse(self.call('get', '/loads/'+str(self.load_id))['canchas'][0]['status']['done'])
+        self.complete(1, 'ana')
+        self.call('post', f'/trucks/{self.truck_id}/assets/start', 'ben', expected=409)
+        self.complete(2, 'ben')
+        truck = self.call('get', '/trucks')[0]
+        self.assertTrue(truck['status']['complete'])
+        self.assertFalse(truck['status']['released_at'])
+        self.call('post', f'/trucks/{self.truck_id}/assets/start', 'ben')
+        self.call('post', f'/trucks/{self.truck_id}/assets', 'ben', data={'quantities': {name: 0 for name in ASSET_NAMES}})
+        self.assertTrue(self.call('get', '/trucks')[0]['status']['released_at'])
+
     def test_reopen_invalidates_assets_and_preserves_incidents(self):
         self.complete(1, 'ana', shortage=True)
         self.complete(2, 'ben', shortage=True)

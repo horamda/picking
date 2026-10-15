@@ -142,7 +142,7 @@ def load_detail(load_id):
 def sources():
     used = db.session.query(ControlLoad.source_id).filter(ControlLoad.source_id.isnot(None))
     rows = Consolidado.query.filter(~Consolidado.id.in_(used)).order_by(Consolidado.id.desc()).all()
-    return jsonify([dict(id=c.id, reparto=c.reparto, camion=c.camion, deposito=c.deposito,
+    return jsonify([dict(id=c.id, reparto=c.reparto, camion=c.camion, camion_control=truck_name(c.camion), deposito=c.deposito,
         fecha=c.fecha_reparto.isoformat() if c.fecha_reparto else None) for c in rows])
 
 

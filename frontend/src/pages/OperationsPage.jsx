@@ -34,8 +34,8 @@ const tabs = [
 function OperationsPage() {
     const [searchParams, setSearchParams] = useSearchParams()
     const selectedTab = searchParams.get('tab')
-    const activeTab = tabs.some(tab => tab.id === selectedTab) ? selectedTab : 'trucks'
-    const setActiveTab = tab => setSearchParams(tab === 'trucks' ? {} : { tab })
+    const activeTab = tabs.some(tab => tab.id === selectedTab) ? selectedTab : 'control'
+    const setActiveTab = tab => setSearchParams(tab === 'control' ? {} : { tab })
     const [rows, setRows] = useState([])
     const [loading, setLoading] = useState(false)
     const [filters, setFilters] = useState({ desde: '', hasta: '', camion: '', reparto: '', cancha: '' })
@@ -67,12 +67,10 @@ function OperationsPage() {
 
     if (activeTab === 'control') return (
         <div>
-            <div className="flex flex-wrap gap-2 px-3 pt-4 sm:px-5" aria-label="Secciones de operacion">
-                {tabs.map(tab => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
-                    className={`min-h-12 rounded-xl px-4 py-2 text-sm font-medium ${activeTab === tab.id ? 'bg-brand-500 text-white' : 'border border-slate-300 bg-white text-slate-700'}`}>
-                    {tab.label}
-                </button>)}
-            </div>
+            <details className="mx-3 mt-4 rounded-xl border border-slate-200 bg-white px-4 sm:mx-5">
+                <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium text-slate-600">Consultar informes de cantidades y picking</summary>
+                <div className="flex flex-wrap gap-2 pb-4">{tabs.filter(tab => tab.id !== 'control').map(tab => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className="min-h-12 rounded-xl border border-slate-300 px-4 py-2 text-sm">{tab.label}</button>)}</div>
+            </details>
             <LoadControlPage />
         </div>
     )
