@@ -5,6 +5,10 @@ import { getStoredUser } from '../utils/auth'
 import { todayInputValue } from '../utils/format'
 import { groupControlTrucks } from '../utils/controlTrucks'
 import ControlTruckCard from '../components/ControlTruckCard'
+import VoiceControl from '../components/VoiceControl'
+import { speak } from '../voice/speech'
+
+const voicePrompt = (p, index, total) => `Producto ${index + 1} de ${total}. ${p.descripcion}. ${p.bultos} bultos y ${p.unidades} unidades. Decí correcto, error corregido o faltante.`
 
 const base = '/load-control'
 const stages = ['Picking', 'Control 1', 'Control 2', 'Activos']
@@ -38,6 +42,7 @@ export default function LoadControlPage() {
     const [report, setReport] = useState(null)
     const [users, setUsers] = useState([])
     const [audit, setAudit] = useState(null)
+    const [voiceQty, setVoiceQty] = useState({ b: '', u: '' })
     const [, tick] = useState(0)
     useEffect(() => { const timer = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(timer) }, [])
 
@@ -52,6 +57,7 @@ export default function LoadControlPage() {
         finally { setBusy(false) }
     }
     useEffect(() => { act(refresh) }, [])
+    useEffect(() => { setVoiceQty({ b: '', u: '' }) }, [index, mode])
     async function openLoad(id) {
         const { data } = await api.get(`${base}/loads/${id}`)
         setLoad(data); setWork(null); setMode(''); setAudit(null)
@@ -70,6 +76,22 @@ export default function LoadControlPage() {
         const response = await api.post(`${workPath}/answer`, { sku: work.court.productos[index].sku, ...data })
         setWork({ ...work, check: response.data }); setMode('')
         if (index < work.court.productos.length - 1) setIndex(index + 1)
+    }
+    // Comandos de voz: "correcto" confirma, "faltante"/"error corregido" abren el formulario,
+    // "bultos/unidades" completan el faltante. El envío final del faltante sigue siendo un toque.
+    function handleVoice(cmd) {
+        if (!work || work.check.stage === 0) return
+        const total = work.court.productos.length
+        const p = work.court.productos[index]
+        if (cmd.action === 'ok') { if (!mode && work.check.timer_started_at) act(() => sendAnswer({ result: 'ok' })); return }
+        if (cmd.action === 'shortage' && work.check.timer_started_at) { setMode('shortage'); return }
+        if (cmd.action === 'corrected' && work.check.timer_started_at) { setMode('corrected'); return }
+        if (cmd.action === 'repeat') { speak(voicePrompt(p, index, total)); return }
+        if (cmd.action === 'next' && index < total - 1) { setIndex(index + 1); setMode(''); return }
+        if (cmd.action === 'prev' && index > 0) { setIndex(index - 1); setMode(''); return }
+        if (cmd.action === 'quantities' && mode === 'shortage') {
+            setVoiceQty(q => ({ b: cmd.bultos ?? q.b, u: cmd.unidades ?? q.u }))
+        }
     }
     async function finish() {
         await api.post(`${workPath}/finish`)
@@ -138,10 +160,10 @@ export default function LoadControlPage() {
             <section className={`${card} sticky top-2 z-10 ring-1 ring-slate-100`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{stages[work.check.stage]} · Cancha {work.court.numero}</h2><p className="text-sm text-slate-500">Reparto {load.reparto} · {work.check.username}</p></div><div className="text-right"><p className="font-mono text-xl">{duration(liveSeconds(work.check))}</p><p className="text-xs text-slate-500">{work.check.timer_started_at ? 'Tiempo activo' : 'Pausado'}</p></div></div><button className={`${secondary} mt-3`} onClick={() => act(async () => { if (work.check.timer_started_at) { const r = await api.post(`${workPath}/pause`); setWork({ ...work, check: r.data }) } else await begin(work.court, work.check.stage) })}>{work.check.timer_started_at ? 'Pausar tiempo' : 'Reanudar proceso'}</button></section>
             {work.check.stage === 0 ? <section className={card}><h3 className="mb-3 font-semibold">Productos de la cancha</h3><div className="max-h-96 overflow-auto">{work.court.productos.map(p => <p key={p.sku} className="border-t py-2 text-sm"><b>{p.sku}</b> · {p.descripcion} · {p.bultos} bultos + {p.unidades} unidades</p>)}</div><button className={`${button} mt-4`} onClick={() => act(finish)}>Finalizar picking</button></section> : (() => {
                 const p = work.court.productos[index], confirmation = work.check.stage === 2 && mode === 'shortage' && work.court.status.shortages.some(s => s.sku === p.sku), done = Object.keys(work.check.answers).length, total = work.court.productos.length, saved = work.check.answers[p.sku]
-                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
+                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><div className="mb-3"><VoiceControl prompt={voicePrompt(p, index, total)} onCommand={handleVoice} /></div><p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
                     {!mode ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><button disabled={!work.check.timer_started_at} className={`${button} min-h-16 bg-emerald-600 text-base`} onClick={() => act(() => sendAnswer({ result: 'ok' }))}>Correcto →</button><button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-amber-300 bg-amber-50 text-amber-900`} onClick={() => setMode('corrected')}>Error corregido</button><button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-red-200 bg-red-50 text-red-800`} onClick={() => setMode('shortage')}>Faltante real</button></div> : <form key={`${p.sku}-${mode}`} className="space-y-3" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); act(() => sendAnswer({ result: mode, note: f.get('note'), physical_b: Number(f.get('b')), physical_u: Number(f.get('u')), responsible_user_id: Number(f.get('responsible')), origin: f.get('origin') })) }}>
                         <h4 className="font-semibold">{mode === 'shortage' ? 'Registrar faltante' : 'Registrar error corregido'}</h4>
-                        {mode === 'shortage' && <div className="grid grid-cols-2 gap-3"><label className="text-sm">Bultos físicos<input name="b" className={input} inputMode="numeric" type="number" min="0" max={p.bultos} step="1" required /></label><label className="text-sm">Unidades físicas<input name="u" className={input} inputMode="numeric" type="number" min="0" max={p.unidades} step="1" required /></label></div>}
+                        {mode === 'shortage' && <div className="grid grid-cols-2 gap-3"><label className="text-sm">Bultos físicos<input name="b" className={input} inputMode="numeric" type="number" min="0" max={p.bultos} step="1" required value={voiceQty.b} onChange={e => setVoiceQty(q => ({ ...q, b: e.target.value }))} /></label><label className="text-sm">Unidades físicas<input name="u" className={input} inputMode="numeric" type="number" min="0" max={p.unidades} step="1" required value={voiceQty.u} onChange={e => setVoiceQty(q => ({ ...q, u: e.target.value }))} /></label></div>}
                         {!confirmation && <div className="grid gap-3 md:grid-cols-2"><label className="text-sm">Proceso al que corresponde<select className={input} name="origin" required defaultValue=""><option value="" disabled>Seleccionar proceso</option><option value="picking">Picking</option><option value="control">Control</option></select></label><label className="text-sm">Responsable del error<select className={input} name="responsible" required defaultValue=""><option value="" disabled>Seleccionar persona</option>{operators.map(o => <option key={o.id} value={o.id}>{o.username} · {o.role}</option>)}</select></label></div>}{confirmation && <p className="text-sm text-slate-500">Confirmación del faltante del primer control: se mantiene el responsable registrado y no se cuenta como un nuevo error.</p>}<p className="text-xs text-slate-500">Detectado por: {user.username}. El responsable indicado queda registrado por separado.</p>
                         <label className="block text-sm">Observación<textarea className={input} name="note" required={mode === 'corrected'} maxLength={2000} /></label><button disabled={!work.check.timer_started_at} className={button}>Guardar y continuar</button> <button type="button" className={secondary} onClick={() => setMode('')}>Cancelar</button>
                     </form>}

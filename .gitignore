@@ -38,3 +38,7 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Modelo de voz (pesado, se copia a mano)
+frontend/public/voice/model.tar.gz
+frontend/public/voice/model/
