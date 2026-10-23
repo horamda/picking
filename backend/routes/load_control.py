@@ -226,8 +226,8 @@ def answer(load_id, number, stage, check_id):
     prod = next((p for p in court['productos'] if p['sku'] == sku), None)
     if not prod:
         fail('Producto inexistente.', 404)
-    if stage == 0:
-        fail('El picking se finaliza desde su proceso; las respuestas corresponden a controles.')
+    if stage == 0 and data.get('result') == 'corrected':
+        fail('En picking solo se registra correcto o faltante.')
     if not check.get('timer_started_at'):
         fail('Reanud? el proceso antes de registrar productos.', 409)
     result = data.get('result')
