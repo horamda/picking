@@ -66,7 +66,7 @@ def parse_pdf_bytes(file_bytes: bytes, filename: str) -> dict:
 
 
 @uploads_bp.route('/pdf', methods=['POST'])
-@roles_required('administrador', 'supervisor', 'operador')
+@roles_required('administrador', 'supervisor')
 def upload_pdfs():
     files = request.files.getlist('files')
     if not files:
@@ -121,6 +121,14 @@ def upload_pdfs():
             validated_repartos = validate_repartos(consolidado_items, seen_repartos)
 
             for consolidado_data in consolidado_items:
+                from services.load_control import ControlTruck, truck_name
+                delivery = consolidado_data.get('fecha_reparto')
+                if delivery:
+                    date_value = delivery.date().isoformat() if hasattr(delivery, 'date') else str(delivery)[:10]
+                    existing = ControlTruck.query.filter_by(branch=str(consolidado_data.get('deposito') or '').strip(),
+                        truck=truck_name(consolidado_data.get('camion')), load_date=date_value).with_for_update().first()
+                    if existing and any(c.get('checks') for c in existing.state.get('courts', {}).values()):
+                        raise ValueError('El camion ya tiene trabajo iniciado. No se pueden agregar repartos al armado en curso.')
                 consolidado = Consolidado(
                     batch_id=batch.id,
                     uploaded_file_id=uploaded_file.id,

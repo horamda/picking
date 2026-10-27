@@ -47,7 +47,7 @@ class AuthService:
 
     @staticmethod
     def initialize_roles():
-        for name in ['administrador', 'supervisor', 'operador', 'controlador']:
+        for name in ['administrador', 'supervisor', 'operador', 'controlador', 'palletizador']:
             if not Role.query.filter_by(name=name).first():
                 db.session.add(Role(name=name, description=f'Rol {name}'))
         db.session.commit()
@@ -85,10 +85,15 @@ def auth_required(view):
         except (jwt.InvalidTokenError, TypeError, ValueError):
             return jsonify({'error': 'Token invalido'}), 401
 
-        user = User.query.filter_by(id=user_id, active=True).first()
+        query = User.query.filter_by(id=user_id, active=True)
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            query = query.with_for_update()
+        user = query.first()
         if not user:
             return jsonify({'error': 'Usuario inactivo o inexistente'}), 401
 
+        if user.role.name not in ('administrador', 'supervisor') and request.blueprint not in ('auth', 'load_control'):
+            return jsonify(error='Esta cuenta solo tiene acceso a su trabajo asignado.'), 403
         g.current_user = user
         g.jwt_payload = payload
         return view(*args, **kwargs)

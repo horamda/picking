@@ -60,6 +60,14 @@ def elapsed(check):
     return round(seconds, 1)
 
 
+def timing(check):
+    active = elapsed(check)
+    start = check.get('started_at')
+    end = check.get('finished_at')
+    wall = max(0, ((datetime.fromisoformat(end) if end else datetime.now(timezone.utc)) - datetime.fromisoformat(start)).total_seconds()) if start else 0
+    return dict(active_seconds=active, wall_seconds=round(wall, 1), paused_seconds=round(max(0, wall-active), 1))
+
+
 def stop_timer(check):
     check['active_seconds'] = elapsed(check)
     check['timer_started_at'] = None

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axiosClient from '../api/axiosClient'
 import { saveAuthSession } from '../utils/auth'
+import { homeForRole } from '../utils/roleAccess'
 
 function LoginPage() {
     const [username, setUsername] = useState('')
@@ -17,7 +18,7 @@ function LoginPage() {
         try {
             const response = await axiosClient.post('/auth/login', { username, password })
             saveAuthSession(response.data)
-            navigate('/')
+            navigate(homeForRole(response.data.user.role), { replace: true })
         } catch (err) {
             setError(err.response?.data?.error || 'Usuario o contraseña incorrectos')
         } finally {

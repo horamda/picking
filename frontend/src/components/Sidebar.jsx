@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { clearAuthSession, getStoredUser } from '../utils/auth'
+import { isManager, homeForRole } from '../utils/roleAccess'
 
 const navItems = [
     {
@@ -79,6 +80,10 @@ function Brand() {
 function SidebarContent({ onClose }) {
     const navigate = useNavigate()
     const user = getStoredUser()
+    const manager = isManager(user?.role)
+    const groups = manager ? [['Depósito', [homeForRole(user?.role), '/equipo', '/operacion', '/upload']], ['Reportes', ['/', '/historial']], ...(user?.role === 'administrador' ? [['Administración', ['/configuracion', '/articulos', '/exclusiones']]] : [])] : [['Mi trabajo', [homeForRole(user?.role)]]]
+    const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Supervisión'], ['/administracion', 'Administración'], ['/equipo', 'Equipo y canchas'], ['/configuracion', 'Camiones y capacidad']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
+
 
     const handleLogout = () => {
         clearAuthSession()
@@ -104,9 +109,9 @@ function SidebarContent({ onClose }) {
                 )}
             </div>
             <nav className="space-y-5" aria-label="Navegacion principal">
-                {[['Operacion diaria', ['/operacion', '/upload']], ['Seguimiento', ['/', '/historial']], ['Catalogos', ['/articulos', '/exclusiones']]].map(([title, paths]) => <section key={title}>
+                {groups.map(([title, paths]) => <section key={title}>
                     <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h2>
-                    <div className="space-y-1">{paths.map(path => navItems.find(item => item.path === path)).map((item) => (
+                    <div className="space-y-1">{paths.map(path => items.find(item => item.path === path)).map((item) => (
                     <NavLink
                         key={item.path}
                         to={item.path}
@@ -150,7 +155,7 @@ function Sidebar({ isOpen, onClose }) {
             <aside
                 aria-hidden={!isOpen}
                 inert={!isOpen ? '' : undefined}
-                className={`fixed inset-y-0 left-0 z-30 w-64 border-r border-slate-200 bg-white p-5 transition-transform duration-200 xl:hidden ${
+                className={`fixed inset-y-0 left-0 z-30 w-64 overflow-y-auto border-r border-slate-200 bg-white p-5 transition-transform duration-200 xl:hidden ${
                     isOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >

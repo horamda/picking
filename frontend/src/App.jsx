@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import TimingPage from './pages/TimingPage'
+import DepotMonitorPage from './pages/DepotMonitorPage'
+import WarehousePage from './pages/WarehousePage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import UploadPage from './pages/UploadPage'
 import ArticlesPage from './pages/ArticlesPage'
 import HistoryPage from './pages/HistoryPage'
 import OperationsPage from './pages/OperationsPage'
+import LoadControlPage from './pages/LoadControlPage'
 import ExclusionsPage from './pages/ExclusionsPage'
 import axiosClient from './api/axiosClient'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
 
 function App() {
+    const monitor = useLocation().pathname === "/monitor"
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [runtime, setRuntime] = useState(null)
     useEffect(() => { axiosClient.get('/runtime-config').then(r => setRuntime(r.data)).catch(() => {}) }, [])
@@ -25,7 +30,7 @@ function App() {
                     element={
                         <ProtectedRoute>
                             <div className="flex min-h-screen">
-                                <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+                                {!monitor && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
                                 {sidebarOpen && (
                                     <div
                                         className="fixed inset-0 z-20 bg-black/40 xl:hidden"
@@ -33,7 +38,7 @@ function App() {
                                     />
                                 )}
                                 <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-                                    <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 xl:hidden">
+                                    <header className={`${monitor ? "hidden" : "flex"} items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 xl:hidden`}>
                                         <button
                                             type="button"
                                             onClick={() => setSidebarOpen(true)}
@@ -50,8 +55,17 @@ function App() {
                                         {runtime?.mode === 'prueba' && runtime.shared_database && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">Modo prueba: conectado a la base de Railway. Los cambios se guardan en los datos compartidos.</div>}
                                         <Routes>
                                             <Route path="/" element={<DashboardPage />} />
+                                            <Route path="/tiempos" element={<TimingPage />} />
+                                            <Route path="/monitor" element={<DepotMonitorPage />} />
+                                            <Route path="/supervision" element={<WarehousePage />} />
+                                            <Route path="/administracion" element={<WarehousePage />} />
+                                            <Route path="/equipo" element={<WarehousePage section="team" />} />
+                                            <Route path="/configuracion" element={<WarehousePage section="settings" />} />
+                                            <Route path="/pallets" element={<LoadControlPage key="pallets" palletsOnly />} />
                                             <Route path="/upload" element={<UploadPage />} />
                                             <Route path="/operacion" element={<OperationsPage />} />
+                                            <Route path="/picking" element={<LoadControlPage key="picking" pickingOnly />} />
+                                            <Route path="/controles" element={<LoadControlPage key="controles" controlsOnly />} />
                                             <Route path="/control-cargas" element={<Navigate to="/operacion?tab=control" replace />} />
                                             <Route path="/historial" element={<HistoryPage />} />
                                             <Route path="/articulos" element={<ArticlesPage />} />

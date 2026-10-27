@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api/axiosClient'
 import { getStoredUser } from '../utils/auth'
+import { stagesForRole } from '../utils/roleAccess'
+import { matchesProcess, filterProcessGroups, processState } from '../utils/processFilter'
 import { todayInputValue } from '../utils/format'
 import { groupControlTrucks } from '../utils/controlTrucks'
 import ControlTruckCard from '../components/ControlTruckCard'
+import PalletPlanning from '../components/PalletPlanning'
 import VoiceControl from '../components/VoiceControl'
 import { speak } from '../voice/speech'
 
-const voicePrompt = (p, index, total, stage) => `Producto ${index + 1} de ${total}. ${p.descripcion}. ${p.bultos} bultos y ${p.unidades} unidades. ${stage === 0 ? 'Decí correcto o faltante.' : 'Decí correcto, error corregido o faltante.'}`
+const voicePrompt = (p, index, total, stage) => stage === 4 ? `Prepará ${p.pallets} pallets completos de ${p.descripcion}, ${p.bultos} bultos en total. Cuando termines, decí correcto.` : `Producto ${index + 1} de ${total}. ${[0, 4].includes(stage) ? 'Agarrá' : 'Verificá'} ${p.bultos} bultos y ${p.unidades} unidades de ${p.descripcion}. ${[0, 4].includes(stage) ? 'Cuando termines, decí correcto. Si falta mercadería, decí faltante.' : 'Decí correcto, error corregido o faltante.'}`
 
 const base = '/load-control'
-const stages = ['Picking', 'Control 1', 'Control 2', 'Activos']
+const stages = ['Picking', 'Control 1', 'Control 2', 'Activos', 'Pallets completos']
 const button = 'min-h-12 touch-manipulation rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40'
 const secondary = 'min-h-12 touch-manipulation rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40'
 const input = 'min-h-12 text-base w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900'
@@ -20,9 +23,13 @@ const duration = value => { const s = Math.floor(value || 0); return `${Math.flo
 const localTime = value => value ? new Date(value).toLocaleString('es-AR') : '—'
 const liveSeconds = check => (check.active_seconds || 0) + (check.timer_started_at ? Math.max(0, (Date.now() - new Date(check.timer_started_at).getTime()) / 1000) : 0)
 
-export default function LoadControlPage() {
+export default function LoadControlPage({ pickingOnly = false, controlsOnly = false, palletsOnly = false }) {
     const user = getStoredUser()
-    const manager = ['administrador', 'supervisor'].includes(user?.role)
+    const palletizer = palletsOnly || user?.role === 'palletizador'
+    const picker = palletizer || pickingOnly || user?.role === 'operador'
+    const controller = controlsOnly || user?.role === 'controlador'
+    const visibleStages = stagesForRole(palletizer ? 'palletizador' : picker ? 'operador' : controller ? 'controlador' : user?.role)
+    const manager = !picker && !controller && ['administrador', 'supervisor'].includes(user?.role)
     const [trucks, setTrucks] = useState([])
     const [sources, setSources] = useState([])
     const [operators, setOperators] = useState([])
@@ -37,6 +44,8 @@ export default function LoadControlPage() {
     const [loaded, setLoaded] = useState(false)
     const [view, setView] = useState('loads')
     const [search, setSearch] = useState('')
+    const [planningTruck, setPlanningTruck] = useState(null)
+    const [processFilter, setProcessFilter] = useState('all')
     const [date, setDate] = useState(todayInputValue())
     const [assetTruck, setAssetTruck] = useState(null)
     const [report, setReport] = useState(null)
@@ -47,7 +56,7 @@ export default function LoadControlPage() {
     useEffect(() => { const timer = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(timer) }, [])
 
     async function refresh() {
-        const [t, s, o, a] = await Promise.all(['trucks', 'sources', 'operators', 'asset-types'].map(p => api.get(`${base}/${p}`)))
+        const [t, s, o, a] = await Promise.all(['trucks', 'sources', 'operators', 'asset-types'].map(p => api.get(`${base}/${p}`, { params: p === 'trucks' ? { date } : {} })))
         setTrucks(t.data); setSources(s.data); setOperators(o.data); setTypes(a.data); setLoaded(true)
     }
     async function act(fn) {
@@ -56,7 +65,8 @@ export default function LoadControlPage() {
         try { await fn() } catch (err) { setError(err.response?.data?.error || 'No se pudo completar la operación. Revisá la conexión y reintentá.') }
         finally { setBusy(false) }
     }
-    useEffect(() => { act(refresh) }, [])
+    useEffect(() => { act(refresh) }, [date])
+    useEffect(() => { if (work || busy || view !== 'loads') return; const timer = setInterval(() => refresh().catch(() => setError('No se pudo actualizar. Revisá la conexión.')), 10000); return () => clearInterval(timer) }, [!!work, busy, view, date])
     useEffect(() => { setVoiceQty({ b: '', u: '' }) }, [index, mode])
     async function openLoad(id) {
         const { data } = await api.get(`${base}/loads/${id}`)
@@ -68,8 +78,9 @@ export default function LoadControlPage() {
     }
     async function begin(court, stage) {
         const { data } = await api.post(`${base}/loads/${load.id}/courts/${court.numero}/start/${stage}`)
-        setWork({ court, check: data }); setMode('')
-        const next = court.productos.findIndex(p => !data.answers[p.sku]); setIndex(next < 0 ? 0 : next)
+        const effectiveCourt = [0, 4].includes(stage) && data.products ? { ...court, productos: data.products } : court
+        setWork({ court: effectiveCourt, check: data }); setMode('')
+        const next = effectiveCourt.productos.findIndex(p => !data.answers[p.sku]); setIndex(next < 0 ? 0 : next)
     }
     const workPath = work ? `${base}/loads/${load.id}/courts/${work.court.numero}/checks/${work.check.stage}/${work.check.id}` : ''
     async function sendAnswer(data) {
@@ -85,7 +96,7 @@ export default function LoadControlPage() {
         const p = work.court.productos[index]
         if (cmd.action === 'ok') { if (!mode && work.check.timer_started_at) act(() => sendAnswer({ result: 'ok' })); return }
         if (cmd.action === 'shortage' && work.check.timer_started_at) { setMode('shortage'); return }
-        if (cmd.action === 'corrected' && work.check.stage !== 0 && work.check.timer_started_at) { setMode('corrected'); return }
+        if (cmd.action === 'corrected' && [1, 2].includes(work.check.stage) && work.check.timer_started_at) { setMode('corrected'); return }
         if (cmd.action === 'repeat') { speak(voicePrompt(p, index, total, work?.check?.stage)); return }
         if (cmd.action === 'next' && index < total - 1) { setIndex(index + 1); setMode(''); return }
         if (cmd.action === 'prev' && index > 0) { setIndex(index - 1); setMode(''); return }
@@ -111,7 +122,7 @@ export default function LoadControlPage() {
     }
     const matches = (truck, reparto = '') => (!date || truck.load_date === date) && `${truck.truck} ${reparto} ${truck.branch}`.toLowerCase().includes(search.toLowerCase())
     const allGroups = useMemo(() => groupControlTrucks(trucks, sources), [trucks, sources])
-    const groupedTrucks = allGroups.filter(t => matches(t, [...t.loads, ...t.pending].map(l => l.reparto).join(' ')))
+    const groupedTrucks = filterProcessGroups(allGroups, visibleStages, processFilter).filter(t => matches(t, [...t.loads, ...t.pending].map(l => l.reparto).join(' ')))
     const shortages = trucks.flatMap(t => t.status.shortages.map(s => ({ ...s, truck: t })))
     const selectedGroup = load && allGroups.find(t => t.loads.some(l => l.id === load.id))
     const nextLoad = selectedGroup?.loads.find(l => l.id !== load?.id && !l.canchas.every(c => c.status.done))
@@ -119,39 +130,46 @@ export default function LoadControlPage() {
 
     return <div className={`load-control mx-auto space-y-5 p-3 pb-24 sm:p-5 md:p-8 ${work ? "max-w-3xl" : "max-w-7xl"}`}>
         <header className={`flex flex-wrap items-start justify-between gap-4 ${work ? "hidden md:flex" : ""}`}>
-            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">Picking, doble control por cancha y activos de salida.</p></div>
+            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: palletizer ? 'Pallets completos' : picker ? "Picking" : controller ? "Controles y activos" : "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">{picker ? 'Seleccioná una carga y una cancha para preparar los productos.' : 'Doble control por cancha y activos de salida.'}</p></div>
             <button className={secondary} disabled={busy} onClick={() => act(() => go(view))}>Actualizar</button>
         </header>
         <nav className={`grid gap-3 ${manager ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"} ${work ? "hidden" : ""}`} aria-label="Secciones de control de cargas">
-            {[['loads', 'Control operativo', 'Camiones y cargas'], ...(manager ? [['shortages', 'Supervisión', 'Faltantes y autorizaciones'], ['performance', 'Rendimiento', 'Tiempos y errores'], ['users', 'Administración', 'Usuarios y roles']] : [])].map(([key, label, description]) => <button key={key} disabled={busy} aria-current={view === key ? "page" : undefined} className={`${view === key ? button : secondary} text-left p-4`} onClick={() => act(() => go(key))}><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs opacity-80">{description}</span></button>)}
+            {[['loads', 'Control operativo', 'Camiones y cargas'], ...(manager ? [['shortages', 'Supervisión', 'Faltantes y autorizaciones'], ['performance', 'Rendimiento', 'Tiempos y errores'], ...(user?.role === 'administrador' ? [['users', 'Administración', 'Usuarios y roles']] : [])] : [])].map(([key, label, description]) => <button key={key} disabled={busy} aria-current={view === key ? "page" : undefined} className={`${view === key ? button : secondary} text-left p-4`} onClick={() => act(() => go(key))}><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs opacity-80">{description}</span></button>)}
         </nav>
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>}
         {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</div>}
         {busy && <p role="status" className="text-sm text-slate-500">Procesando…</p>}
         <fieldset disabled={busy} className="min-w-0 space-y-5 disabled:opacity-75">
+        {manager && planningTruck && <PalletPlanning key={planningTruck.id} truck={planningTruck} onClose={() => { setPlanningTruck(null); act(refresh) }} />}
+        {view === 'loads' && !work && <label className="block max-w-sm text-sm">Estado del proceso
+            <select className={input} value={processFilter} onChange={e => setProcessFilter(e.target.value)}>
+                <option value="all">Todos</option><option value="running">En curso</option>
+                <option value="not_started">Sin iniciar</option><option value="paused">Pausados</option><option value="done">Finalizados</option>
+            </select>
+        </label>}
         {view === 'loads' && !load && !assetTruck && <>
             <div className="flex flex-wrap gap-3"><label className="min-w-48 flex-1 text-sm">Buscar camión o reparto<input className={input} value={search} onChange={e => setSearch(e.target.value)} placeholder="Patente, reparto o depósito" /></label><label className="text-sm">Fecha de reparto<input type="date" className={input} value={date} onChange={e => setDate(e.target.value)} /></label></div>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
+            {!picker && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
                 ['Camiones', groupedTrucks.length],
                 ['Cargas del filtro', groupedTrucks.reduce((n, t) => n + t.total, 0)],
                 ['Cargas controladas', groupedTrucks.reduce((n, t) => n + t.completed, 0)],
                 ['Camiones liberados', groupedTrucks.filter(t => t.released).length],
-            ].map(([label, value]) => <div className="rounded-2xl border border-slate-200 bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-bold">{value}</p></div>)}</div>
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-sm text-slate-600">Cada carga se controla por separado. El camión queda liberado al completar todas sus cargas, los activos y las autorizaciones de faltantes.</p><div className="flex gap-2"><button className={secondary} onClick={() => setDate(todayInputValue())}>Hoy</button><button className={secondary} onClick={() => { setDate(''); setSearch('') }}>Ver todas las fechas</button></div></div>
-            <div className="grid items-start gap-5 xl:grid-cols-2">{groupedTrucks.map(t => <ControlTruckCard key={t.key} truck={t} manager={manager}
-                onOpen={id => act(() => openLoad(id))} onActivate={id => act(() => activate(id))}
+            ].map(([label, value]) => <div className="rounded-2xl border border-slate-200 bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-bold">{value}</p></div>)}</div>}
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-sm text-slate-600">{picker ? 'Abrí una carga para preparar sus productos por cancha, con voz o con botones.' : 'Cada carga se controla por separado. El camión queda liberado al completar todas sus cargas, los activos y las autorizaciones de faltantes.'}</p><div className="flex gap-2"><button className={secondary} onClick={() => setDate(todayInputValue())}>Hoy</button><button className={secondary} onClick={() => { setDate(''); setSearch('') }}>Ver todas las fechas</button></div></div>
+            <div className="grid items-start gap-5 xl:grid-cols-2">{groupedTrucks.map(t => <ControlTruckCard key={t.key} truck={t} manager={manager} pickingOnly={picker}
+                onOpen={id => act(() => openLoad(id))} onActivate={id => act(() => activate(id))} onPlan={() => { setPlanningTruck(t); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
                 onAssets={() => act(async () => { const { data } = await api.post(`${base}/trucks/${t.id}/assets/start`); setAssetTruck({ ...t, check: data }) })}
                 onAudit={() => act(async () => setAudit({ truck: t.truck, rows: (await api.get(`${base}/trucks/${t.id}/audit`)).data }))} />)}</div>
-            {loaded && !groupedTrucks.length && <section className={`${card} text-center`}><h2 className="font-semibold">No hay camiones para este filtro</h2><p className="mt-2 text-sm text-slate-500">Probá otra fecha o consultá los PDFs ya importados.</p><Link className="mt-4 inline-block min-h-12 py-3 font-semibold text-brand-600" to="/upload">Ir a Carga PDF</Link></section>}
+            {loaded && !groupedTrucks.length && <section className={`${card} text-center`}><h2 className="font-semibold">No hay camiones para este filtro</h2><p className="mt-2 text-sm text-slate-500">Probá otra fecha o consultá los PDFs ya importados.</p>{manager && <Link className="mt-4 inline-block min-h-12 py-3 font-semibold text-brand-600" to="/upload">Ir a Carga PDF</Link>}</section>}
             {audit && <section className={card}><div className="flex justify-between"><h2 className="font-semibold">Trazabilidad · {audit.truck}</h2><button className={secondary} onClick={() => setAudit(null)}>Cerrar</button></div><div className="mt-4 max-h-96 overflow-auto">{audit.rows.map(r => <details key={r.id} className="border-t py-2 text-sm"><summary>{localTime(r.at + 'Z')} · {r.username} · {r.action.replaceAll('_', ' ')}</summary><pre className="overflow-auto whitespace-pre-wrap p-2 text-xs">{JSON.stringify(r.details, null, 2)}</pre></details>)}</div></section>}
         </>}
         {view === 'loads' && load && !work && <>
             <button className={secondary} onClick={() => { setLoad(null); setWork(null) }}>← Camiones</button>
-            {selectedGroup && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50 p-4"><p className="text-sm"><b>Camión {selectedGroup.truck}</b> · {selectedGroup.completed} de {selectedGroup.total} cargas controladas</p>{load.canchas.every(c => c.status.done) && (nextLoad || selectedGroup.pending.length > 0) && <button className={button} onClick={() => act(() => nextLoad ? openLoad(nextLoad.id) : activate(selectedGroup.pending[0].id))}>Continuar con la siguiente carga</button>}</div>}
-            <section className={card}><h2 className="text-lg font-semibold">Reparto {load.reparto} · {load.camion}</h2><p className="text-sm text-slate-500">{load.fecha} · {load.chofer} · {load.deposito}</p><p className="mt-3 text-sm">Seleccioná una cancha. Cada proceso registra su operador y tiempo activo. Si el picking ya se hizo, podés comenzar directamente el primer control; ese picking quedará sin tiempo medido.</p></section>
-            <div className="grid gap-4 md:grid-cols-2">{load.canchas.map(c => <section key={c.numero} className={card}>
-                <h3 className="text-lg font-semibold">Cancha {c.numero}</h3><p className="mb-3 text-sm text-slate-500">{c.productos.length} productos · {c.status.done ? 'Doble control completo' : 'Pendiente'}</p>
-                {stages.slice(0, 3).map((label, stage) => { const check = c.status.checks.find(ch => ch.stage === stage); const first = c.status.checks.find(ch => ch.stage === 1); const pick = c.status.checks.find(ch => ch.stage === 0); const available = stage === 0 ? !first : stage === 1 ? pick?.status !== 'active' : first?.status === 'done' && first.user_id !== user.id; return <div className="mb-3 rounded-xl bg-slate-50 p-3" key={stage}><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{label}</b>{check ? <span className="text-xs text-slate-500">{check.username} · {check.status === 'done' ? 'Finalizado' : check.timer_started_at ? 'En curso' : 'Pausado'} · {duration(liveSeconds(check))}</span> : <span className="text-xs text-slate-500">Sin iniciar</span>}</div>{!selectedTruck?.status.released_at && available && (!check || (check.status === 'active' && check.user_id === user.id)) && <button className={`${secondary} mt-2`} onClick={() => act(() => begin(c, stage))}>{check ? 'Retomar' : 'Iniciar'} {label.toLowerCase()}</button>}{stage === 2 && first?.user_id === user.id && <p className="mt-1 text-xs text-slate-500">Debe realizarlo otra persona.</p>}</div> })}
+            {!picker && selectedGroup && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50 p-4"><p className="text-sm"><b>Camión {selectedGroup.truck}</b> · {selectedGroup.completed} de {selectedGroup.total} cargas controladas</p>{load.canchas.every(c => c.status.done) && (nextLoad || selectedGroup.pending.length > 0) && <button className={button} onClick={() => act(() => nextLoad ? openLoad(nextLoad.id) : activate(selectedGroup.pending[0].id))}>Continuar con la siguiente carga</button>}</div>}
+            <section className={card}><h2 className="text-lg font-semibold">Reparto {load.reparto} · {load.camion}</h2><p className="text-sm text-slate-500">{load.fecha} · {load.chofer} · {load.deposito}</p><p className="mt-3 text-sm">{picker ? 'Seleccioná una cancha para iniciar o retomar el picking.' : 'Seleccioná una cancha. Cada proceso registra su operador y tiempo activo.'}</p></section>
+            <div className="grid gap-4 md:grid-cols-2">{load.canchas.filter(c => matchesProcess(c, visibleStages, processFilter)).map(c => <section key={c.numero} className={card}>
+                <h3 className="text-lg font-semibold">Cancha {c.numero}</h3><p className="mb-3 text-sm text-slate-500">{c.productos.length} productos · {picker ? (c.status.checks.some(ch => ch.stage === 0 && ch.status === 'done') ? 'Picking finalizado' : 'Picking pendiente') : c.status.done ? 'Doble control completo' : 'Pendiente'}</p>
+                {stages.map((label, stage) => { if (!visibleStages.includes(stage) || (processFilter !== 'all' && processState(c.status.checks.find(ch => ch.stage === stage)) !== processFilter)) return null; const check = c.status.checks.find(ch => ch.stage === stage); const first = c.status.checks.find(ch => ch.stage === 1); const pick = c.status.checks.find(ch => ch.stage === 0); const available = [0, 4].includes(stage) ? !first : stage === 1 ? pick?.status !== 'active' && c.status.checks.find(ch => ch.stage === 4)?.status !== 'active' : first?.status === 'done' && first.user_id !== user.id; return <div className="mb-3 rounded-xl bg-slate-50 p-3" key={stage}><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{label}</b>{check ? <span className="text-xs text-slate-500">{check.username} · {check.status === 'done' ? 'Finalizado' : check.timer_started_at ? 'En curso' : 'Pausado'} · {duration(liveSeconds(check))}</span> : <span className="text-xs text-slate-500">Sin iniciar</span>}</div>{!selectedTruck?.status.released_at && available && (!check || (check.status === 'active' && (check.user_id == null || check.user_id === user.id))) && <button className={`${secondary} mt-2`} onClick={() => act(() => begin(c, stage))}>{check ? 'Retomar' : 'Iniciar'} {label.toLowerCase()}</button>}{stage === 2 && first?.user_id === user.id && <p className="mt-1 text-xs text-slate-500">Debe realizarlo otra persona.</p>}</div> })}
                 {manager && !selectedTruck?.status.released_at && c.status.checks.length > 0 && <button className={secondary} onClick={() => act(() => reopen(c))}>Reabrir / liberar reserva</button>}
             </section>)}</div>
         </>}
@@ -160,14 +178,14 @@ export default function LoadControlPage() {
             <section className={`${card} sticky top-2 z-10 ring-1 ring-slate-100`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{stages[work.check.stage]} · Cancha {work.court.numero}</h2><p className="text-sm text-slate-500">Reparto {load.reparto} · {work.check.username}</p></div><div className="text-right"><p className="font-mono text-xl">{duration(liveSeconds(work.check))}</p><p className="text-xs text-slate-500">{work.check.timer_started_at ? 'Tiempo activo' : 'Pausado'}</p></div></div><button className={`${secondary} mt-3`} onClick={() => act(async () => { if (work.check.timer_started_at) { const r = await api.post(`${workPath}/pause`); setWork({ ...work, check: r.data }) } else await begin(work.court, work.check.stage) })}>{work.check.timer_started_at ? 'Pausar tiempo' : 'Reanudar proceso'}</button></section>
             {(() => {
                 const p = work.court.productos[index], confirmation = work.check.stage === 2 && mode === 'shortage' && work.court.status.shortages.some(s => s.sku === p.sku), done = Object.keys(work.check.answers).length, total = work.court.productos.length, saved = work.check.answers[p.sku]
-                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><div className="mb-3"><VoiceControl prompt={voicePrompt(p, index, total, work?.check?.stage)} onCommand={handleVoice} /></div><p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
-                    {!mode ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><button disabled={!work.check.timer_started_at} className={`${button} min-h-16 bg-emerald-600 text-base`} onClick={() => act(() => sendAnswer({ result: 'ok' }))}>Correcto →</button>{work.check.stage !== 0 && <button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-amber-300 bg-amber-50 text-amber-900`} onClick={() => setMode('corrected')}>Error corregido</button>}<button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-red-200 bg-red-50 text-red-800`} onClick={() => setMode('shortage')}>Faltante real</button></div> : <form key={`${p.sku}-${mode}`} className="space-y-3" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); act(() => sendAnswer({ result: mode, note: f.get('note'), physical_b: Number(f.get('b')), physical_u: Number(f.get('u')), responsible_user_id: Number(f.get('responsible')), origin: f.get('origin') })) }}>
+                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><div className="mb-3"><VoiceControl prompt={voicePrompt(p, index, total, work?.check?.stage)} onCommand={handleVoice} /></div>{p.pallets > 0 && <p className="text-2xl font-bold">Prepará {p.pallets} pallets completos</p>}<p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
+                    {!mode ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><button disabled={!work.check.timer_started_at} className={`${button} min-h-16 bg-emerald-600 text-base`} onClick={() => act(() => sendAnswer({ result: 'ok' }))}>Correcto →</button>{[1, 2].includes(work.check.stage) && <button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-amber-300 bg-amber-50 text-amber-900`} onClick={() => setMode('corrected')}>Error corregido</button>}<button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-red-200 bg-red-50 text-red-800`} onClick={() => setMode('shortage')}>Faltante real</button></div> : <form key={`${p.sku}-${mode}`} className="space-y-3" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); act(() => sendAnswer({ result: mode, note: f.get('note'), physical_b: Number(f.get('b')), physical_u: Number(f.get('u')), responsible_user_id: Number(f.get('responsible')), origin: f.get('origin') })) }}>
                         <h4 className="font-semibold">{mode === 'shortage' ? 'Registrar faltante' : 'Registrar error corregido'}</h4>
                         {mode === 'shortage' && <div className="grid grid-cols-2 gap-3"><label className="text-sm">Bultos físicos<input name="b" className={input} inputMode="numeric" type="number" min="0" max={p.bultos} step="1" required value={voiceQty.b} onChange={e => setVoiceQty(q => ({ ...q, b: e.target.value }))} /></label><label className="text-sm">Unidades físicas<input name="u" className={input} inputMode="numeric" type="number" min="0" max={p.unidades} step="1" required value={voiceQty.u} onChange={e => setVoiceQty(q => ({ ...q, u: e.target.value }))} /></label></div>}
-                        {!confirmation && <div className="grid gap-3 md:grid-cols-2"><label className="text-sm">Proceso al que corresponde<select className={input} name="origin" required defaultValue=""><option value="" disabled>Seleccionar proceso</option><option value="picking">Picking</option><option value="control">Control</option></select></label><label className="text-sm">Responsable del error<select className={input} name="responsible" required defaultValue=""><option value="" disabled>Seleccionar persona</option>{operators.map(o => <option key={o.id} value={o.id}>{o.username} · {o.role}</option>)}</select></label></div>}{confirmation && <p className="text-sm text-slate-500">Confirmación del faltante del primer control: se mantiene el responsable registrado y no se cuenta como un nuevo error.</p>}<p className="text-xs text-slate-500">Detectado por: {user.username}. El responsable indicado queda registrado por separado.</p>
+                        {!confirmation && [1, 2].includes(work.check.stage) && <div className="grid gap-3 md:grid-cols-2"><label className="text-sm">Proceso al que corresponde<select className={input} name="origin" required defaultValue=""><option value="" disabled>Seleccionar proceso</option><option value="picking">Picking</option><option value="control">Control</option></select></label><label className="text-sm">Responsable del error<select className={input} name="responsible" required defaultValue=""><option value="" disabled>Seleccionar persona</option>{operators.map(o => <option key={o.id} value={o.id}>{o.username} · {o.role}</option>)}</select></label></div>}{confirmation && <p className="text-sm text-slate-500">Confirmación del faltante del primer control: se mantiene el responsable registrado y no se cuenta como un nuevo error.</p>}<p className="text-xs text-slate-500">Detectado por: {user.username}. El responsable indicado queda registrado por separado.</p>
                         <label className="block text-sm">Observación<textarea className={input} name="note" required={mode === 'corrected'} maxLength={2000} /></label><button disabled={!work.check.timer_started_at} className={button}>Guardar y continuar</button> <button type="button" className={secondary} onClick={() => setMode('')}>Cancelar</button>
                     </form>}
-                    <div className="mt-5 flex justify-between"><button className={secondary} disabled={index === 0} onClick={() => { setIndex(index - 1); setMode('') }}>← Anterior</button><button className={secondary} disabled={index === total - 1} onClick={() => { setIndex(index + 1); setMode('') }}>Siguiente →</button></div></section><section className={card}><details><summary className="mb-3 min-h-12 cursor-pointer py-3 font-medium">Ver avance de todos los productos</summary><div className="mb-4 flex flex-wrap gap-2">{work.court.productos.map((product, i) => <button key={product.sku} aria-label={`Producto ${i + 1}: ${product.descripcion}`} className={work.check.answers[product.sku] ? button : secondary} onClick={() => { setIndex(i); setMode('') }}>{i + 1}</button>)}</div></details><button className={`${button} w-full min-h-14`} disabled={work.check.stage !== 0 && done !== total} onClick={() => act(finish)}>Finalizar {stages[work.check.stage].toLowerCase()}</button></section></>
+                    <div className="mt-5 flex justify-between"><button className={secondary} disabled={index === 0} onClick={() => { setIndex(index - 1); setMode('') }}>← Anterior</button><button className={secondary} disabled={index === total - 1} onClick={() => { setIndex(index + 1); setMode('') }}>Siguiente →</button></div></section><section className={card}><details><summary className="mb-3 min-h-12 cursor-pointer py-3 font-medium">Ver avance de todos los productos</summary><div className="mb-4 flex flex-wrap gap-2">{work.court.productos.map((product, i) => <button key={product.sku} aria-label={`Producto ${i + 1}: ${product.descripcion}`} className={work.check.answers[product.sku] ? button : secondary} onClick={() => { setIndex(i); setMode('') }}>{i + 1}</button>)}</div></details><button className={`${button} w-full min-h-14`} disabled={[1, 2].includes(work.check.stage) && done !== total} onClick={() => act(finish)}>Finalizar {stages[work.check.stage].toLowerCase()}</button></section></>
             })()}
         </>}
         {assetTruck && <section className={card}><button className={secondary} onClick={() => setAssetTruck(null)}>← Camiones</button><h2 className="my-4 text-lg font-semibold">Activos de salida · {assetTruck.truck}</h2><p className="mb-4 text-sm text-slate-500">Contá los activos físicos. Completá todos los campos, incluido cero.</p><form className="space-y-4" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); act(async () => { await api.post(`${base}/trucks/${assetTruck.id}/assets`, { quantities: Object.fromEntries(types.map(t => [t, Number(f.get(t))])) }); setAssetTruck(null); await refresh(); setMessage('Activos registrados. El camión se libera en la aplicación cuando todos los faltantes están autorizados.') }) }}><div className="grid gap-3 sm:grid-cols-2">{types.map(t => <label key={t} className="text-sm">{t}<input className={input} name={t} required inputMode="numeric" type="number" min="0" step="1" /></label>)}</div><button className={button}>Confirmar activos</button></form></section>}

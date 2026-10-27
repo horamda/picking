@@ -1,0 +1,23 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.delpalacio.picking'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.delpalacio.picking'
+        minSdk 26
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0'
+        testInstrumentationRunner 'com.delpalacio.picking.SmokeRunner'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes { release { minifyEnabled false } }
+}
+dependencies {
+    implementation 'com.alphacephei:vosk-android:0.3.75@aar'
+    implementation 'net.java.dev.jna:jna:5.18.1@aar'
+    testImplementation 'junit:junit:4.13.2'
+}
+tasks.named('preBuild') { doFirst {
+    if (!file('src/main/assets/model-es/am/final.mdl').exists()) throw new GradleException('Falta el modelo español. Ver android/README.md.')
+} }

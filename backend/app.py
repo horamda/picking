@@ -1,8 +1,10 @@
 import os
 import threading
+import time
+import json
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 from flask_cors import CORS
 from config import Config
 from sqlalchemy import inspect, text
@@ -36,6 +38,33 @@ FRONTEND_DIST = Path(__file__).resolve().parent.parent / 'frontend' / 'dist'
 _db_init_lock = threading.Lock()
 _db_initialized = False
 _db_init_error = None
+
+@app.before_request
+def request_clock():
+    g.request_started = time.perf_counter()
+
+
+@app.after_request
+def request_metrics(response):
+    duration = round((time.perf_counter() - getattr(g, 'request_started', time.perf_counter())) * 1000, 2)
+    response.headers['Server-Timing'] = f'app;dur={duration}'
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
+    user = getattr(g, 'current_user', None)
+    if user and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        from models import LogEntry
+        user_id = user.id
+        try:
+            db.session.rollback()
+            db.session.add(LogEntry(user_id=user_id, entity='api_activity', action=request.endpoint or 'api',
+                details=json.dumps(dict(method=request.method, route=str(request.url_rule), status=response.status_code,
+                    server_ms=duration))))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.error('No se pudo guardar la metrica de actividad del sistema.')
+    return response
+
 
 @app.route('/')
 def index():

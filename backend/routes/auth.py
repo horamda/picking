@@ -25,6 +25,7 @@ def login():
         user.password_hash = AuthService.hash_password(password)
         db.session.commit()
 
+    g.current_user = user
     token = AuthService.generate_token(user)
     return jsonify({
         'token': token,

@@ -21,7 +21,7 @@ const COMMANDS = {
 
 export const VOICE_VOCABULARY = [
   ...Object.keys(NUMBER_WORDS), ...Object.keys(COMMANDS),
-  'bulto', 'bultos', 'unidad', 'unidades',
+  'bulto', 'bultos', 'unidad', 'unidades', 'y',
 ]
 
 export function normalize(text) {
@@ -46,13 +46,19 @@ export function parseVoice(text) {
 
   // Cantidades: "dos bultos tres unidades", "dos y tres", "2 3".
   const numbers = []
-  words.forEach((w, i) => {
-    const value = /^\d+$/.test(w) ? Number(w) : NUMBER_WORDS[w]
-    if (value === undefined) return
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
+    let value = /^\d+$/.test(w) ? Number(w) : NUMBER_WORDS[w]
+    if (value === undefined) continue
+    const unit = NUMBER_WORDS[words[i + 2]]
+    if ((w === 'treinta' || w === 'cuarenta') && words[i + 1] === 'y' && unit >= 1 && unit <= 9) {
+      value += unit
+      i += 2
+    }
     const next = words[i + 1]
     numbers.push({ value, label: next === 'bulto' || next === 'bultos' ? 'bultos'
       : next === 'unidad' || next === 'unidades' ? 'unidades' : null })
-  })
+  }
   if (numbers.length) {
     const labeled = (name) => numbers.find(n => n.label === name)?.value
     let bultos = labeled('bultos')
