@@ -2,7 +2,7 @@ import os
 import tempfile
 from io import BytesIO
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, g
 from sqlalchemy import func
 from werkzeug.utils import secure_filename
 from auth import auth_required, roles_required
@@ -10,6 +10,7 @@ from models import ProcessingBatch, Consolidado, ConsolidadoDetalle, ProcessingE
 from utils.db import db
 from services.pdf_parser import parse_pdf_file
 from services.processing import compute_consolidation_metrics
+from services.pdf_articles import enable_pdf_articles
 from services.file_storage import create_uploaded_file_record, mark_uploaded_file, uploaded_file_to_dict
 
 uploads_bp = Blueprint('uploads', __name__)
@@ -143,6 +144,9 @@ def upload_pdfs():
                 )
                 db.session.add(consolidado)
                 db.session.flush()
+                enabled = enable_pdf_articles(
+                    [row['sku'] for row in consolidado_data.get('items', []) if row['sku'] not in excluded_skus],
+                    g.current_user.id, consolidado.id)
                 skipped = 0
                 for row in consolidado_data.get('items', []):
                     if row['sku'] in excluded_skus:
@@ -177,6 +181,7 @@ def upload_pdfs():
                     'fecha_reparto': consolidado.fecha_reparto.isoformat() if consolidado.fecha_reparto else None,
                     'items': len(consolidado_data.get('items', [])) - skipped,
                     'excluded': skipped,
+                    'enabled_articles': enabled,
                 })
             mark_uploaded_file(uploaded_file, 'procesado')
             db.session.commit()

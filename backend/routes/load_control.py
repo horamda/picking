@@ -18,6 +18,7 @@ from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
 from services.dispatch import totals, truck_summary, worker_queue, selection_preview
+from services.pdf_articles import enable_pdf_articles
 from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 
@@ -146,6 +147,7 @@ def save_dispatch():
                     load = add_load(snapshot(source), source.id)
                 except ValueError as exc:
                     fail(str(exc), 422)
+            enable_pdf_articles([row.sku for row in source.detalles], g.current_user.id, source.id)
             loads.append(load)
         wanted[key] = dict(truck=loads[0].truck, load_ids=[l.id for l in loads], position=position)
     # Preserve the prefix already in execution. Later trucks can still be appended/reordered.

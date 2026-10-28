@@ -292,6 +292,28 @@ class ControlFlowTest(unittest.TestCase):
         controlled = self.call('post', '/sources/'+str(source.id), 'admin', expected=201)
         self.assertTrue(controlled['id'])
 
+    def test_pdf_enables_catalog_article_preserving_voice_and_audits_once(self):
+        from models import LogEntry
+        article = Article.query.filter_by(sku='1001').one()
+        article.activo = False
+        article.descripcion_voz = 'Mi descripcion manual'
+        db.session.commit()
+        response = self.upload_pdf(planilla_pdf())
+        self.assertEqual(response.json['errors'], [])
+        self.assertEqual(response.json['processed'][0]['enabled_articles'], ['1001'])
+        db.session.refresh(article)
+        self.assertTrue(article.activo)
+        self.assertEqual(article.descripcion_voz, 'Mi descripcion manual')
+        self.assertIsNone(Article.query.filter_by(sku='9999').first())
+        self.assertEqual(LogEntry.query.filter_by(action='habilitar_articulo_por_pdf').count(), 1)
+        article.activo = False
+        db.session.commit()
+        duplicate = self.upload_pdf(planilla_pdf())
+        self.assertTrue(duplicate.json['errors'])
+        db.session.refresh(article)
+        self.assertFalse(article.activo)
+        self.assertEqual(LogEntry.query.filter_by(action='habilitar_articulo_por_pdf').count(), 1)
+
     def test_pdf_multiple_repartos_and_continuation_pages(self):
         response = self.upload_pdf(planilla_pdf(('TEST-9100', 'TEST-9101'), repeat_page=True))
         self.assertEqual(response.json['errors'], [])
