@@ -10,7 +10,7 @@ La app lee el producto y las cantidades; después abre el micrófono. Reconoce `
 
 El audio se reconoce localmente. Guardar respuestas reales necesita red: no existe cola offline ni reintento automático de escrituras. Tras un error, revisar el estado antes de reintentar. La lectura se detiene antes de escuchar para evitar que la app se confirme a sí misma.
 
-## Operación conectada (0.5)
+## Operación conectada (0.6)
 
 Picking y faltantes usan tarjetas, cantidades grandes, avance y tiempo activo. La pantalla inicial muestra usuario, canchas y filtro. Atrás vuelve de faltantes al producto, del producto a sus canchas (pausando antes) y de canchas a cargas. El teclado y el audio deben verificarse también en el equipo físico del depósito.
 
@@ -41,3 +41,11 @@ El APK debug es para pruebas, no para distribución definitiva. Las claves de pu
 - Compatibilidad de bibliotecas nativas en el modelo de teléfono utilizado.
 
 La versión 0.3 usa `descripcion_voz` del servidor cuando existe, manteniendo la descripción original en pantalla.
+
+## Escucha continua (0.6)
+
+Activar voz inicia un servicio de micrófono con notificación y botón **Parar voz**. No hay límite de silencio. La pantalla permanece encendida mientras la voz está activa; si el operador bloquea el teléfono o cambia de aplicación, el servicio continúa escuchando y la app puede registrar sus comandos. Durante la lectura y las peticiones al servidor se suspende la captura para evitar confirmaciones involuntarias.
+
+Los cortes transitorios de captura se recuperan con hasta cinco reintentos (1, 2, 4, 8 y 15 segundos). Una captura estable durante 30 segundos restablece ese presupuesto. El detector de captura bloqueada observa callbacks de audio, no si el operador está hablando. Si no puede recuperarse o falla una operación de red, la interfaz informa la detención; nunca reenvía una escritura automáticamente.
+
+Parar voz, pausar, finalizar, salir o quitar la app de recientes libera el micrófono y el bloqueo de CPU. Android no la reinicia después de un cierre forzado. La activación inicial debe hacerse con la app visible y permiso de micrófono; Android 13+ también solicita notificaciones. Si se deniegan, el control sigue disponible dentro de la app. El funcionamiento con llamadas, ahorro de batería del fabricante y pantalla bloqueada debe verificarse en el teléfono del depósito.

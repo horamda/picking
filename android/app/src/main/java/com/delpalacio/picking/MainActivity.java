@@ -4,6 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.content.ComponentName;
+import android.content.ServiceConnection;
+import android.os.IBinder;
+import android.os.Build;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -18,11 +23,6 @@ import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.*;
 import org.json.*;
-import org.vosk.Model;
-import org.vosk.Recognizer;
-import org.vosk.android.RecognitionListener;
-import org.vosk.android.SpeechService;
-import org.vosk.android.StorageService;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -45,11 +45,27 @@ public final class MainActivity extends Activity {
     private String filter = "Todos";
     private String currentScreen = "login";
     private int index = 0, requestVersion = 0, speechVersion = 0;
-    private boolean demo = false, busy = false, voice = false, visible = false, ttsReady = false, modelLoading = false;
+    private boolean demo = false, busy = false, voice = false, visible = false, ttsReady = false;
     private TextToSpeech tts;
-    private Model model;
-    private SpeechService service;
-    private Recognizer recognizer;
+    private VoiceSessionService voiceSession;
+    private boolean voiceBound, enableAfterPermission;
+    private final VoiceSessionService.Listener voiceListener=new VoiceSessionService.Listener(){
+        public void onReady(){if(voice && !isDestroyed())activateVoice();}
+        public void onText(String text){if(voice && !busy && !isDestroyed())command(text);}
+        public void onState(String state){if(voice)updateVoiceUi(state);}
+        public void onStopped(String reason){voice=false;stopAudio();updateVoiceUi("Voz detenida");message(reason);}
+    };
+    private final ServiceConnection voiceConnection=new ServiceConnection(){
+        public void onServiceConnected(ComponentName name,IBinder binder){
+            voiceSession=((VoiceSessionService.LocalBinder)binder).service();
+            if(!voice || isDestroyed()){stopVoiceSession();return;}
+            voiceSession.attach(voiceListener);
+        }
+        public void onServiceDisconnected(ComponentName name){
+            voiceSession=null;voice=false;stopAudio();updateVoiceUi("Voz detenida");
+            message("El servicio de voz se interrumpió. Tocá Activar voz para retomarlo.");
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -155,7 +171,12 @@ public final class MainActivity extends Activity {
             } catch (Exception e) { handler.post(() -> { if (!isDestroyed() && version == requestVersion) { busy = false; error(e); } }); }
         });
     }
-    private void error(Exception error) { message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage()); }
+    private void error(Exception error) {
+        boolean announce=voice;
+        if(voice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
+        message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
+        if(announce && ttsReady)speak("No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente.");
+    }
     private JSONObject json(String method, String path, JSONObject body) throws Exception { return new JSONObject(api.request(method,path,body)); }
     private static JSONObject obj(Object... pairs) {
         JSONObject o = new JSONObject();
@@ -199,7 +220,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.5.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.6.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -216,7 +237,7 @@ public final class MainActivity extends Activity {
     }
     private boolean matches(JSONObject c) { return assigned.contains(c.optInt("numero")) && (filter.equals("Todos") || filter.equals(processState(c))); }
     private void listLoads() {
-        currentScreen = "loads"; check = null; court = null;
+        currentScreen = "loads"; voice=false; check = null; court = null;
         stopAudio(); check=null; screen("Mis cargas");
         content=card(BORDER);text("Hola, "+user.optString("username"),22);
         List<Integer> sortedCourts=new ArrayList<>(assigned);Collections.sort(sortedCourts);
@@ -243,7 +264,7 @@ public final class MainActivity extends Activity {
                 }
             }
             message(found == 0 ? "Sin cargas para tus canchas y este filtro. El supervisor debe habilitar las cargas desde la web." : "Elegí una carga. Filtro: " + filter);
-            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.5.0",12);
+            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.6.0",12);
         });
     }
     private void openLoad(int id) {
@@ -372,45 +393,52 @@ public final class MainActivity extends Activity {
         task(() -> json("POST",path()+"/finish",obj()), result -> listLoads());
     }
     private void enableVoice() {
+        if(!visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},10);return;}
         if(!ttsReady){message("Activá o instalá una voz en español en los ajustes de texto a voz de Android.");return;}
-        if(modelLoading) return;
-        if(model==null){modelLoading=true;message("Preparando el modelo español. Esperá…");StorageService.unpack(this,"model-es","voice-model", ready->{
-            modelLoading=false;if(isDestroyed()){ready.close();return;}model=ready;if(visible && check!=null && (currentScreen.equals("product") || currentScreen.equals("shortage")))activateVoice();
-        },error->{modelLoading=false;if(!isDestroyed())error(error);});}
-        else activateVoice();
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED && !getPreferences(0).getBoolean("notificationAsked",false)){
+            getPreferences(0).edit().putBoolean("notificationAsked",true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},11);return;
+        }
+        if(voice)return;
+        voice=true;getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateVoiceUi("Preparando voz…");
+        try{
+            Intent intent=new Intent(this,VoiceSessionService.class);
+            startForegroundService(intent);
+            voiceBound=bindService(intent,voiceConnection,BIND_AUTO_CREATE);
+            if(!voiceBound)throw new IllegalStateException("No se pudo conectar el servicio de voz.");
+        }catch(Exception e){voice=false;stopAudio();error(e);}
     }
-    private void activateVoice(){voice=true;updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":prompt());}
+    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":prompt());}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
         super.onRequestPermissionsResult(request,permissions,grants);
-        if(request==10 && grants.length>0 && grants[0]==PackageManager.PERMISSION_GRANTED) enableVoice();
-        else message("Sin permiso de micrófono. Podés continuar con los botones.");
+        if(request==11){enableAfterPermission=true;if(grants.length==0 || grants[0]!=PackageManager.PERMISSION_GRANTED)message("Para ver el control de voz fuera de la app, habilitá las notificaciones en Android.");}
+        else if(request==10 && grants.length>0 && grants[0]==PackageManager.PERMISSION_GRANTED) enableAfterPermission=true;
+        else if(request==10)message("Sin permiso de micrófono. Podés continuar con los botones.");
+        handler.post(this::resumeVoiceAfterPermission);
+    }
+    private void resumeVoiceAfterPermission(){if(visible && enableAfterPermission){enableAfterPermission=false;enableVoice();}}
+    private void speechFailed(int generation){
+        if(generation!=speechVersion || isDestroyed())return;
+        voice=false;stopAudio();updateVoiceUi("Voz detenida");
+        message("No se pudo leer el producto. Revisá Texto a voz y el volumen antes de activar la voz nuevamente.");
     }
     private void speak(String value) {
         stopAudio();
-        if(!ttsReady){message("No hay voz española disponible. Revisá Texto a voz en Android.");return;}
+        if(!ttsReady){speechFailed(speechVersion);return;}
         int generation=++speechVersion;
         updateVoiceUi("Leyendo…");
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
             @Override public void onStart(String id){}
-            @Override public void onDone(String id){handler.postDelayed(()->{if(generation==speechVersion && visible && !busy){if(voice)startMic();else updateVoiceUi("Voz desactivada");}},400);}
-            @Override public void onError(String id){handler.post(()->{if(generation==speechVersion)message("No se pudo leer el producto. Revisá el volumen multimedia.");});}
+            @Override public void onDone(String id){if(!("product-"+generation).equals(id))return;handler.postDelayed(()->{if(generation==speechVersion && !isDestroyed() && !busy){if(voice)startMic();else updateVoiceUi("Voz desactivada");}},400);}
+            @Override public void onError(String id){if(("product-"+generation).equals(id))handler.post(()->speechFailed(generation));}
         });
-        if(tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"product-"+generation)==TextToSpeech.ERROR) message("No se pudo iniciar la lectura.");
+        if(tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"product-"+generation)==TextToSpeech.ERROR)speechFailed(generation);
     }
     private void startMic() {
-        if(!voice || !visible || model==null || check==null || check.isNull("timer_started_at"))return;
-        stopMic(); int generation=speechVersion;
-        try {
-            recognizer=new Recognizer(model,16000,VoiceCommands.grammar()); service=new SpeechService(recognizer,16000);
-            service.startListening(new RecognitionListener(){
-                @Override public void onPartialResult(String value){}
-                @Override public void onResult(String value){handler.post(()->{if(generation!=speechVersion || !voice || busy || !visible)return;try{command(new JSONObject(value).optString("text"));}catch(Exception e){error(e);}});}
-                @Override public void onFinalResult(String value){}
-                @Override public void onError(Exception e){handler.post(()->{if(generation==speechVersion){voice=false;stopMic();updateVoiceUi("Voz detenida");error(e);}});}
-                @Override public void onTimeout(){handler.post(()->{if(generation==speechVersion){voice=false;stopMic();updateVoiceUi("Voz detenida");message("Escucha detenida. Tocá Activar voz.");}});}
-            }); updateVoiceUi("Escuchando…");
-        } catch(Exception e){voice=false;stopMic();error(e);}
+        if(!voice || voiceSession==null || check==null || check.isNull("timer_started_at"))return;
+        voiceSession.listen();
     }
     private void command(String text) {
         if(text.trim().isEmpty())return;
@@ -434,10 +462,16 @@ public final class MainActivity extends Activity {
             default -> message("No entendí. Decí correcto, faltante o repetir.");
         }
     }
-    private void stopMic(){if(service!=null){service.stop();service.shutdown();service=null;}if(recognizer!=null){recognizer.close();recognizer=null;}}
-    private void stopAudio(){speechVersion++;stopMic();if(tts!=null)tts.stop();}
-    @Override protected void onResume(){super.onResume();visible=true;handler.removeCallbacks(clockTick);handler.post(clockTick);}
-    @Override protected void onPause(){visible=false;voice=false;stopAudio();updateVoiceUi("Voz desactivada");handler.removeCallbacks(clockTick);super.onPause();}
+    private void stopMic(){if(voiceSession!=null)voiceSession.suspendListening();}
+    private void stopVoiceSession(){
+        if(voiceSession!=null){voiceSession.detach();voiceSession.suspendListening();voiceSession=null;}
+        if(voiceBound){voiceBound=false;unbindService(voiceConnection);}
+        stopService(new Intent(this,VoiceSessionService.class));
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    private void stopAudio(){speechVersion++;stopMic();if(tts!=null)tts.stop();if(!voice)stopVoiceSession();}
+    @Override protected void onResume(){super.onResume();visible=true;handler.removeCallbacks(clockTick);handler.post(clockTick);resumeVoiceAfterPermission();}
+    @Override protected void onPause(){visible=false;handler.removeCallbacks(clockTick);super.onPause();}
     @Override public void onBackPressed(){
         if(busy){message("Esperá a que termine la operación.");return;}
         if(currentScreen.equals("shortage")){stopAudio();product();return;}
@@ -447,5 +481,5 @@ public final class MainActivity extends Activity {
             .setMessage("¿Querés salir de Del Palacio Picking?")
             .setNegativeButton("Quedarme",null).setPositiveButton("Salir",(d,w)->finish()).show();
     }
-    @Override protected void onDestroy(){requestVersion++;stopAudio();if(tts!=null)tts.shutdown();if(model!=null)model.close();network.shutdown();super.onDestroy();}
+    @Override protected void onDestroy(){requestVersion++;voice=false;stopAudio();if(tts!=null)tts.shutdown();handler.removeCallbacksAndMessages(null);network.shutdown();super.onDestroy();}
 }
