@@ -150,6 +150,54 @@ class ArticleImportTest(unittest.TestCase):
         from models import UploadedFile
         self.assertEqual(db.session.get(UploadedFile, response.json['uploaded_file_id']).data, raw)
 
+    def test_voice_csv_preview_apply_conflict_and_atomic_validation(self):
+        import_articles_from_csv(csv_bytes({}, {'Articulo': '002'}))
+        headers = self.tokens['administrador']
+        path = '/api/articles/voice-csv'
+        self.assertEqual(self.client.get(path, headers=self.tokens['operador']).status_code, 403)
+        response = self.client.get(path, headers=headers)
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.reader(io.StringIO(response.data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual(rows[1][0], '001')
+        rows[1][2] = 'Brahma de un litro'
+        rows[2][2] = 'Agua sin gas'
+
+        def post(rows, apply='0', auth=headers):
+            stream = io.StringIO(newline='')
+            csv.writer(stream, delimiter=';').writerows(rows)
+            return self.client.post(path, headers=auth, data={
+                'file': (io.BytesIO(stream.getvalue().encode('utf-8-sig')), 'voz.csv'), 'apply': apply})
+
+        self.assertEqual(post(rows, '1', self.tokens['operador']).status_code, 403)
+        preview = post(rows)
+        self.assertEqual(preview.json['updated'], 2)
+        self.assertIsNone(Article.query.filter_by(sku='001').one().descripcion_voz)
+        self.assertEqual(post(rows + [rows[1]], '1').status_code, 422)
+        rows[2][2] = 'x' * 256
+        self.assertEqual(post(rows, '1').status_code, 422)
+        self.assertIsNone(Article.query.filter_by(sku='001').one().descripcion_voz)
+        rows[2][2] = 'Agua sin gas'
+        self.assertEqual(post(rows, '1').json['updated'], 2)
+        self.assertEqual(LogEntry.query.filter_by(action='editar_descripcion_voz').count(), 2)
+        self.assertEqual(post(rows, '1').status_code, 409)
+        rows = list(csv.reader(io.StringIO(self.client.get(path, headers=headers).data.decode('utf-8-sig')), delimiter=';'))
+        rows[1][2] = ''  # Blank preserves; explicit SI clears.
+        rows[2][3] = 'SI'
+        self.assertEqual(post(rows, '1').json['updated'], 1)
+        self.assertEqual(Article.query.filter_by(sku='001').one().descripcion_voz, 'Brahma de un litro')
+        self.assertIsNone(Article.query.filter_by(sku='002').one().descripcion_voz)
+        self.assertEqual(Article.query.filter_by(sku='001').one().descripcion, 'BRAHMA X12')
+
+    def test_voice_csv_preserves_special_text_and_rejects_modified_codes(self):
+        from services.voice_csv import export_voice_csv, parse_voice_csv
+        article = Article(sku='0001', descripcion='=original', descripcion_voz='=voz; "especial"\nOtra línea')
+        rows = list(csv.reader(io.StringIO(export_voice_csv([article]).decode('utf-8-sig')), delimiter=';'))
+        self.assertTrue(rows[1][1].startswith("'="))
+        self.assertEqual(parse_voice_csv(export_voice_csv([article]))[0]['value'], article.descripcion_voz)
+        rows[1][0] = '1'
+        output = io.StringIO(); csv.writer(output, delimiter=';').writerows(rows)
+        with self.assertRaises(ValueError): parse_voice_csv(output.getvalue().encode())
+
     def test_voice_backup_includes_inactive_and_all_pages_without_changing_data(self):
         for n in range(205):
             db.session.add(Article(sku=f'{n:04}', descripcion='Original',

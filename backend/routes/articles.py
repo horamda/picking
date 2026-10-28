@@ -13,6 +13,51 @@ from utils.db import db
 articles_bp = Blueprint('articles', __name__)
 
 
+@articles_bp.route('/voice-csv', methods=['GET', 'POST'])
+@roles_required('administrador', 'supervisor')
+def voice_csv():
+    import csv
+    from flask import Response
+    from services.voice_csv import export_voice_csv, parse_voice_csv
+    if request.method == 'GET':
+        return Response(export_voice_csv(Article.query.order_by(Article.sku).all()),
+                        content_type='text/csv; charset=utf-8',
+                        headers={'Content-Disposition': 'attachment; filename=descripciones-voz.csv'})
+    file = request.files.get('file')
+    if not file:
+        return jsonify(error='Seleccioná un archivo CSV.'), 400
+    raw = file.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify(error='El archivo supera los 5 MB.'), 400
+    try:
+        items = parse_voice_csv(raw)
+    except (ValueError, csv.Error) as exc:
+        return jsonify(error=str(exc)), 422
+    apply = request.form.get('apply') == '1'
+    query = Article.query.filter(Article.sku.in_([i['sku'] for i in items])).order_by(Article.sku)
+    if apply:
+        query = query.with_for_update().populate_existing()
+    articles = {a.sku: a for a in query.all()}
+    changes = []
+    for item in items:
+        article = articles.get(item['sku'])
+        if not article or (article.descripcion_voz or '') != item['previous']:
+            db.session.rollback()
+            return jsonify(error=f"Fila {item['row']}: código inexistente o voz modificada por otra persona. Volvé a exportar."), 409
+        if item['value'] != item['previous']:
+            changes.append(dict(sku=article.sku, before=item['previous'], after=item['value']))
+    if apply:
+        for change in changes:
+            article = articles[change['sku']]
+            article.descripcion_voz = change['after'] or None
+            db.session.add(LogEntry(user_id=g.current_user.id, action='editar_descripcion_voz',
+                                    entity='articulo', entity_id=article.id,
+                                    details=json.dumps(dict(change, source='csv'), ensure_ascii=False)))
+        db.session.commit()
+    return jsonify(applied=apply, total=len(items), updated=len(changes),
+                   unchanged=len(items) - len(changes), changes=changes)
+
+
 def ensure_article_import_schema():
     inspector = inspect(db.engine)
     tables = set(inspector.get_table_names())

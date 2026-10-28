@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import api from '../api/axiosClient'
 import UploadPage from './UploadPage'
+import VoiceCsvImport from '../components/VoiceCsvImport'
 
 export default function ImportsPage() {
     const [params, setParams] = useSearchParams()
-    const tab = params.get('tipo') === 'articulos' ? 'articulos' : 'pdf'
+    const tab = ['articulos', 'voz'].includes(params.get('tipo')) ? params.get('tipo') : 'pdf'
     const [file, setFile] = useState(null)
     const [mode, setMode] = useState('merge')
     const [busy, setBusy] = useState(false)
@@ -22,8 +23,8 @@ export default function ImportsPage() {
     return <div className="p-4 sm:p-6">
         <h1 className="text-2xl font-semibold">Importaciones</h1>
         <p className="mt-2 text-slate-500">Carga de archivos para actualizar el sistema.</p>
-        <nav className="my-4 flex flex-wrap gap-3" aria-label="Tipo de importación">{[['pdf', 'Consolidados PDF'], ['articulos', 'Artículos CSV']].map(([id, label]) => <button disabled={busy} key={id} onClick={() => setParams({ tipo: id })} className={`min-h-12 rounded-xl px-4 ${tab === id ? 'bg-brand-500 text-white' : 'border bg-white'}`}>{label}</button>)}</nav>
-        {tab === 'pdf' ? <UploadPage /> : <section className="max-w-3xl rounded-2xl border bg-white p-4 sm:p-6">
+        <nav className="my-4 flex flex-wrap gap-3" aria-label="Tipo de importación">{[['pdf', 'Consolidados PDF'], ['articulos', 'Artículos CSV'], ['voz', 'Descripciones de voz']].map(([id, label]) => <button disabled={busy} key={id} onClick={() => setParams({ tipo: id })} className={`min-h-12 rounded-xl px-4 ${tab === id ? 'bg-brand-500 text-white' : 'border bg-white'}`}>{label}</button>)}</nav>
+        {tab === 'pdf' ? <UploadPage /> : tab === 'voz' ? <VoiceCsvImport /> : <section className="max-w-3xl rounded-2xl border bg-white p-4 sm:p-6">
             <h2 className="text-lg font-semibold">Importar maestro de artículos</h2>
             <p className="my-3 text-sm text-slate-600">Se activan únicamente mercaderías con Activo = SI, Usado en dispositivo móvil = SI y Anulado = NO. Se conservan todos los campos del CSV y las descripciones de voz editadas.</p>
             <form className="space-y-4" onSubmit={upload}>
