@@ -12,6 +12,13 @@ from utils.db import db
 TRUE_VALUES = {'1', 'true', 'si', 'sí', 'yes', 'y', 'activo'}
 FALSE_VALUES = {'0', 'false', 'no', 'n', 'inactivo'}
 
+# Manual voice descriptions belong to the operator-facing catalog, never to an
+# imported source. Keep this allowlist explicit even if the parser gains fields.
+CSV_MANAGED_FIELDS = frozenset({
+    'sku', 'descripcion', 'division', 'calibre', 'unidades_por_bulto',
+    'bultos_por_pallet', 'activo', 'datos_origen',
+})
+
 
 def strip_accents(value: str) -> str:
     normalized = unicodedata.normalize('NFKD', value)
@@ -198,6 +205,7 @@ def import_articles_from_csv(file_bytes: bytes, mode: str = 'merge') -> dict:
         existing = {a.sku: a for a in Article.query.order_by(Article.sku).with_for_update().all()}
         eligible_skus = {p['sku'] for p in articles}
         for payload in articles:
+            payload = {key: value for key, value in payload.items() if key in CSV_MANAGED_FIELDS}
             article = existing.get(payload['sku'])
             if article is None:
                 db.session.add(Article(**payload))

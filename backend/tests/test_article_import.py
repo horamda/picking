@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 TEMP = tempfile.TemporaryDirectory()
@@ -90,6 +91,37 @@ class ArticleImportTest(unittest.TestCase):
                 self.assertFalse(import_articles_from_csv(raw, mode)['applied'])
                 self.assertEqual(Article.query.one().descripcion, 'BRAHMA X12')
                 self.assertTrue(Article.query.one().activo)
+
+    def test_voice_survives_absence_and_return_in_both_import_modes(self):
+        import_articles_from_csv(csv_bytes())
+        article = Article.query.one()
+        original_id = article.id
+        article.descripcion_voz = 'Nombre manual permanente'
+        db.session.commit()
+        for mode in ('merge', 'replace'):
+            self.assertTrue(import_articles_from_csv(csv_bytes({'Articulo': '002'}), mode)['applied'])
+            db.session.expire_all()
+            self.assertEqual(db.session.get(Article, original_id).descripcion_voz, 'Nombre manual permanente')
+            self.assertTrue(import_articles_from_csv(csv_bytes({'Descripcion articulo': 'Texto nuevo del proveedor'}), mode)['applied'])
+            db.session.expire_all()
+            article = db.session.get(Article, original_id)
+            self.assertTrue(article.activo)
+            self.assertEqual(article.descripcion_voz, 'Nombre manual permanente')
+
+    def test_csv_cannot_write_voice_even_if_future_parser_exposes_it(self):
+        import_articles_from_csv(csv_bytes())
+        article = Article.query.one()
+        article.descripcion_voz = 'Nombre manual permanente'
+        db.session.commit()
+        for mode in ('merge', 'replace'):
+            parsed = parse_article_csv(csv_bytes({}, {'Articulo': '002'}))
+            for payload in parsed['articles']:
+                payload['descripcion_voz'] = 'No debe sobrescribir la voz'
+            with patch('services.csv_import.parse_article_csv', return_value=parsed):
+                self.assertTrue(import_articles_from_csv(b'unused', mode)['applied'])
+            db.session.expire_all()
+            self.assertEqual(Article.query.filter_by(sku='001').one().descripcion_voz, 'Nombre manual permanente')
+            self.assertIsNone(Article.query.filter_by(sku='002').one().descripcion_voz)
 
     def test_voice_api_permissions_conflict_and_product_fallback(self):
         import_articles_from_csv(csv_bytes())
