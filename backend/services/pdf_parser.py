@@ -160,13 +160,24 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
         if re.match(r'^\d{2}/\d{2}/\d{2,4}$', w['text']):
             date_idx = i
             break
-    if date_idx is None:
+    if date_idx is None and (bultos_x is None or unids_x is None):
         return None
 
     sku = row[0]['text']
-    fecha_reparto = parse_pdf_date(row[date_idx]['text'])
-    descripcion = ' '.join(w['text'] for w in row[1:date_idx])
-    num_words = [w for w in row[date_idx + 1:] if re.match(r'^\d+$', w['text'])]
+    fecha_reparto = parse_pdf_date(row[date_idx]['text']) if date_idx is not None else None
+    if bultos_x is not None and unids_x is not None:
+        # Restrict to A CARGAR: DESCARGA columns must never count as picking.
+        width = unids_x - bultos_x
+        start, end = bultos_x - width / 2, unids_x + width / 2
+        num_words = [w for w in row[1:] if start <= (w['x0'] + w['x1']) / 2 < end
+                     and re.match(r'^\d+$', w['text'])]
+        description_words = row[1:date_idx] if date_idx is not None else [w for w in row[1:] if w['x1'] < start]
+    else:
+        num_words = [w for w in row[date_idx + 1:] if re.match(r'^\d+$', w['text'])]
+        description_words = row[1:date_idx]
+    if not num_words:
+        return None
+    descripcion = ' '.join(w['text'] for w in description_words)
 
     bultos = 0
     unidades = 0
@@ -216,10 +227,16 @@ def parse_pdf_file(path: str) -> dict:
             words = page.extract_words()
             all_rows = rows_from_words(words)
             bultos_x, unids_x = find_column_positions(all_rows)
+            product_table = False
 
             for row in all_rows:
                 row_text = compact_line(' '.join(w['text'] for w in row))
                 plain = strip_accents(row_text)
+                header = [strip_accents(w['text']).upper() for w in row]
+                if 'BULTOS' in header and ('UNIDS' in header or 'UNIDADES' in header):
+                    # Empty-container and division totals are separate tables, not products.
+                    product_table = any(t.startswith('VENC') for t in header) or header[0] == 'BULTOS'
+                    continue
 
                 cancha_match = re.match(r'^(\d+)\s*-\s*(CANCHA\s+.+)$', plain, re.IGNORECASE)
                 if cancha_match:
@@ -236,7 +253,7 @@ def parse_pdf_file(path: str) -> dict:
                 if plain.upper().startswith('T O T A L') or plain.upper().startswith('TOTAL '):
                     continue
 
-                if not current_almacen:
+                if not current_almacen or not product_table:
                     continue
 
                 item = parse_item_row(row, bultos_x, unids_x)
