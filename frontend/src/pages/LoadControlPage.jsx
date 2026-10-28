@@ -11,7 +11,7 @@ import PalletPlanning from '../components/PalletPlanning'
 import VoiceControl from '../components/VoiceControl'
 import { speak } from '../voice/speech'
 
-const voicePrompt = (p, index, total, stage) => stage === 4 ? `Prepará ${p.pallets} pallets completos de ${p.descripcion_voz || p.descripcion}, ${p.bultos} bultos en total. Cuando termines, decí correcto.` : `Producto ${index + 1} de ${total}. ${[0, 4].includes(stage) ? 'Agarrá' : 'Verificá'} ${p.bultos} bultos y ${p.unidades} unidades de ${p.descripcion_voz || p.descripcion}. ${[0, 4].includes(stage) ? 'Cuando termines, decí correcto. Si falta mercadería, decí faltante.' : 'Decí correcto, error corregido o faltante.'}`
+import { voicePrompt } from '../voice/productPrompt'
 
 const base = '/load-control'
 const stages = ['Picking', 'Control 1', 'Control 2', 'Activos', 'Pallets completos']
