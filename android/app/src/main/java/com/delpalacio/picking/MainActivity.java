@@ -33,6 +33,7 @@ public final class MainActivity extends Activity {
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
     private String filter = "Todos";
+    private String currentScreen = "login";
     private int index = 0, requestVersion = 0, speechVersion = 0;
     private boolean demo = false, busy = false, voice = false, visible = false, ttsReady = false, modelLoading = false;
     private TextToSpeech tts;
@@ -62,6 +63,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20),dp(12),dp(20),dp(20)); scroll.addView(content); root.addView(scroll);
         setContentView(root); status = text(demo ? "DEMOSTRACIÓN · No guarda datos" : "Servidor compartido · Las confirmaciones se guardan", 14);
+        if (user != null) text("Usuario: " + user.optString("username") + " · Versión 0.4.0", 14);
     }
     private TextView text(String value, int size) {
         TextView v = new TextView(this); v.setText(value); v.setTextSize(size); v.setTextColor(Color.rgb(20,45,65));
@@ -102,6 +104,7 @@ public final class MainActivity extends Activity {
     private int stage() { return !demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
     private String path() { return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id"); }
     private void login() {
+        currentScreen = "login"; load = null; court = null; filter = "Todos";
         voice = false; stopAudio(); check = null; demo = false; api = null; user = null; screen("Picking por voz");
         message("Ingresá como operador. La voz funciona en el teléfono; guardar requiere conexión.");
         EditText host = input("https://servidor", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -128,7 +131,7 @@ public final class MainActivity extends Activity {
             });
         });
         button("Probar voz sin guardar datos", this::demo);
-        text("Versión 0.2 · Solo verás cargas aprobadas y tus canchas asignadas.",14);
+        text("Versión 0.4.0 · Solo verás cargas habilitadas y tus canchas asignadas.",14);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO");
@@ -145,6 +148,7 @@ public final class MainActivity extends Activity {
     }
     private boolean matches(JSONObject c) { return assigned.contains(c.optInt("numero")) && (filter.equals("Todos") || filter.equals(processState(c))); }
     private void listLoads() {
+        currentScreen = "loads"; check = null; court = null;
         stopAudio(); check=null; screen("Mis cargas");
         text("Canchas asignadas: " + assigned,16);
         Spinner options = new Spinner(this); options.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Todos","En curso","Sin iniciar","Pausados","Finalizados"}));
@@ -167,6 +171,7 @@ public final class MainActivity extends Activity {
     }
     private void openLoad(int id) {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
+            currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c)) continue; count++;
@@ -189,6 +194,7 @@ public final class MainActivity extends Activity {
         return "Producto " + (index+1) + " de " + products.length() + ". Agarrá " + p.optInt("bultos") + " bultos y " + p.optInt("unidades") + " unidades de " + p.optString("descripcion_voz", p.optString("descripcion")) + ". Cuando termines, decí correcto. Si falta mercadería, decí faltante.";
     }
     private void product() {
+        currentScreen = "product";
         if(products.length()==0) { message("La cancha no tiene productos."); return; }
         JSONObject p=products.optJSONObject(index); screen((stage() == 4 ? "Pallets completos" : "Picking") + " · Cancha " + court.optInt("numero"));
         text("Reparto " + load.optString("reparto") + " · " + user.optString("username"),16);
@@ -204,7 +210,7 @@ public final class MainActivity extends Activity {
         else { button("Correcto · guardar y seguir", () -> answer(obj("result","ok"))); button("Registrar faltante",this::shortage); }
         if(index>0) button("Anterior", () -> { index--; product(); });
         if(index<products.length()-1) button("Siguiente sin confirmar", () -> { index++; product(); });
-        button("Pausar y volver",this::pauseAndLeave);
+        button("Pausar y volver a canchas",this::pauseAndLeave);
         button("Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle("Finalizar picking")
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
             .setNegativeButton("Seguir",(d,w)->product()).setOnCancelListener(d->product()).setPositiveButton("Finalizar",(d,w)->finishPicking()).show(); });
@@ -227,6 +233,7 @@ public final class MainActivity extends Activity {
         task(() -> new JSONArray(api.request("GET","/load-control/operators",null)), rows -> {operators=rows;showShortage();});
     }
     private void showShortage() {
+        currentScreen = "shortage";
         JSONObject p=products.optJSONObject(index); screen("Faltante · " + p.optString("sku")); text(p.optString("descripcion"),24);
         text("Planilla: "+p.optInt("bultos")+" bultos + "+p.optInt("unidades")+" unidades",18);
         EditText b=input("Bultos físicos",InputType.TYPE_CLASS_NUMBER), u=input("Unidades físicas",InputType.TYPE_CLASS_NUMBER);
@@ -244,8 +251,9 @@ public final class MainActivity extends Activity {
     private void pauseAndLeave() {
         voice=false;stopAudio();
         if(demo){login();return;}
-        if(check.isNull("timer_started_at")){listLoads();return;}
-        task(() -> json("POST",path()+"/pause",obj()), result -> listLoads());
+        filter="Todos";
+        if(check.isNull("timer_started_at")){openLoad(load.optInt("id"));return;}
+        task(() -> json("POST",path()+"/pause",obj()), result -> { check=result; openLoad(load.optInt("id")); });
     }
     private void finishPicking() {
         voice=false;stopAudio();
@@ -305,6 +313,14 @@ public final class MainActivity extends Activity {
     private void stopAudio(){speechVersion++;stopMic();if(tts!=null)tts.stop();}
     @Override protected void onResume(){super.onResume();visible=true;}
     @Override protected void onPause(){visible=false;voice=false;stopAudio();super.onPause();}
-    @Override public void onBackPressed(){if(busy){message("Esperá a que termine la operación.");return;}if(check!=null)pauseAndLeave();else login();}
+    @Override public void onBackPressed(){
+        if(busy){message("Esperá a que termine la operación.");return;}
+        if(currentScreen.equals("shortage")){stopAudio();product();return;}
+        if(currentScreen.equals("product")){pauseAndLeave();return;}
+        if(currentScreen.equals("courts")){listLoads();return;}
+        new AlertDialog.Builder(this).setTitle("Salir de la app")
+            .setMessage("¿Querés salir de Del Palacio Picking?")
+            .setNegativeButton("Quedarme",null).setPositiveButton("Salir",(d,w)->finish()).show();
+    }
     @Override protected void onDestroy(){requestVersion++;stopAudio();if(tts!=null)tts.shutdown();if(model!=null)model.close();network.shutdown();super.onDestroy();}
 }

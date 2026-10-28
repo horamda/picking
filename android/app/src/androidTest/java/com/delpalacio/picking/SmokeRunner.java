@@ -31,6 +31,11 @@ public class SmokeRunner extends Instrumentation {
                 if(confirm==null)throw new AssertionError("No abrió el producto de demostración");
                 confirm.performClick();
                 if(button(target.getWindow().getDecorView(),"Anterior")==null)throw new AssertionError("No avanzó al segundo producto");
+                button(target.getWindow().getDecorView(),"Registrar faltante").performClick();
+                ((MainActivity)target).onBackPressed();
+                if(button(target.getWindow().getDecorView(),"Correcto · guardar y seguir")==null)throw new AssertionError("Atrás no volvió del faltante al producto");
+                ((MainActivity)target).onBackPressed();
+                if(button(target.getWindow().getDecorView(),"Probar voz sin guardar datos")==null)throw new AssertionError("Atrás no volvió de la demostración al inicio");
             });
             CountDownLatch latch=new CountDownLatch(1);AtomicReference<Throwable> failure=new AtomicReference<>();
             StorageService.unpack(getTargetContext(),"model-es","smoke-model",model->{
