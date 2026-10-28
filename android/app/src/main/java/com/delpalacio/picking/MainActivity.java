@@ -253,7 +253,14 @@ public final class MainActivity extends Activity {
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c)) continue; count++;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
-                if(!state.equals("Finalizados")) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c));
+                if(stage()==0 && c.optInt("full_pallet_count")>0){
+                    text("Pallets completos · Información",16);
+                    JSONArray full=c.optJSONArray("full_pallets_info");
+                    if(full!=null)for(int n=0;n<full.length();n++){JSONObject item=full.optJSONObject(n);text(item.optInt("pallets")+" pallets · "+item.optString("descripcion")+" ("+item.optInt("bultos")+" bultos)",13);}
+                    text("Se registran por separado del picking de bultos y unidades sueltas.",12);
+                }
+                if(!state.equals("Finalizados") && c.optJSONArray("productos").length()>0) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c));
+                else if(c.optJSONArray("productos").length()==0)text("Esta cancha solo tiene pallets completos; no requiere picking de sueltos.",14);
                 content=body;
             }
             if(count==0) message("No hay canchas asignadas que coincidan con el filtro.");
@@ -286,6 +293,10 @@ public final class MainActivity extends Activity {
             TextView amount=label(String.valueOf(p.optInt(i==0?"bultos":"unidades")),40,INK,true);amount.setGravity(Gravity.CENTER);box.addView(amount);
         }
         if(check.optJSONObject("answers").has(p.optString("sku"))) text("Este producto ya tiene una respuesta guardada.",16);
+        if(stage()==0 && p.optInt("full_pallets_count")>0){
+            gap(6);TextView full=text("Pallets completos: "+p.optInt("full_pallets_count")+" · "+p.optInt("full_pallets_bultos")+" bultos",14);full.setTextColor(0xff0369a1);
+            text("Informativo · Se registran por separado del picking indicado arriba.",12);
+        }
         content=body;voicePanel();
         boolean paused=check.isNull("timer_started_at");
         if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar picking", () -> startCourt(court)); }

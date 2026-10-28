@@ -531,6 +531,35 @@ class ControlFlowTest(unittest.TestCase):
         self.answer(path, '1001', 'ana')
         self.assertEqual(len(self.call('get', '/trucks', 'ana')), 1)
 
+    def test_picker_sees_full_pallets_as_information_without_double_counting(self):
+        for article in Article.query.all():
+            article.bultos_por_pallet = 2
+        db.session.commit()
+        self.approve_current()
+        load = self.call('get', f'/loads/{self.load_id}', 'picker')
+        court = load['canchas'][0]
+        self.assertEqual(court['full_pallet_count'], 4)
+        self.assertEqual(len(court['full_pallets_info']), 2)
+        self.assertEqual(len(court['productos']), 1)
+        product = court['productos'][0]
+        self.assertEqual((product['sku'], product['bultos'], product['full_pallets_count'], product['full_pallets_bultos']), ('1001', 1, 2, 4))
+        started = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
+        self.assertEqual(started['products'][0]['bultos'], 1)
+        self.assertEqual(started['products'][0]['full_pallets_count'], 2)
+        self.assertEqual(started['products'][0]['pallets'], 0)
+
+    def test_full_pallet_only_court_remains_visible_to_picker_without_startable_work(self):
+        for article in Article.query.all():
+            article.bultos_por_pallet = 1
+        db.session.commit()
+        self.approve_current()
+        load = self.call('get', f'/loads/{self.load_id}', 'picker')
+        self.assertEqual(load['canchas'][0]['productos'], [])
+        self.assertEqual(load['canchas'][0]['full_pallet_count'], 9)
+        trucks = self.call('get', '/trucks', 'picker')
+        self.assertEqual(trucks[0]['loads'][0]['canchas'][0]['full_pallet_count'], 9)
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
+
     def test_timing_audit_and_monitor_permissions(self):
         from services.load_control import timing
         end = datetime.now(timezone.utc)

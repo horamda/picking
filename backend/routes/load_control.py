@@ -74,17 +74,26 @@ def voice_products(products):
     return [dict(p, descripcion_voz=descriptions.get(p['sku']) or p['descripcion']) for p in products]
 
 
+def full_pallets_info(load, court):
+    plan = load.truck.state.get('planning') or {}
+    return [dict(sku=p['sku'], descripcion=p['descripcion'], pallets=p['pallets'], bultos=p['bultos'])
+            for p in plan.get('full_pallets', []) if p['load_id'] == load.id and p['court'] == court['numero']]
+
+
 def task_products(load, court, stage):
     plan = load.truck.state.get('planning')
     if not plan:
         return deepcopy(court['productos']) if stage == 0 and (manager() or legacy_in_progress(load.truck)) else []
     rows = plan['picking_tasks' if stage == 0 else 'full_pallets']
     quantities = {p['sku']: p for p in rows if p['load_id'] == load.id and p['court'] == court['numero']}
+    pallet_info = {p['sku']: p for p in full_pallets_info(load, court)} if stage == 0 else {}
     result = []
     for product in court['productos']:
         task = quantities.get(product['sku'])
         if task and (task['bultos'] or task.get('unidades', 0)):
-            result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0)))
+            info = pallet_info.get(product['sku'], {})
+            result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0),
+                               full_pallets_count=info.get('pallets', 0), full_pallets_bultos=info.get('bultos', 0)))
     return result
 
 
@@ -164,6 +173,10 @@ def serialize_load(load, summary=False):
     result = dict(id=load.id, source_id=load.source_id, **deepcopy(load.content))
     result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in assigned_courts(g.current_user.id)]
     for court in result['canchas']:
+        pallet_info = full_pallets_info(load, court)
+        court['full_pallet_count'] = sum(p['pallets'] for p in pallet_info)
+        if not summary:
+            court['full_pallets_info'] = pallet_info
         if not manager() and g.current_user.role.name in ('operador', 'palletizador'):
             court['productos'] = task_products(load, court, 0 if g.current_user.role.name == 'operador' else 4)
         cs = court_state(load.truck.state, load.id, court['numero'])
@@ -175,7 +188,8 @@ def serialize_load(load, summary=False):
         else:
             court['productos'] = voice_products(court['productos'])
     if g.current_user.role.name in ('operador', 'palletizador'):
-        result['canchas'] = [c for c in result['canchas'] if c.get('cantidad', len(c.get('productos', []))) > 0]
+        result['canchas'] = [c for c in result['canchas'] if c.get('cantidad', len(c.get('productos', []))) > 0
+                            or (g.current_user.role.name == 'operador' and c['full_pallet_count'] > 0)]
     return result
 
 
