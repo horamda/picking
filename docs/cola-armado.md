@@ -4,6 +4,7 @@
 
 1. Administración importa el PDF en Importaciones. Se usa la **fecha de reparto**, no la fecha en que se subió el archivo.
 2. En **Supervisión → Planificar cargas**, elegir esa fecha, marcar los repartos y ordenar los camiones con las flechas. Guardar selección y orden.
+   Al marcar repartos se recalculan HL y pallets completos/de picking, antes de guardar. Sin capacidad configurada se calcula la cantidad necesaria, pero no se afirma que entre en el camión. Si faltan artículos o factores, se muestran subtotales parciales y los SKU pendientes; nunca se completan con valores supuestos.
 3. Para cada camión seleccionado, revisar la capacidad física, simular los pallets y aprobar el plan. Cambiar sus repartos invalida el plan anterior.
 4. Android 0.7 y la web muestran el camión actual del operario. Los repartos permanecen separados y se muestran solamente sus canchas asignadas.
 5. Al finalizar todas sus tareas del camión, el operario recibe el siguiente. No espera las canchas de otros operarios, los pallets completos ni los controles. El palletizador tiene su propia progresión por etapa 4.
@@ -27,7 +28,7 @@ La estimación usa la equivalencia de bultos del catálogo. No comprueba altura,
 
 ## Validación
 
-- Backend: 31 pruebas del flujo de cargas, incluidas selección, exclusión, aprobación, HL, pallets compartidos y avance individual entre varios repartos.
+- Backend: 34 pruebas del flujo de cargas, incluidas selección, exclusión, aprobación, HL, pallets compartidos, vista previa sin escrituras ni capacidad configurada y avance individual entre varios repartos.
 - PostgreSQL local descartable: dos supervisores concurrentes (uno recibe conflicto) y 10 operarios confirmando simultáneamente sin pérdida de respuestas.
 - Parser PDF: tres regresiones de columnas y vencimiento opcional; planificación: cinco pruebas.
 - Frontend: 20 pruebas y build; navegador con API simulada, selección de checkboxes y resumen a 390 px sin desbordamiento.

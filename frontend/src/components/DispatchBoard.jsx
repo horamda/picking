@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api/axiosClient'
+import DispatchPreview from './DispatchPreview'
 const button = 'min-h-12 rounded-xl border bg-white px-4 py-2 disabled:opacity-40'
 export default function DispatchBoard({ date, onSaved, onPlan }) {
     const [board, setBoard] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), [dirty, setDirty] = useState(false)
@@ -32,10 +33,10 @@ export default function DispatchBoard({ date, onSaved, onPlan }) {
         {board?.groups.length === 0 && <p>No hay cargas para esta fecha. Usá la fecha de reparto del PDF, que puede diferir de la fecha de subida.</p>}
         {board?.groups.map((g, index) => {
             const selected = g.sources.filter(s => s.selected), bultos = selected.reduce((n, s) => n + s.totals.bultos, 0), units = selected.reduce((n, s) => n + s.totals.unidades, 0)
-            const hl = selected.some(s => s.totals.hl == null) ? null : selected.reduce((n, s) => n + s.totals.hl, 0)
             return <article key={`${g.branch}/${g.truck}`} className="rounded-xl border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3"><label className="flex min-h-12 items-center gap-3 font-bold"><input type="checkbox" disabled={busy || g.locked} checked={g.sources.every(s => s.selected)} onChange={e => toggle(index, null, e.target.checked)} className="h-5 w-5" />Camión {g.truck} · {g.branch}</label><div className="flex gap-2"><button className={button} disabled={busy || g.locked || index === 0 || board.groups[index - 1]?.locked} aria-label={`Adelantar camión ${g.truck}`} onClick={() => move(index, -1)}>↑</button><button className={button} disabled={busy || g.locked || index === board.groups.length - 1 || board.groups[index + 1]?.locked} aria-label={`Retrasar camión ${g.truck}`} onClick={() => move(index, 1)}>↓</button></div></div>
-                {g.locked && <p className="text-sm text-amber-800">Trabajo iniciado: selección y orden fijados.</p>}<p className="my-2 text-sm">Seleccionado: {selected.length} repartos · {bultos} bultos + {units} unidades · {hl == null ? 'HL incompletos' : `${hl.toLocaleString('es-AR', { maximumFractionDigits: 4 })} HL`}</p>
+                {g.locked && <p className="text-sm text-amber-800">Trabajo iniciado: selección y orden fijados.</p>}<p className="my-2 text-sm">Seleccionado: {selected.length} repartos · {bultos} bultos + {units} unidades</p>
+                <DispatchPreview sourceIds={selected.map(s => s.id)} />
                 {g.sources.map(s => <label key={s.id} className="my-1 flex min-h-12 items-center gap-3 rounded-lg bg-slate-50 p-2"><input type="checkbox" className="h-5 w-5" disabled={busy || g.locked || !!s.error} checked={s.selected} onChange={e => toggle(index, s.id, e.target.checked)} /><span>Reparto {s.reparto}{s.error ? ` · ${s.error}` : ` · ${s.totals.bultos} bultos + ${s.totals.unidades} unidades`}</span></label>)}
                 {g.truck_id && selected.length > 0 && <button className={`${button} mt-3`} disabled={busy || dirty} onClick={() => onPlan({ id: g.truck_id, truck: g.truck, branch: g.branch })}>Revisar pallets y aprobar{g.planning_status === 'approved' ? ' · Aprobado' : ''}</button>}
             </article>

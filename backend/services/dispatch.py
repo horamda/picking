@@ -1,7 +1,9 @@
 """Read-only summaries and per-worker queue policy. State is stored on ControlTruck."""
 from decimal import Decimal, InvalidOperation
+import unicodedata
 
 from services.load_control import selected_loads, court_state
+from services.pallet_planning import simulate_pallets
 
 
 def totals(rows, catalog):
@@ -13,7 +15,7 @@ def totals(rows, catalog):
             continue
         article = catalog.get(row['sku'])
         raw = (article.datos_origen or {}) if article else {}
-        raw = {k.strip().lower(): str(v).strip() for k, v in raw.items()}
+        raw = {''.join(c for c in unicodedata.normalize('NFKD', k.strip().lower()) if not unicodedata.combining(c)): str(v).strip() for k, v in raw.items()}
         try:
             if raw.get('descripcion unidad de medida', '').upper() != 'HECTOLITROS':
                 raise ValueError('Sin factor HL')
@@ -27,6 +29,31 @@ def totals(rows, catalog):
     return dict(bultos=bultos, unidades=units, hl=round(float(hl), 4) if not missing else None,
                 hl_known=round(float(hl), 4), hl_missing=sorted(missing),
                 courts=len({r['court'] for r in rows}), loads=len({r['load_id'] for r in rows}))
+
+
+def selection_preview(rows, catalog, capacity=None, mix_courts=False):
+    """Read-only packing preview; missing factors never become guessed quantities."""
+    result = totals(rows, catalog)
+    valid, missing = [], set()
+    for row in rows:
+        if not row['bultos'] and not row.get('unidades', 0):
+            continue
+        article = catalog.get(row['sku'])
+        if not article or not article.activo or not article.unidades_por_bulto or article.unidades_por_bulto <= 0 or not article.bultos_por_pallet or article.bultos_por_pallet <= 0:
+            missing.add(row['sku'])
+            continue
+        valid.append(dict(row, bultos_por_pallet=article.bultos_por_pallet, unidades_por_bulto=article.unidades_por_bulto))
+    # Capacity affects the fit check, not packing. Never expose the placeholder as a real capacity.
+    plan = simulate_pallets(valid, capacity or 1, mix_courts)
+    result.update(pallets=plan['total_pallets'] if not missing else None,
+                  pallets_known=plan['total_pallets'], full_pallets_known=plan['full_count'],
+                  picking_pallets_known=plan['mixed_count'], pallet_missing=sorted(missing),
+                  capacity=capacity, mix_courts=mix_courts,
+                  fits=None if missing or capacity is None else plan['fits_estimate'])
+    descriptions = {row['sku']: row['descripcion'] for row in rows}
+    result['missing'] = [dict(sku=sku, descripcion=descriptions[sku], hl=sku in result['hl_missing'],
+                              pallets=sku in missing) for sku in sorted(missing | set(result['hl_missing']))]
+    return result
 
 
 def original_rows(truck):

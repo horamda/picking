@@ -17,7 +17,7 @@ from services.pallet_planning import simulate_pallets
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
-from services.dispatch import totals, truck_summary, worker_queue
+from services.dispatch import totals, truck_summary, worker_queue, selection_preview
 from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 
@@ -183,6 +183,34 @@ def save_dispatch():
         audit(g.current_user, 'seleccionar_cola_armado', t, selection)
     db.session.commit()
     return jsonify(ok=True, trucks=len(wanted), loads=len(seen))
+
+
+@load_control_bp.post('/dispatch/preview')
+@roles_required(*MANAGERS)
+def preview_dispatch():
+    ids = body().get('source_ids')
+    if not isinstance(ids, list) or not ids or len(ids) > 500 or any(type(i) is not int for i in ids) or len(set(ids)) != len(ids):
+        fail('Seleccioná los repartos de un camión.')
+    sources = Consolidado.query.filter(Consolidado.id.in_(ids)).options(selectinload(Consolidado.detalles)).order_by(Consolidado.id).all()
+    if len(sources) != len(ids):
+        fail('Algún reparto ya no está disponible.', 409)
+    rows, keys = [], set()
+    for source in sources:
+        try:
+            data = snapshot(source)
+        except ValueError as exc:
+            fail(str(exc), 422)
+        keys.add((data['deposito'], data['camion'], data['fecha']))
+        rows.extend(dict(p, load_id=source.id, reparto=data['reparto'], court=c['numero']) for c in data['canchas'] for p in c['productos'])
+    if len(keys) != 1:
+        fail('La vista previa debe corresponder a un solo camión, depósito y fecha.')
+    branch, truck, date = keys.pop()
+    capacity = db.session.get(TruckCapacity, (branch, truck))
+    depot = db.session.get(DepotSettings, branch)
+    existing = ControlTruck.query.filter_by(branch=branch, truck=truck, load_date=date).first()
+    saved_plan = existing.state.get('planning', {}) if existing else {}
+    mix = saved_plan.get('mix_courts', depot.mix_courts_default if depot else False)
+    return jsonify(selection_preview(rows, dispatch_catalog(), capacity.pallet_capacity if capacity else None, mix))
 
 
 def require_court(number):

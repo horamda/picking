@@ -167,6 +167,48 @@ class ControlFlowTest(unittest.TestCase):
         self.select_dispatch({self.source.id})
         self.assertEqual(self.call('get', '/trucks', 'picker')[0]['planning_status'], 'pending')
 
+    def test_dispatch_preview_calculates_unsaved_selection_without_writes(self):
+        from services.load_control import ControlLoad
+        second, next_source, excluded = self.dispatch_sources()
+        before = (ControlLoad.query.count(), db.session.get(ControlTruck, self.truck_id).version)
+        preview = self.call('post', '/dispatch/preview', 'super', data=dict(source_ids=[self.source.id, second.id]))
+        self.assertEqual((preview['bultos'], preview['unidades'], preview['loads']), (211, 12, 2))
+        self.assertAlmostEqual(preview['hl'], 25.44)
+        self.assertEqual((preview['pallets'], preview['full_pallets_known'], preview['picking_pallets_known']), (4, 2, 2))
+        self.assertEqual(preview['capacity'], 20)
+        self.assertTrue(preview['fits'])
+        self.assertEqual(preview['missing'], [])
+        self.assertEqual(before, (ControlLoad.query.count(), db.session.get(ControlTruck, self.truck_id).version))
+        self.call('post', '/dispatch/preview', 'picker', expected=403, data=dict(source_ids=[self.source.id]))
+        self.call('post', '/dispatch/preview', expected=400, data=dict(source_ids=[self.source.id, next_source.id]))
+        self.call('post', '/dispatch/preview', expected=400, data=dict(source_ids=[self.source.id, self.source.id]))
+
+    def test_dispatch_preview_missing_factors_reports_known_subtotals(self):
+        from services.warehouse import TruckCapacity
+        article = Article.query.filter_by(sku='1001').one()
+        article.datos_origen = {'Descripción unidad de medida': ' HECTOLITROS ', 'Valor unidad de medida': '0,12'}
+        Article.query.filter_by(sku='1002').delete()
+        TruckCapacity.query.delete()
+        db.session.commit()
+        preview = self.call('post', '/dispatch/preview', data=dict(source_ids=[self.source.id]))
+        self.assertIsNone(preview['hl'])
+        self.assertAlmostEqual(preview['hl_known'], .6)
+        self.assertIsNone(preview['pallets'])
+        self.assertEqual(preview['pallets_known'], 1)
+        self.assertIsNone(preview['capacity'])
+        self.assertIsNone(preview['fits'])
+        self.assertEqual(preview['missing'], [dict(sku='1002', descripcion='Producto 1002', hl=True, pallets=True)])
+
+    def test_dispatch_preview_calculates_without_truck_capacity(self):
+        from services.warehouse import TruckCapacity
+        self.dispatch_sources()
+        TruckCapacity.query.delete(); db.session.commit()
+        preview = self.call('post', '/dispatch/preview', data=dict(source_ids=[self.source.id]))
+        self.assertEqual(preview['pallets'], 1)
+        self.assertAlmostEqual(preview['hl'], 1.08)
+        self.assertIsNone(preview['capacity'])
+        self.assertIsNone(preview['fits'])
+
     def test_live_monitor_includes_approvals_assets_and_safe_activity(self):
         from models import LogEntry
         actor = User.query.filter_by(username='admin').one()
