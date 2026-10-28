@@ -23,7 +23,7 @@ const duration = value => { const s = Math.floor(value || 0); return `${Math.flo
 const localTime = value => value ? new Date(value).toLocaleString('es-AR') : '—'
 const liveSeconds = check => (check.active_seconds || 0) + (check.timer_started_at ? Math.max(0, (Date.now() - new Date(check.timer_started_at).getTime()) / 1000) : 0)
 
-export default function LoadControlPage({ pickingOnly = false, controlsOnly = false, palletsOnly = false }) {
+export default function LoadControlPage({ pickingOnly = false, controlsOnly = false, palletsOnly = false, supervisorOnly = false, initialView = 'loads' }) {
     const user = getStoredUser()
     const palletizer = palletsOnly || user?.role === 'palletizador'
     const picker = palletizer || pickingOnly || user?.role === 'operador'
@@ -42,7 +42,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     const [message, setMessage] = useState('')
     const [busy, setBusy] = useState(false)
     const [loaded, setLoaded] = useState(false)
-    const [view, setView] = useState('loads')
+    const [view, setView] = useState(initialView)
     const [search, setSearch] = useState('')
     const [planningTruck, setPlanningTruck] = useState(null)
     const [processFilter, setProcessFilter] = useState('all')
@@ -133,9 +133,10 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
             <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: palletizer ? 'Pallets completos' : picker ? "Picking" : controller ? "Controles y activos" : "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">{picker ? 'Seleccioná una carga y una cancha para preparar los productos.' : 'Doble control por cancha y activos de salida.'}</p></div>
             <button className={secondary} disabled={busy} onClick={() => act(() => go(view))}>Actualizar</button>
         </header>
-        <nav className={`grid gap-3 ${manager ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"} ${work ? "hidden" : ""}`} aria-label="Secciones de control de cargas">
+        {supervisorOnly && <nav className="flex flex-wrap gap-3" aria-label="Supervisión"><Link className={secondary} to="/supervision">Seguimiento</Link><Link className={secondary} to="/supervision/cargas">Planificar cargas</Link><Link className={secondary} to="/supervision/faltantes">Faltantes y autorizaciones</Link></nav>}
+        {!supervisorOnly && manager && <nav className={`grid gap-3 ${manager ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"} ${work ? "hidden" : ""}`} aria-label="Secciones de control de cargas">
             {[['loads', 'Control operativo', 'Camiones y cargas'], ...(manager ? [['shortages', 'Supervisión', 'Faltantes y autorizaciones'], ['performance', 'Rendimiento', 'Tiempos y errores'], ...(user?.role === 'administrador' ? [['users', 'Administración', 'Usuarios y roles']] : [])] : [])].map(([key, label, description]) => <button key={key} disabled={busy} aria-current={view === key ? "page" : undefined} className={`${view === key ? button : secondary} text-left p-4`} onClick={() => act(() => go(key))}><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs opacity-80">{description}</span></button>)}
-        </nav>
+        </nav>}
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>}
         {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</div>}
         {busy && <p role="status" className="text-sm text-slate-500">Procesando…</p>}

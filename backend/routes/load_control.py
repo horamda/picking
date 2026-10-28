@@ -758,9 +758,16 @@ def warehouse_monitor():
     except ValueError:
         fail('Fecha invalida.')
     rows = []
+    summaries = []
     trucks = ControlTruck.query.filter_by(load_date=date).options(selectinload(ControlTruck.loads)).all()
     for truck in trucks:
         plan = approved(truck)
+        assets = truck.state.get('asset_check') or {}
+        summaries.append(dict(id=truck.id, truck=truck.truck, branch=truck.branch,
+            planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending',
+            released=bool(truck.state.get('released_at')),
+            assets_status='done' if assets.get('status') == 'done' else 'running' if assets.get('timer_started_at') else 'paused' if assets else 'pending',
+            assets_username=assets.get('username')))
         for load in truck.loads:
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
@@ -778,7 +785,14 @@ def warehouse_monitor():
                         answered=answered, personal_answered=sum(a.get('user_id') == check.get('user_id') for a in answers.values() if check.get('user_id')), total=len(products), elapsed_seconds=elapsed(check), timing=timing(check),
                         shortages=sum(a['result']=='shortage' for a in answers.values()),
                         planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending'))
-    return jsonify(date=date, updated_at=now(), processes=rows,
+    from datetime import datetime, timedelta
+    # The warehouse day is Argentina (UTC-3); stored audit timestamps are UTC.
+    day_start = datetime.strptime(date, '%Y-%m-%d') + timedelta(hours=3)
+    latest = db.session.query(LogEntry, User.username).outerjoin(User, LogEntry.user_id == User.id).filter(
+        LogEntry.timestamp >= day_start, LogEntry.timestamp < day_start + timedelta(days=1),
+        LogEntry.entity != 'api_activity').order_by(LogEntry.id.desc()).limit(12).all()
+    return jsonify(date=date, updated_at=now(), processes=rows, trucks=summaries,
+        events=[dict(id=event.id, action=event.action, username=username, at=event.timestamp.isoformat()+'Z') for event, username in latest],
         operators=[dict(id=u.id, username=u.username, role=u.role.name, courts=assigned_courts(u.id))
             for u in User.query.filter_by(active=True).all() if u.role.name in ('operador','palletizador','controlador')])
 
@@ -802,7 +816,7 @@ def activity():
     date = request.args.get('date', now()[:10])
     from datetime import datetime, timedelta
     try:
-        start = datetime.strptime(date, '%Y-%m-%d')
+        start = datetime.strptime(date, '%Y-%m-%d') + timedelta(hours=3)
     except ValueError:
         fail('Fecha invalida.')
     rows = db.session.query(LogEntry, User.username).outerjoin(User, LogEntry.user_id == User.id).filter(

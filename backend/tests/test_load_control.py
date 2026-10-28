@@ -69,6 +69,21 @@ class ControlFlowTest(unittest.TestCase):
     def tearDown(self):
         db.session.remove()
 
+    def test_live_monitor_includes_approvals_assets_and_safe_activity(self):
+        from models import LogEntry
+        actor = User.query.filter_by(username='admin').one()
+        db.session.add(LogEntry(user_id=actor.id, action='aprobar_planificacion', entity='control_truck',
+                               timestamp=datetime(2026, 10, 16, 1, 0), details='{"private":"not sent"}'))
+        db.session.commit()
+        data = self.call('get', '/monitor?date=2026-10-15', 'super')
+        self.assertEqual(data['trucks'][0]['planning'], 'approved')
+        self.assertEqual(data['trucks'][0]['assets_status'], 'pending')
+        self.assertFalse(data['trucks'][0]['released'])
+        self.assertTrue(any(e['action'] == 'aprobar_planificacion' for e in data['events']))
+        self.assertTrue(all('details' not in e for e in data['events']))
+        self.call('get', '/monitor?date=2026-10-15', 'picker', expected=403)
+        self.call('get', '/monitor?date=2026-10-15', 'ana', expected=403)
+
 
     def call(self, method, path, user='admin', expected=200, data=None):
         kwargs = {'headers':{'Authorization':'Bearer '+self.tokens[user]}}
@@ -530,7 +545,8 @@ class ControlFlowTest(unittest.TestCase):
         self.call('get', '/monitor?date=2026-10-15', 'picker', expected=403)
         monitor = self.call('get', '/monitor?date=2026-10-15', 'super')
         self.assertTrue(monitor['processes'])
-        events = self.call('get', '/activity?date='+datetime.now(timezone.utc).date().isoformat(), 'super')['events']
+        local_day = datetime.now(timezone(timedelta(hours=-3))).date().isoformat()
+        events = self.call('get', '/activity?date='+local_day, 'super')['events']
         self.assertTrue(any(e['details'].get('server_ms') is not None for e in events))
         self.assertNotIn('TestPassword123!', str(events))
         self.assertNotIn(self.tokens['admin'], str(events))

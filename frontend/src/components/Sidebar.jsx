@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { clearAuthSession, getStoredUser } from '../utils/auth'
 import { isManager, homeForRole } from '../utils/roleAccess'
 
@@ -81,8 +81,15 @@ function SidebarContent({ onClose }) {
     const navigate = useNavigate()
     const user = getStoredUser()
     const manager = isManager(user?.role)
-    const groups = manager ? [['Depósito', [homeForRole(user?.role), '/equipo', '/operacion']], ['Importaciones', ['/importaciones']], ['Reportes', ['/', '/historial']], ...(user?.role === 'supervisor' ? [['Catálogo', ['/articulos']]] : []), ...(user?.role === 'administrador' ? [['Administración', ['/configuracion', '/articulos', '/exclusiones']]] : [])] : [['Mi trabajo', [homeForRole(user?.role)]]]
-    const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Supervisión'], ['/administracion', 'Administración'], ['/equipo', 'Equipo y canchas'], ['/configuracion', 'Camiones y capacidad']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
+    const { pathname } = useLocation()
+    const supervision = user?.role === 'supervisor' || pathname.startsWith('/supervision')
+    const groups = manager ? [
+        ...(supervision ? [['Supervisión', ['/supervision', '/supervision/cargas', '/supervision/faltantes', '/supervision/equipo', '/tiempos', '/monitor']]] : [['Administración', ['/administracion', '/equipo', '/configuracion', '/articulos', '/exclusiones']], ['Importaciones', ['/importaciones']], ['Operación', ['/supervision', '/monitor', '/tiempos']]]),
+        ['Reportes anteriores', ['/', '/historial', '/operacion']],
+        ...(supervision && user?.role === 'administrador' ? [['Cambiar de panel', ['/administracion']]] : []),
+        ...(user?.role === 'supervisor' ? [['Datos', ['/articulos', '/importaciones']]] : []),
+    ] : [['Mi trabajo', [homeForRole(user?.role)]]]
+    const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Seguimiento en vivo'], ['/supervision/cargas', 'Planificar cargas'], ['/supervision/faltantes', 'Faltantes y autorizaciones'], ['/supervision/equipo', 'Asignar recursos'], ['/monitor', 'Pantalla en vivo'], ['/tiempos', 'Tiempos y actividad'], ['/administracion', 'Panel administrativo'], ['/equipo', 'Usuarios y canchas'], ['/configuracion', 'Camiones y capacidad']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
 
 
     const handleLogout = () => {
@@ -115,6 +122,7 @@ function SidebarContent({ onClose }) {
                     <NavLink
                         key={item.path}
                         to={item.path}
+                        end
                         onClick={onClose}
                         className={({ isActive }) =>
                             `flex items-center gap-3 min-h-12 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors ${

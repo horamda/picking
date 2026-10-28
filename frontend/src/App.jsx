@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { getStoredUser, clearAuthSession } from './utils/auth'
+import AdminPage from './pages/AdminPage'
 import TimingPage from './pages/TimingPage'
 import DepotMonitorPage from './pages/DepotMonitorPage'
 import WarehousePage from './pages/WarehousePage'
@@ -17,6 +19,9 @@ import Sidebar from './components/Sidebar'
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
+    const navigate = useNavigate()
+    const user = getStoredUser()
+    const worker = ['operador', 'palletizador', 'controlador'].includes(user?.role)
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [runtime, setRuntime] = useState(null)
     useEffect(() => { axiosClient.get('/runtime-config').then(r => setRuntime(r.data)).catch(() => {}) }, [])
@@ -30,15 +35,16 @@ function App() {
                     element={
                         <ProtectedRoute>
                             <div className="flex min-h-screen">
-                                {!monitor && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
-                                {sidebarOpen && (
+                                {!monitor && !worker && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
+                                {sidebarOpen && !worker && (
                                     <div
                                         className="fixed inset-0 z-20 bg-black/40 xl:hidden"
                                         onClick={() => setSidebarOpen(false)}
                                     />
                                 )}
                                 <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-                                    <header className={`${monitor ? "hidden" : "flex"} items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 xl:hidden`}>
+                                    {worker && <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2"><div><p className="font-semibold">Del Palacio · {user.role === 'controlador' ? 'Control de cargas' : user.role === 'palletizador' ? 'Pallets completos' : 'Mi picking'}</p><p className="text-sm text-slate-500">{user.username}</p></div><button className="min-h-12 rounded-xl border px-4" onClick={() => { clearAuthSession(); navigate('/login', { replace: true }) }}>Cerrar sesión</button></header>}
+                                    <header className={`${monitor || worker ? "hidden" : "flex"} items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 xl:hidden`}>
                                         <button
                                             type="button"
                                             onClick={() => setSidebarOpen(true)}
@@ -58,7 +64,10 @@ function App() {
                                             <Route path="/tiempos" element={<TimingPage />} />
                                             <Route path="/monitor" element={<DepotMonitorPage />} />
                                             <Route path="/supervision" element={<WarehousePage />} />
-                                            <Route path="/administracion" element={<WarehousePage />} />
+                                            <Route path="/administracion" element={<AdminPage />} />
+                                            <Route path="/supervision/cargas" element={<LoadControlPage key="supervision-cargas" supervisorOnly />} />
+                                            <Route path="/supervision/faltantes" element={<LoadControlPage key="supervision-faltantes" supervisorOnly initialView="shortages" />} />
+                                            <Route path="/supervision/equipo" element={<WarehousePage section="team" supervision />} />
                                             <Route path="/equipo" element={<WarehousePage section="team" />} />
                                             <Route path="/configuracion" element={<WarehousePage section="settings" />} />
                                             <Route path="/pallets" element={<LoadControlPage key="pallets" palletsOnly />} />
