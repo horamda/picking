@@ -150,5 +150,24 @@ class ArticleImportTest(unittest.TestCase):
         from models import UploadedFile
         self.assertEqual(db.session.get(UploadedFile, response.json['uploaded_file_id']).data, raw)
 
+    def test_voice_backup_includes_inactive_and_all_pages_without_changing_data(self):
+        for n in range(205):
+            db.session.add(Article(sku=f'{n:04}', descripcion='Original',
+                                   descripcion_voz=f'Voz número {n}', activo=n % 2 == 0))
+        db.session.add(Article(sku='no-voice', descripcion='Sin voz'))
+        db.session.commit()
+        path = '/api/articles/voice-backup'
+        self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.get(path, headers=self.tokens['operador']).status_code, 403)
+        response = self.client.get(path, headers=self.tokens['administrador'])
+        self.assertEqual(response.status_code, 200)
+        data = response.json
+        self.assertEqual(data['total'], 205)
+        self.assertEqual(data['version'], 1)
+        self.assertEqual(data['items'][1], {'sku': '0001', 'descripcion_voz': 'Voz número 1'})
+        self.assertEqual(len(data['items']), 205)
+        self.assertEqual(Article.query.count(), 206)
+        self.assertIn('no-store', response.headers['Cache-Control'])
+
 
 if __name__ == '__main__': unittest.main()

@@ -64,6 +64,17 @@ def list_articles():
     })
 
 
+@articles_bp.route('/voice-backup', methods=['GET'])
+@roles_required('administrador', 'supervisor')
+def voice_backup():
+    from datetime import datetime, timezone
+    rows = db.session.query(Article.sku, Article.descripcion_voz).filter(
+        Article.descripcion_voz.isnot(None), Article.descripcion_voz != '').order_by(Article.sku).all()
+    return jsonify(format='del-palacio-voice-backup', version=1,
+                   exported_at=datetime.now(timezone.utc).isoformat(),
+                   items=[dict(sku=sku, descripcion_voz=voice) for sku, voice in rows], total=len(rows))
+
+
 @articles_bp.route('/<int:article_id>', methods=['GET'])
 @roles_required('administrador', 'supervisor')
 def article_detail(article_id):

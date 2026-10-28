@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axiosClient from '../api/axiosClient'
 import ArticleVoiceEditor from '../components/ArticleVoiceEditor'
+import VoiceBackupTable from '../components/VoiceBackupTable'
 import { ActiveBadge } from '../components/Badge'
 import {
     cellClass,
@@ -16,6 +17,7 @@ import { formatNumber } from '../utils/format'
 
 function ArticlesPage() {
     const [editing, setEditing] = useState(null)
+    const [showBackup, setShowBackup] = useState(false)
     const [articles, setArticles] = useState([])
     const [articleMeta, setArticleMeta] = useState({ total: 0, page: 1, pages: 1, per_page: 50 })
     const [query, setQuery] = useState('')
@@ -73,7 +75,10 @@ function ArticlesPage() {
                     <h1 className="text-2xl font-semibold text-slate-900">Articulos</h1>
                     <p className="mt-1 text-sm text-slate-500">Maestro logistico para calcular bultos equivalentes y pallets.</p>
                 </div>
+                {canImport && <button className="min-h-12 rounded-xl border bg-white px-4" onClick={() => { setEditing(null); setShowBackup(true) }}>Respaldo de voz</button>}
             </div>
+
+            {showBackup && <VoiceBackupTable onClose={() => setShowBackup(false)} />}
 
             <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
