@@ -12,6 +12,21 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Runs only a synthetic demo; never connects to the operational API. */
 public class SmokeRunner extends Instrumentation {
+    private Activity renderingActivity;
+    private void screenshot(String name) throws Exception {
+        waitForIdleSync();Thread.sleep(250);
+        AtomicReference<android.graphics.Bitmap> rendered=new AtomicReference<>();
+        runOnMainSync(()->{View view=renderingActivity.getWindow().getDecorView();android.graphics.Bitmap b=android.graphics.Bitmap.createBitmap(view.getWidth(),view.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(b));rendered.set(b);});
+        android.graphics.Bitmap bitmap=rendered.get();
+        try(java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(getTargetContext().getExternalFilesDir(null),name+".png"))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}finally{bitmap.recycle();}
+    }
+    private void command(Activity activity,String words){
+        try{java.lang.reflect.Method method=MainActivity.class.getDeclaredMethod("command",String.class);method.setAccessible(true);method.invoke(activity,words);}catch(Exception e){throw new AssertionError(e);}
+    }
+    private EditText field(View view,String description){
+        if(view instanceof EditText && description.equals(String.valueOf(view.getContentDescription())))return (EditText)view;
+        if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){EditText v=field(((ViewGroup)view).getChildAt(i),description);if(v!=null)return v;}return null;
+    }
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
     private Button button(View view, String label) {
         if (view instanceof Button && ((Button)view).getText().toString().equals(label)) return (Button)view;
@@ -25,15 +40,29 @@ public class SmokeRunner extends Instrumentation {
         try {
             activity=startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             Activity target=activity;
+            renderingActivity=activity;
+            screenshot("login");
             runOnMainSync(()->{
                 button(target.getWindow().getDecorView(),"Probar voz sin guardar datos").performClick();
-                Button confirm=button(target.getWindow().getDecorView(),"Correcto · guardar y seguir");
+                Button confirm=button(target.getWindow().getDecorView(),"Correcto →");
                 if(confirm==null)throw new AssertionError("No abrió el producto de demostración");
+            });
+            screenshot("picking");
+            runOnMainSync(()->{
+                Button confirm=button(target.getWindow().getDecorView(),"Correcto →");
                 confirm.performClick();
-                if(button(target.getWindow().getDecorView(),"Anterior")==null)throw new AssertionError("No avanzó al segundo producto");
-                button(target.getWindow().getDecorView(),"Registrar faltante").performClick();
+                if(!button(target.getWindow().getDecorView(),"← Anterior").isEnabled())throw new AssertionError("No avanzó al segundo producto");
+                button(target.getWindow().getDecorView(),"Faltante real").performClick();
+                command(target,"un bulto");
+                if(!field(target.getWindow().getDecorView(),"Bultos físicos").getText().toString().equals("1"))throw new AssertionError("No completó cantidades por voz");
+                command(target,"correcto");
+                if(button(target.getWindow().getDecorView(),"Registrar faltante")==null)throw new AssertionError("La voz confirmó un faltante sin toque");
+                command(target,"un bulto");
+            });
+            screenshot("faltante");
+            runOnMainSync(()->{
                 ((MainActivity)target).onBackPressed();
-                if(button(target.getWindow().getDecorView(),"Correcto · guardar y seguir")==null)throw new AssertionError("Atrás no volvió del faltante al producto");
+                if(button(target.getWindow().getDecorView(),"Correcto →")==null)throw new AssertionError("Atrás no volvió del faltante al producto");
                 ((MainActivity)target).onBackPressed();
                 if(button(target.getWindow().getDecorView(),"Probar voz sin guardar datos")==null)throw new AssertionError("Atrás no volvió de la demostración al inicio");
             });

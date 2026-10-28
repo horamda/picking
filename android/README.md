@@ -6,11 +6,13 @@ Primera versión de prueba en Java, con vistas nativas de Android, TextToSpeech 
 
 Instalar `app/build/outputs/apk/debug/app-debug.apk` y elegir **Probar voz sin guardar datos**. El modelo español está incluido en el APK y se prepara en el primer uso. Activar voz, conceder micrófono y verificar volumen multimedia y voz española instalada en Android.
 
-La app lee el producto y las cantidades; después abre el micrófono. Reconoce `correcto`, `confirmo`, `bien`, `faltante`, `falta`, `repetir`, `repite`, `siguiente` y `anterior`. Frases ambiguas como “no es correcto” no confirman productos. El faltante se completa y confirma manualmente; el dictado de cantidades todavía no está implementado en Android.
+La app lee el producto y las cantidades; después abre el micrófono. Reconoce `correcto`, `confirmo`, `bien`, `faltante`, `falta`, `repetir`, `repite`, `siguiente` y `anterior`. Frases ambiguas como “no es correcto” no confirman productos. Dentro de faltantes, la voz completa cantidades explícitas (por ejemplo, `un bulto` o `dos bultos tres unidades`, de cero a 999). No modifica campos omitidos y rechaza cantidades superiores a la planilla. Guardar siempre requiere tocar **Registrar faltante**; decir `correcto` en ese formulario nunca confirma.
 
 El audio se reconoce localmente. Guardar respuestas reales necesita red: no existe cola offline ni reintento automático de escrituras. Tras un error, revisar el estado antes de reintentar. La lectura se detiene antes de escuchar para evitar que la app se confirme a sí misma.
 
-## Operación conectada (0.3)
+## Operación conectada (0.5)
+
+Picking y faltantes usan tarjetas, cantidades grandes, avance y tiempo activo. La pantalla inicial muestra usuario, canchas y filtro. Atrás vuelve de faltantes al producto, del producto a sus canchas (pausando antes) y de canchas a cargas. El teclado y el audio deben verificarse también en el equipo físico del depósito.
 
 El login acepta `operador` y `palletizador`. La API devuelve solo canchas asignadas y cargas aprobadas. Picking recibe remanentes; pallets completos recibe su cantidad de pallets y bultos. La respuesta del servidor al iniciar determina las cantidades que se leen. Las asignaciones se actualizan al refrescar cargas y se vuelven a verificar al escribir.
 

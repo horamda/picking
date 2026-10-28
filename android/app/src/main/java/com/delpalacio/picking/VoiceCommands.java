@@ -17,6 +17,8 @@ final class VoiceCommands {
         };
     }
     static String grammar() {
-        return "[\"correcto\",\"confirmo\",\"bien\",\"faltante\",\"falta\",\"repetir\",\"repite\",\"siguiente\",\"anterior\",\"[unk]\"]";
+        java.util.Set<String> words=VoiceQuantities.vocabulary();
+        words.addAll(java.util.Arrays.asList("correcto","confirmo","bien","faltante","falta","repetir","repite","siguiente","anterior","[unk]"));
+        return "[\""+String.join("\",\"",words)+"\"]";
     }
 }
