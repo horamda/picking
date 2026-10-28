@@ -9,8 +9,32 @@ import json
 from services.csv_import import import_articles_from_csv
 from services.file_storage import create_uploaded_file_record, mark_uploaded_file, uploaded_file_to_dict
 from utils.db import db
+from services.article_voice import fill_missing_voice, proposed_voice
 
 articles_bp = Blueprint('articles', __name__)
+
+
+@articles_bp.route('/voice-suggestions', methods=['GET'])
+@roles_required('administrador', 'supervisor')
+def voice_suggestions():
+    """Use the existing signed CSV preview/apply flow; this request never writes."""
+    import csv
+    import io
+    from flask import Response
+    from services.voice_csv import export_voice_csv
+    articles = Article.query.filter(Article.activo.is_(True)).order_by(Article.sku).all()
+    pending = [a for a in articles if not (a.descripcion_voz or '').strip()]
+    proposals = {a.sku: proposed_voice(a.descripcion) for a in pending}
+    selected = [a for a in pending if proposals[a.sku]]
+    if not selected:
+        return Response(status=204, headers={'X-Voice-Skipped': str(len(pending))})
+    rows = list(csv.reader(io.StringIO(export_voice_csv(selected).decode('utf-8-sig')), delimiter=';'))
+    for row, article in zip(rows[1:], selected):
+        row[2] = proposals[article.sku]
+    output = io.StringIO(newline='')
+    csv.writer(output, delimiter=';').writerows(rows)
+    return Response(output.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8',
+                    headers={'X-Voice-Skipped': str(len(pending) - len(selected))})
 
 
 @articles_bp.route('/voice-csv', methods=['GET', 'POST'])
@@ -168,6 +192,7 @@ def create_article():
         activo=data.get('activo', True)
     )
     db.session.add(article)
+    fill_missing_voice(article)
     db.session.commit()
     return jsonify({'message': 'Articulo creado', 'id': article.id}), 201
 

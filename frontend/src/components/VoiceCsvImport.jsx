@@ -1,9 +1,30 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import api from '../api/axiosClient'
 
 export default function VoiceCsvImport() {
+    const fileInput = useRef(null)
     const [file, setFile] = useState(null), [result, setResult] = useState(null)
     const [busy, setBusy] = useState(false), [error, setError] = useState('')
+    const [notice, setNotice] = useState('')
+    async function generate() {
+        if (busy) return
+        setBusy(true); setError(''); setResult(null); setNotice(''); setFile(null)
+        if (fileInput.current) fileInput.current.value = ''
+        try {
+            const response = await api.get('/articles/voice-suggestions', { responseType: 'blob' })
+            if (response.status === 204) {
+                setNotice(`No hay propuestas para completar. ${Number(response.headers['x-voice-skipped'] || 0)} artículos requieren revisar su descripción.`)
+                return
+            }
+            const generated = new File([response.data], 'propuestas-voz.csv', { type: 'text/csv' })
+            const data = new FormData(); data.append('file', generated); data.append('apply', '0')
+            const preview = await api.post('/articles/voice-csv', data)
+            setFile(generated); setResult(preview.data)
+            const skipped = Number(response.headers['x-voice-skipped'] || 0)
+            setNotice(`Propuestas para artículos activos sin descripción de voz. ${skipped} pendientes por descripción vacía o demasiado larga.`)
+        } catch (e) { setError(e.response?.data?.error || 'No se pudieron preparar las propuestas. No se guardaron cambios.') }
+        finally { setBusy(false) }
+    }
     async function download() {
         setBusy(true); setError('')
         try {
@@ -25,6 +46,9 @@ export default function VoiceCsvImport() {
     }
     return <section className="max-w-5xl rounded-2xl border bg-white p-4 sm:p-6">
         <h2 className="text-lg font-semibold">Modificar descripciones de voz masivamente</h2>
+        <p className="my-3 text-sm text-slate-600">Al dar de alta o importar artículos, la voz se completa automáticamente si está vacía. Los textos existentes se conservan. Para completar los artículos activos ya cargados, revisá estas propuestas.</p>
+        <button disabled={busy} onClick={generate} className="min-h-12 rounded-xl bg-brand-500 px-4 text-white disabled:opacity-50">Generar voz para campos vacíos</button>
+        {notice && <p className="mt-3 text-sm text-slate-600" role="status">{notice}</p>}
         <ol className="my-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
             <li>Exportá todos los artículos, activos e inactivos, incluso los que todavía no tienen voz personalizada.</li>
             <li>Abrí el CSV en Excel como UTF-8 y la columna Código como texto para conservar ceros iniciales. Modificá «Descripcion para voz» y guardá como CSV UTF-8.</li>
@@ -32,7 +56,8 @@ export default function VoiceCsvImport() {
             <li>Subí el archivo, revisá los cambios y confirmá. Si hay un error, se rechaza el archivo completo.</li>
         </ol>
         <button disabled={busy} onClick={download} className="min-h-12 rounded-xl border px-4 disabled:opacity-50">Exportar CSV editable</button>
-        <label className="my-4 block">Archivo editado<input disabled={busy} type="file" accept=".csv,text/csv" className="mt-2 block w-full min-w-0" onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); setError('') }} /></label>
+        <label className="my-4 block">Archivo editado<input ref={fileInput} disabled={busy} type="file" accept=".csv,text/csv" className="mt-2 block w-full min-w-0" onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); setError(''); setNotice('') }} /></label>
+        {file && <p className="mb-3 text-sm text-slate-600">Archivo para validar: {file.name}</p>}
         <button disabled={busy || !file} onClick={() => upload(false)} className="min-h-12 rounded-xl border px-4 disabled:opacity-50">{busy ? 'Procesando…' : 'Validar y ver cambios'}</button>
         {error && <p role="alert" className="mt-4 text-red-700">{error}</p>}
         {result && <div className="mt-4" aria-live="polite">

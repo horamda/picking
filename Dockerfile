@@ -14,6 +14,7 @@ WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
+COPY voz/ ../voz/
 COPY --from=frontend-builder /app/frontend/dist ../frontend/dist
 EXPOSE 5000
 CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-5000} --workers ${WEB_CONCURRENCY:-2} --timeout ${GUNICORN_TIMEOUT:-120}"]

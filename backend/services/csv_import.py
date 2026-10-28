@@ -7,6 +7,7 @@ import sqlalchemy as sa
 
 from models import Article
 from utils.db import db
+from services.article_voice import fill_missing_voice
 
 
 TRUE_VALUES = {'1', 'true', 'si', 'sí', 'yes', 'y', 'activo'}
@@ -195,7 +196,7 @@ def import_articles_from_csv(file_bytes: bytes, mode: str = 'merge') -> dict:
     if not articles and not excluded and not errors:
         errors.append({'row': 1, 'error': 'CSV sin articulos'})
     result = result_payload(mode, False, duplicates=duplicates, errors=errors)
-    result.update(eligible=len(articles), excluded=len(excluded))
+    result.update(eligible=len(articles), excluded=len(excluded), voice_generated=0)
     if errors or duplicates:
         return result
     try:
@@ -208,12 +209,17 @@ def import_articles_from_csv(file_bytes: bytes, mode: str = 'merge') -> dict:
             payload = {key: value for key, value in payload.items() if key in CSV_MANAGED_FIELDS}
             article = existing.get(payload['sku'])
             if article is None:
-                db.session.add(Article(**payload))
+                article = Article(**payload)
+                result['voice_generated'] += fill_missing_voice(article)
+                db.session.add(article)
                 result['created'] += 1
             else:
                 changed = any(getattr(article, key) != value for key, value in payload.items())
                 for key, value in payload.items():
                     setattr(article, key, value)
+                generated = fill_missing_voice(article)
+                result['voice_generated'] += generated
+                changed = changed or generated
                 result['updated' if changed else 'unchanged'] += 1
         excluded_by_sku = {p['sku']: p for p in excluded}
         for sku, article in existing.items():

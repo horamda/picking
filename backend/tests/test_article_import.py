@@ -34,6 +34,52 @@ def csv_bytes(*changes):
 
 
 class ArticleImportTest(unittest.TestCase):
+    def test_automatic_voice_import_and_creation_preserve_existing(self):
+        result = import_articles_from_csv(csv_bytes())
+        self.assertEqual(result['voice_generated'], 1)
+        article = Article.query.one()
+        self.assertEqual(article.descripcion_voz, 'BRAHMA pack de 12')
+        article.descripcion_voz = 'Mi nombre manual'
+        db.session.commit()
+        result = import_articles_from_csv(csv_bytes({'Descripcion articulo': 'BUD CAN X24 355CC'}))
+        self.assertEqual(result['voice_generated'], 0)
+        self.assertEqual(article.descripcion_voz, 'Mi nombre manual')
+        article.descripcion_voz = None
+        db.session.commit()
+        result = import_articles_from_csv(csv_bytes({'Descripcion articulo': 'BUD CAN X24 355CC'}))
+        self.assertEqual(result['voice_generated'], 1)
+        self.assertEqual(article.descripcion_voz, 'Budweiser lata pack de 24 de 355 cc')
+        response = self.client.post('/api/articles', json={'sku': 'nuevo', 'descripcion': 'BUD CAN'}, headers=self.tokens['administrador'])
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Article.query.filter_by(sku='nuevo').one().descripcion_voz, 'Budweiser lata')
+
+    def test_voice_suggestions_preview_apply_conflict_and_limits(self):
+        headers = self.tokens['administrador']
+        db.session.add_all([
+            Article(sku='a', descripcion='BUD CAN', activo=True),
+            Article(sku='b', descripcion='BUD', descripcion_voz='Manual', activo=True),
+            Article(sku='c', descripcion='BUD', activo=False),
+            Article(sku='d', descripcion='BUD ' * 60, activo=True),
+        ])
+        db.session.commit()
+        self.assertEqual(self.client.get('/api/articles/voice-suggestions', headers=self.tokens['operador']).status_code, 403)
+        response = self.client.get('/api/articles/voice-suggestions', headers=headers)
+        self.assertEqual(response.headers['X-Voice-Skipped'], '1')
+        self.assertIsNone(Article.query.filter_by(sku='a').one().descripcion_voz)
+        def post(apply):
+            return self.client.post('/api/articles/voice-csv', headers=headers,
+                                    data={'file': (io.BytesIO(response.data), 'propuestas.csv'), 'apply': apply})
+        self.assertEqual(post('0').json['changes'], [{'sku': 'a', 'before': '', 'after': 'Budweiser lata'}])
+        self.assertIsNone(Article.query.filter_by(sku='a').one().descripcion_voz)
+        self.assertEqual(post('1').status_code, 200)
+        self.assertEqual(post('1').status_code, 409)
+        self.assertEqual(Article.query.filter_by(sku='b').one().descripcion_voz, 'Manual')
+        self.assertIsNone(Article.query.filter_by(sku='c').one().descripcion_voz)
+        self.assertIsNone(Article.query.filter_by(sku='d').one().descripcion_voz)
+        self.assertEqual(LogEntry.query.filter_by(action='editar_descripcion_voz').count(), 1)
+        self.assertEqual(voice_products([{'sku': 'a', 'descripcion': 'BUD CAN'}])[0]['descripcion_voz'], 'Budweiser lata')
+        self.assertEqual(self.client.get('/api/articles/voice-suggestions', headers=headers).status_code, 204)
+
     @classmethod
     def tearDownClass(cls):
         with application.app.app_context():
@@ -121,13 +167,13 @@ class ArticleImportTest(unittest.TestCase):
                 self.assertTrue(import_articles_from_csv(b'unused', mode)['applied'])
             db.session.expire_all()
             self.assertEqual(Article.query.filter_by(sku='001').one().descripcion_voz, 'Nombre manual permanente')
-            self.assertIsNone(Article.query.filter_by(sku='002').one().descripcion_voz)
+            self.assertEqual(Article.query.filter_by(sku='002').one().descripcion_voz, 'BRAHMA pack de 12')
 
     def test_voice_api_permissions_conflict_and_product_fallback(self):
         import_articles_from_csv(csv_bytes())
         article = Article.query.one(); article_id = article.id
         path = f'/api/articles/{article_id}/voice'
-        payload = {'descripcion_voz': 'Brahma de un litro', 'previous': ''}
+        payload = {'descripcion_voz': 'Brahma de un litro', 'previous': article.descripcion_voz}
         self.assertEqual(self.client.put(path, json=payload, headers=self.tokens['operador']).status_code, 403)
         self.assertEqual(self.client.put(path, json=payload, headers=self.tokens['administrador']).status_code, 200)
         self.assertEqual(self.client.put(path, json=payload, headers=self.tokens['administrador']).status_code, 409)
@@ -152,6 +198,8 @@ class ArticleImportTest(unittest.TestCase):
 
     def test_voice_csv_preview_apply_conflict_and_atomic_validation(self):
         import_articles_from_csv(csv_bytes({}, {'Articulo': '002'}))
+        for article in Article.query.all(): article.descripcion_voz = None
+        db.session.commit()
         headers = self.tokens['administrador']
         path = '/api/articles/voice-csv'
         self.assertEqual(self.client.get(path, headers=self.tokens['operador']).status_code, 403)

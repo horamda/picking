@@ -1,8 +1,12 @@
 import os
+import sys
 import threading
 import time
 import json
 from pathlib import Path
+
+# Shared deterministic voice converter lives alongside backend/.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from flask import Flask, g, jsonify, request, send_from_directory
 from flask_cors import CORS
