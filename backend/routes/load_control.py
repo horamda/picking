@@ -2,6 +2,8 @@ from copy import deepcopy
 import hashlib
 import json
 from uuid import uuid4
+from datetime import datetime, timedelta
+from sqlalchemy import text
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +16,8 @@ from models import Consolidado, User, LogEntry, Article
 from services.pallet_planning import simulate_pallets
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
-    court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer)
+    court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
+from services.dispatch import totals, truck_summary, worker_queue
 from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 
@@ -26,6 +29,162 @@ def manager():
     return g.current_user.role.name in MANAGERS
 
 
+def preparation_worker():
+    return g.current_user.role.name in ('operador', 'palletizador')
+
+
+def current_dispatch_truck():
+    if 'picking.dispatch_current' in request.environ:
+        return request.environ['picking.dispatch_current']
+    stage = 4 if g.current_user.role.name == 'palletizador' else 0
+    g.dispatch_configured = db.session.query(ControlTruck.id).filter(
+        ControlTruck.state['dispatch']['load_ids'].as_string().isnot(None)).first() is not None
+    rows = ControlTruck.query.filter(ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
+    # A pre-existing reservation must remain resumable during rollout.
+    owned = [t for t in rows if any(ch.get('stage') == stage and ch.get('status') == 'active'
+             and ch.get('user_id') == g.current_user.id for c in t.state.get('courts', {}).values()
+             for ch in c.get('checks', {}).values())]
+    queue = worker_queue(rows, assigned_courts(g.current_user.id), stage, task_products)
+    current = (sorted(owned, key=lambda t: (t.load_date, t.id)) or queue or [None])[0]
+    request.environ['picking.dispatch_current'] = current
+    return current
+
+
+def require_dispatch(load):
+    if load not in selected_loads(load.truck):
+        fail('Este reparto no está seleccionado para armar.', 409)
+    if preparation_worker():
+        current = current_dispatch_truck()
+        if g.dispatch_configured and (current is None or current.id != load.truck_id):
+            fail('Terminá tus canchas del camión actual antes de pasar al siguiente.', 409)
+
+
+def dispatch_catalog():
+    if 'picking.dispatch_catalog' not in request.environ:
+        request.environ['picking.dispatch_catalog'] = {a.sku: a for a in Article.query.all()}
+    return request.environ['picking.dispatch_catalog']
+
+
+def dispatch_versions(trucks):
+    # Product confirmations change truck.version, but do not edit the dispatch.
+    return {str(t.id): hashlib.sha256(json.dumps(t.state.get('dispatch'), sort_keys=True).encode()).hexdigest() for t in trucks}
+
+
+@load_control_bp.get('/dispatch')
+@roles_required(*MANAGERS)
+def dispatch_board():
+    date = request.args.get('date', '')
+    try:
+        day = datetime.strptime(date, '%Y-%m-%d')
+    except ValueError:
+        fail('Seleccioná una fecha de reparto válida.')
+    sources = Consolidado.query.filter(Consolidado.fecha_reparto >= day, Consolidado.fecha_reparto < day + timedelta(days=1)).options(selectinload(Consolidado.detalles)).order_by(Consolidado.id).all()
+    trucks = ControlTruck.query.filter_by(load_date=date).options(selectinload(ControlTruck.loads)).all()
+    by_key = {(t.branch, t.truck): t for t in trucks}
+    groups = {}
+    for source in sources:
+        key = ((source.deposito or '').strip(), truck_name(source.camion))
+        t = by_key.get(key)
+        group = groups.setdefault(key, dict(branch=key[0], truck=key[1], truck_id=t.id if t else None,
+            position=(t.state.get('dispatch') or {}).get('position') if t else None,
+            planning_status='approved' if t and approved(t) else 'pending', sources=[]))
+        try:
+            data = snapshot(source)
+            rows = [dict(p, load_id=source.id, court=c['numero']) for c in data['canchas'] for p in c['productos']]
+            load = next((l for l in t.loads if l.source_id == source.id), None) if t else None
+            selected = bool(t and load and load.id in t.state.get('dispatch', {}).get('load_ids', []))
+            group['sources'].append(dict(id=source.id, reparto=source.reparto, selected=selected, totals=totals(rows, dispatch_catalog()), error=None))
+        except ValueError as exc:
+            group['sources'].append(dict(id=source.id, reparto=source.reparto, selected=False, totals=None, error=str(exc)))
+    prefix = max((t.state.get('dispatch', {}).get('position', 0) for t in trucks
+                  if any(c.get('checks') for c in t.state.get('courts', {}).values())), default=0)
+    for group in groups.values():
+        t = by_key.get((group['branch'], group['truck']))
+        group['locked'] = bool(t and (t.state.get('released_at') or any(c.get('checks') for c in t.state.get('courts', {}).values())
+                                     or (group['position'] and group['position'] <= prefix)))
+    return jsonify(date=date, versions=dispatch_versions(trucks), groups=sorted(groups.values(), key=lambda x: (x['position'] or 1000000, x['branch'], x['truck'])))
+
+
+@load_control_bp.post('/dispatch')
+@roles_required(*MANAGERS)
+def save_dispatch():
+    data = body()
+    date, entries = data.get('date'), data.get('entries')
+    if not isinstance(date, str):
+        fail('Fecha inválida.')
+    try:
+        datetime.strptime(date or '', '%Y-%m-%d')
+    except ValueError:
+        fail('Fecha inválida.')
+    if not isinstance(entries, list) or len(entries) > 500:
+        fail('La selección de camiones es inválida.')
+    if db.engine.dialect.name == 'postgresql':
+        db.session.execute(text('SELECT pg_advisory_xact_lock(2810202601)'))
+    existing = ControlTruck.query.filter_by(load_date=date).order_by(ControlTruck.id).with_for_update().populate_existing().all()
+    if data.get('versions') != dispatch_versions(existing):
+        fail('Las cargas cambiaron. Actualizá la selección antes de guardarla.', 409)
+    wanted, seen = {}, set()
+    for position, entry in enumerate(entries, 1):
+        if not isinstance(entry, dict) or not isinstance(entry.get('source_ids'), list) or not entry['source_ids']:
+            fail('Seleccioná al menos un reparto por camión.')
+        key = (entry.get('branch'), entry.get('truck'))
+        if not all(isinstance(v, str) and v.strip() for v in key):
+            fail('Depósito o camión inválido.')
+        if key in wanted:
+            fail('Camión duplicado en la cola.')
+        loads = []
+        for source_id in entry['source_ids']:
+            if type(source_id) is not int or source_id in seen:
+                fail('Reparto inválido o duplicado.')
+            seen.add(source_id)
+            source = db.session.get(Consolidado, source_id)
+            if not source or not source.fecha_reparto or source.fecha_reparto.date().isoformat() != date or ((source.deposito or '').strip(), truck_name(source.camion)) != key:
+                fail('El reparto no corresponde al camión y fecha seleccionados.', 409)
+            load = ControlLoad.query.filter_by(source_id=source_id).first()
+            if load is None:
+                try:
+                    load = add_load(snapshot(source), source.id)
+                except ValueError as exc:
+                    fail(str(exc), 422)
+            loads.append(load)
+        wanted[key] = dict(truck=loads[0].truck, load_ids=[l.id for l in loads], position=position)
+    # Preserve the prefix already in execution. Later trucks can still be appended/reordered.
+    started_positions = [t.state['dispatch']['position'] for t in existing if t.state.get('dispatch') and any(c.get('checks') for c in t.state.get('courts', {}).values())]
+    prefix = max(started_positions, default=0)
+    for t in existing:
+        old = t.state.get('dispatch')
+        new = wanted.get((t.branch, t.truck))
+        started = any(c.get('checks') for c in t.state.get('courts', {}).values()) or t.state.get('released_at')
+        if (started or (old and old['position'] <= prefix)) and (old or new):
+            if not old or not new or old['load_ids'] != new['load_ids'] or old['position'] != new['position']:
+                fail('No se puede cambiar la selección ni el orden de camiones que ya comenzaron.', 409)
+    for item in wanted.values():
+        t = item['truck']
+        old = t.state.get('dispatch')
+        if item['position'] <= prefix and (not old or old['position'] != item['position']):
+            fail('No se puede insertar un camión antes del trabajo que ya comenzó.', 409)
+    all_trucks = {t.id: t for t in existing}
+    all_trucks.update({v['truck'].id: v['truck'] for v in wanted.values()})
+    for t in all_trucks.values():
+        item = wanted.get((t.branch, t.truck))
+        if not item and 'dispatch' not in t.state and (t.state.get('released_at') or any(c.get('checks') for c in t.state.get('courts', {}).values())):
+            continue
+        selection = dict(load_ids=item['load_ids'] if item else [], position=item['position'] if item else 1000000)
+        old = t.state.get('dispatch')
+        if old and all(old.get(k) == selection[k] for k in selection):
+            continue
+        state = deepcopy(t.state)
+        state['dispatch'] = dict(selection, selected_at=now(), selected_by=g.current_user.id)
+        if not old or old.get('load_ids') != selection['load_ids']:
+            state.pop('planning', None)
+            state.pop('planning_started_at', None)
+            state['planning_requested_at'] = now()
+        t.state = state
+        audit(g.current_user, 'seleccionar_cola_armado', t, selection)
+    db.session.commit()
+    return jsonify(ok=True, trucks=len(wanted), loads=len(seen))
+
+
 def require_court(number):
     db.session.query(User).filter_by(id=g.current_user.id).with_for_update().first()
     if not manager() and number not in assigned_courts(g.current_user.id):
@@ -35,7 +194,7 @@ def require_court(number):
 def require_truck_courts(truck):
     if not manager():
         assigned = assigned_courts(g.current_user.id)
-        if any(c['numero'] not in assigned for load in truck.loads for c in load.content['canchas']):
+        if any(c['numero'] not in assigned for load in selected_loads(truck) for c in load.content['canchas']):
             fail('Los activos de este camion requieren un supervisor o un controlador asignado a todas sus canchas.', 403)
 
 
@@ -194,6 +353,8 @@ def serialize_load(load, summary=False):
 
 
 def add_load(payload, source_id=None):
+    if db.engine.dialect.name == 'postgresql':
+        db.session.execute(text('SELECT pg_advisory_xact_lock(2810202601)'))
     payload['camion'] = truck_name(payload['camion'])
     payload['deposito'] = payload['deposito'].strip()
     key = dict(branch=payload['deposito'], load_date=payload['fecha'])
@@ -230,15 +391,23 @@ def add_load(payload, source_id=None):
 def trucks():
     result = []
     query = ControlTruck.query.options(selectinload(ControlTruck.loads))
-    if request.args.get('date'):
+    current = current_dispatch_truck() if preparation_worker() else None
+    queued = preparation_worker() and g.dispatch_configured
+    if queued:
+        if not current:
+            return jsonify([])
+        query = query.filter_by(id=current.id)
+    elif request.args.get('date'):
         query = query.filter_by(load_date=request.args['date'])
     for t in query.order_by(ControlTruck.load_date.desc(), ControlTruck.id.desc()).all():
-        valid = approved(t)
-        if not manager() and not valid and not legacy_in_progress(t):
+        if t.state.get('dispatch') is not None and not selected_loads(t):
             continue
-        loads = [serialize_load(l, summary=True) for l in t.loads]
+        valid = approved(t)
+        if not manager() and not valid and not legacy_in_progress(t) and not queued:
+            continue
+        loads = [serialize_load(l, summary=True) for l in selected_loads(t)] if valid or manager() or legacy_in_progress(t) else []
         loads = [l for l in loads if l['canchas']]
-        if not manager() and not loads:
+        if not manager() and not loads and not queued:
             continue
         st = status(t)
         if not manager():
@@ -246,7 +415,10 @@ def trucks():
             st['shortages'] = [sh for sh in st['shortages'] if sh['court'] in allowed]
             st['pending_sources'] = []
         result.append(dict(id=t.id, branch=t.branch, load_date=t.load_date, truck=t.truck,
-            version=t.version, planning_status='approved' if valid else 'legacy' if legacy_in_progress(t) else 'pending', status=st, loads=loads))
+            version=t.version, planning_status='approved' if valid else 'legacy' if legacy_in_progress(t) else 'pending', status=st, loads=loads,
+            dispatch=t.state.get('dispatch'), queue_current=queued,
+            summary=truck_summary(t, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
+                                  4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(valid))))
     return jsonify(result)
 
 
@@ -271,9 +443,13 @@ def simulate_truck(truck_id):
 @auth_required
 def load_detail(load_id):
     load = get_load(load_id)
+    if not manager():
+        require_dispatch(load)
     if not manager() and not approved(load.truck) and not legacy_in_progress(load.truck):
         fail('La carga espera aprobacion del supervisor.', 409)
     result = serialize_load(load)
+    result['truck_summary'] = truck_summary(load.truck, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
+                                           4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(approved(load.truck)))
     if not manager() and not result['canchas']:
         fail('No tenes canchas asignadas en esta carga.', 403)
     return jsonify(result)
@@ -314,6 +490,7 @@ def start(load_id, number, stage):
     load = get_load(load_id)
     ensure_open(load.truck)
     court = get_court(load, number)
+    require_dispatch(load)
     if not approved(load.truck) and not legacy_in_progress(load.truck):
         fail('La carga espera aprobacion del supervisor.', 409)
     if legacy_in_progress(load.truck) and stage in (0, 4) and str(stage) not in court_state(load.truck.state, load.id, number)['checks']:
@@ -635,7 +812,7 @@ def planning_rows(truck):
         request.planning_catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
     catalog = request.planning_catalog
     rows = []
-    for load in sorted(truck.loads, key=lambda l: (l.source_id or l.id, l.id)):
+    for load in sorted(selected_loads(truck), key=lambda l: (l.source_id or l.id, l.id)):
         for court in load.content['canchas']:
             for product in court['productos']:
                 article = catalog.get(product['sku'])
@@ -775,14 +952,17 @@ def warehouse_monitor():
     summaries = []
     trucks = ControlTruck.query.filter_by(load_date=date).options(selectinload(ControlTruck.loads)).all()
     for truck in trucks:
+        if truck.state.get('dispatch') is not None and not selected_loads(truck):
+            continue
         plan = approved(truck)
         assets = truck.state.get('asset_check') or {}
         summaries.append(dict(id=truck.id, truck=truck.truck, branch=truck.branch,
             planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending',
             released=bool(truck.state.get('released_at')),
             assets_status='done' if assets.get('status') == 'done' else 'running' if assets.get('timer_started_at') else 'paused' if assets else 'pending',
-            assets_username=assets.get('username')))
-        for load in truck.loads:
+            assets_username=assets.get('username'), position=truck.state.get('dispatch', {}).get('position'),
+            summary=truck_summary(truck, dispatch_catalog(), valid=bool(plan))))
+        for load in selected_loads(truck):
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
                 for stage in (0, 4, 1, 2):

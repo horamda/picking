@@ -220,7 +220,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.6.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.7.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -236,6 +236,42 @@ public final class MainActivity extends Activity {
         return "Sin iniciar";
     }
     private boolean matches(JSONObject c) { return assigned.contains(c.optInt("numero")) && (filter.equals("Todos") || filter.equals(processState(c))); }
+    private String amount(JSONObject data,String key) {
+        if(data.isNull(key) || !data.has(key))return "Pendiente";
+        return java.text.NumberFormat.getNumberInstance(new java.util.Locale("es","AR")).format(data.optDouble(key));
+    }
+    private void truckSummary(JSONObject summary,boolean waiting) {
+        if(summary==null)return;
+        content=card(BORDER);text("Este camión · Carga seleccionada",20);
+        text(summary.optInt("loads")+" repartos · "+summary.optInt("courts")+" canchas",15);
+        text(amount(summary,"bultos")+" bultos + "+amount(summary,"unidades")+" unidades · "+amount(summary,"hl")+" HL",16);
+        text("Pallets físicos previstos: "+amount(summary,"pallets")+" / "+amount(summary,"capacity")+" de capacidad",18);
+        text(amount(summary,"full_pallets")+" completos + "+amount(summary,"picking_pallets")+" de picking",14);
+        if(summary.isNull("hl"))text("Faltan factores de HL en el catálogo. El volumen está incompleto.",13);
+        if(waiting){text("Esperando revisión y aprobación del supervisor para comenzar.",16);content=body;return;}
+        JSONObject mine=summary.optJSONObject("mine");
+        if(mine!=null){
+            text("Tu trabajo en este camión",18);
+            text(mine.optInt("loads")+" repartos · "+mine.optInt("courts")+" canchas · "+mine.optInt("finished_tasks")+" / "+mine.optInt("tasks")+" tareas terminadas",14);
+            text(amount(mine,"bultos")+" bultos + "+amount(mine,"unidades")+" unidades · "+amount(mine,"hl")+" HL",16);
+            text("Tu carga ocupa "+amount(mine,"pallets")+" pallets del plan.",15);
+            if(stage()==0)text(mine.optInt("full_pallets_info")+" pallets completos de tus canchas se preparan por separado.",13);
+            JSONArray allocations=mine.optJSONArray("allocations");
+            if(stage()==0 && allocations!=null && allocations.length()>0){
+                LinearLayout container=content,details=new LinearLayout(this);details.setOrientation(LinearLayout.VERTICAL);details.setVisibility(View.GONE);
+                button("Ver / ocultar distribución en pallets",()->details.setVisibility(details.getVisibility()==View.GONE?View.VISIBLE:View.GONE));
+                container.addView(details);content=details;
+                text("Respetá los identificadores del plan. Un pallet compartido se cuenta una sola vez en el total del camión.",13);
+                for(int i=0;i<allocations.length();i++){
+                    JSONObject pallet=allocations.optJSONObject(i);text("Pallet "+pallet.optString("id")+(pallet.optBoolean("shared")?" · Compartido con otras canchas":""),16);
+                    JSONArray items=pallet.optJSONArray("items");
+                    if(items!=null)for(int j=0;j<items.length();j++){JSONObject p=items.optJSONObject(j);text("R. "+p.optString("reparto")+" · Cancha "+p.optInt("court")+" · "+p.optString("descripcion")+": "+p.optInt("bultos")+" b + "+p.optInt("unidades")+" u",13);}
+                }
+                content=container;
+            }
+        }
+        content=body;
+    }
     private void listLoads() {
         currentScreen = "loads"; voice=false; check = null; court = null;
         stopAudio(); check=null; screen("Mis cargas");
@@ -254,6 +290,9 @@ public final class MainActivity extends Activity {
             JSONArray trucks=response.getJSONArray("trucks");
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
+                content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
+                text("Terminá tus canchas de todos sus repartos. Después aparecerá el siguiente camión.",14);content=body;
+                truckSummary(truck.optJSONObject("summary"),truck.optString("planning_status").equals("pending"));
                 for(int l=0;l<loads.length();l++) { JSONObject item=loads.getJSONObject(l); JSONArray courts=item.getJSONArray("canchas"); boolean show=false;
                     for(int c=0;c<courts.length();c++) if(matches(courts.getJSONObject(c))) show=true;
                     if(show) {
@@ -264,13 +303,14 @@ public final class MainActivity extends Activity {
                 }
             }
             message(found == 0 ? "Sin cargas para tus canchas y este filtro. El supervisor debe habilitar las cargas desde la web." : "Elegí una carga. Filtro: " + filter);
-            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.6.0",12);
+            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.7.0",12);
         });
     }
     private void openLoad(int id) {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
+            truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c)) continue; count++;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
@@ -390,7 +430,7 @@ public final class MainActivity extends Activity {
     private void finishPicking() {
         voice=false;stopAudio();
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
-        task(() -> json("POST",path()+"/finish",obj()), result -> listLoads());
+        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";listLoads();});
     }
     private void enableVoice() {
         if(!visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;

@@ -1,3 +1,4 @@
+import TruckWorkSummary from './TruckWorkSummary'
 const action = 'min-h-12 rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40'
 const secondary = 'min-h-12 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700'
 
@@ -8,9 +9,10 @@ export default function ControlTruckCard({ truck: t, manager, pickingOnly = fals
     const title = t.released ? 'Liberado para reparto' : pending ? 'Controles pendientes' : !t.status.assets ? 'Faltan activos de salida' : unapproved ? 'Requiere autorización' : 'Revisar salida'
     if (pickingOnly) return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-xl font-bold">Camión {t.truck || 'Sin identificar'}</h2>
+        <TruckWorkSummary summary={t.summary} waiting={t.planning_status === 'pending'} />
         <p className="mb-3 text-sm text-slate-500">{t.load_date} · {t.branch}</p>
         {t.loads.map(load => {
-            const done = load.canchas.filter(c => c.status.checks.some(ch => ch.stage === 0 && ch.status === 'done')).length
+            const done = load.canchas.filter(c => c.status.checks.some(ch => ch.stage === (t.summary?.mine?.stage ?? 0) && ch.status === 'done')).length
             return <div key={load.id} className="flex flex-wrap items-center justify-between gap-3 border-t py-3">
                 <div><b>Reparto {load.reparto}</b><p className="text-sm">{done}/{load.canchas.length} canchas preparadas</p></div>
                 <button className={secondary} onClick={() => onOpen(load.id)}>Abrir picking</button>
@@ -31,6 +33,7 @@ export default function ControlTruckCard({ truck: t, manager, pickingOnly = fals
             {!t.released && (next || t.pending.length > 0) && <button className={`${action} w-full sm:w-auto`} disabled={Boolean(t.status.released_at)} onClick={() => next ? onOpen(next.id) : onActivate(t.pending[0].id)}>Ingresar a la siguiente carga</button>}
             {t.status.released_at && !t.released && <p role="alert" className="text-sm text-red-700">La liberación anterior no cubre las cargas pendientes actuales. Requiere revisión del supervisor.</p>}
         </div>
+        <TruckWorkSummary summary={t.summary} />
         <details className="border-t border-slate-200" open={t.total <= 3}>
             <summary className="min-h-12 cursor-pointer px-4 py-3 text-sm font-semibold sm:px-6">Cargas de este camión ({t.total})</summary>
             <ol className="divide-y divide-slate-100 px-4 sm:px-6">

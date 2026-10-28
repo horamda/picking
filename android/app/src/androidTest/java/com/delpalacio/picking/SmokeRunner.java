@@ -127,6 +127,17 @@ public class SmokeRunner extends Instrumentation {
                 ((MainActivity)target).onBackPressed();
                 if(button(target.getWindow().getDecorView(),"Probar voz sin guardar datos")==null)throw new AssertionError("Atrás no volvió de la demostración al inicio");
             });
+            runOnMainSync(()->{
+                try {
+                    java.lang.reflect.Method screen=MainActivity.class.getDeclaredMethod("screen",String.class);screen.setAccessible(true);screen.invoke(target,"Camión 03");
+                    org.json.JSONObject summary=new org.json.JSONObject("{\"loads\":2,\"courts\":3,\"bultos\":244,\"unidades\":6,\"hl\":29.34,\"pallets\":6,\"capacity\":14,\"full_pallets\":4,\"picking_pallets\":2,\"mine\":{\"loads\":2,\"courts\":1,\"bultos\":44,\"unidades\":6,\"hl\":5.34,\"pallets\":1,\"tasks\":2,\"finished_tasks\":0,\"full_pallets_info\":4,\"allocations\":[{\"id\":\"M001\",\"shared\":true,\"items\":[{\"reparto\":\"0001\",\"court\":1,\"descripcion\":\"Brahma litro\",\"bultos\":44,\"unidades\":6}]}]}}");
+                    java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("truckSummary",org.json.JSONObject.class,boolean.class);render.setAccessible(true);render.invoke(target,summary,false);
+                    Button distribution=button(target.getWindow().getDecorView(),"Ver / ocultar distribución en pallets");
+                    if(distribution==null)throw new AssertionError("Falta distribución del camión");
+                    distribution.performClick();
+                } catch(Exception e){throw new AssertionError(e);}
+            });
+            screenshot("resumen-camion");
             CountDownLatch latch=new CountDownLatch(1);AtomicReference<Throwable> failure=new AtomicReference<>();
             StorageService.unpack(getTargetContext(),"model-es","smoke-model",model->{
                 try(Recognizer recognizer=new Recognizer(model,16000,VoiceCommands.grammar())) {

@@ -95,20 +95,28 @@ def court_done(court):
     return all(court['checks'].get(str(stage), {}).get('status') == 'done' for stage in (1, 2))
 
 
+def selected_loads(truck):
+    selection = truck.state.get('dispatch')
+    return [load for load in truck.loads if selection is None or load.id in selection.get('load_ids', [])]
+
+
 def status(truck, state=None):
     state = truck.state if state is None else state
-    complete = bool(truck.loads) and all(
+    loads = selected_loads(truck)
+    complete = bool(loads) and all(
         court_done(court_state(state, load.id, c['numero']))
-        for load in truck.loads for c in load.content['canchas'])
+        for load in loads for c in load.content['canchas'])
     shortages = [dict(sh, load_id=load.id, reparto=load.reparto, court=c['numero'])
-                 for load in truck.loads for c in load.content['canchas']
+                 for load in loads for c in load.content['canchas']
                  for sh in court_state(state, load.id, c['numero'])['shortages'].values()]
-    start_date = datetime.fromisoformat(truck.load_date)
-    candidates = Consolidado.query.filter(Consolidado.fecha_reparto >= start_date,
-        Consolidado.fecha_reparto < start_date + timedelta(days=1),
-        func.trim(Consolidado.deposito) == truck.branch).all()
-    included = {l.source_id for l in truck.loads}
-    pending = [c.id for c in candidates if truck_name(c.camion) == truck.truck and c.id not in included]
+    pending = []  # Unselected sources are explicitly outside a configured departure.
+    if truck.state.get('dispatch') is None:
+        start_date = datetime.fromisoformat(truck.load_date)
+        candidates = Consolidado.query.filter(Consolidado.fecha_reparto >= start_date,
+            Consolidado.fecha_reparto < start_date + timedelta(days=1),
+            func.trim(Consolidado.deposito) == truck.branch).all()
+        included = {l.source_id for l in truck.loads}
+        pending = [c.id for c in candidates if truck_name(c.camion) == truck.truck and c.id not in included]
     complete = complete and not pending
     return dict(complete=complete, pending_sources=pending, assets=state.get('assets'), shortages=shortages,
                 released_at=state.get('released_at'),

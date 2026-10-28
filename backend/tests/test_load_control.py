@@ -69,6 +69,104 @@ class ControlFlowTest(unittest.TestCase):
     def tearDown(self):
         db.session.remove()
 
+    def dispatch_sources(self):
+        sources = []
+        for reparto, truck, courts in [('0002', self.source.camion, [1, 2]),
+                                        ('0003', '15 - (NEXT123)', [1]),
+                                        ('0004', self.source.camion, [1])]:
+            source = Consolidado(batch_id=self.batch_id, filename='queue.pdf', reparto=reparto,
+                camion=truck, deposito='Central', fecha_reparto=datetime(2026, 10, 15), chofer='Test')
+            db.session.add(source); db.session.flush()
+            for court in courts:
+                db.session.add(ConsolidadoDetalle(consolidado_id=source.id, sku='1001', descripcion='Test',
+                    bultos=101, unidades=6, cancha=f'{court:03} - CANCHA {court}', almacen='Bebidas'))
+            sources.append(source)
+        for article in Article.query.all():
+            article.datos_origen = {'Descripcion unidad de medida': 'HECTOLITROS', 'Valor unidad de medida': '0,12'}
+        db.session.commit()
+        return sources
+
+    def select_dispatch(self, sources):
+        board = self.call('get', '/dispatch?date=2026-10-15', 'super')
+        entries = [dict(branch=g['branch'], truck=g['truck'], source_ids=[s['id'] for s in g['sources'] if s['id'] in sources]) for g in board['groups']]
+        payload = dict(date=board['date'], versions=board['versions'], entries=[e for e in entries if e['source_ids']])
+        self.call('post', '/dispatch', 'super', data=payload)
+        return payload
+
+    def approve_dispatch(self):
+        trucks = self.call('get', '/trucks')
+        for truck in trucks:
+            if not truck.get('dispatch', {}).get('load_ids'):
+                continue
+            self.call('put', '/settings', data=dict(branch=truck['branch'], truck=truck['truck'], capacity=20, mix_courts_default=True))
+            plan = self.call('post', f'/trucks/{truck["id"]}/planning/simulate', data=dict(capacity=20, mix_courts=True))
+            self.call('post', f'/trucks/{truck["id"]}/planning/approve', data=dict(plan, physical_review=True))
+
+    def test_dispatch_individual_queue_and_truck_summary(self):
+        second, next_source, excluded = self.dispatch_sources()
+        self.select_dispatch({self.source.id, second.id, next_source.id})
+        waiting = self.call('get', '/trucks', 'picker')
+        self.assertEqual(len(waiting), 1)
+        self.assertEqual(waiting[0]['planning_status'], 'pending')
+        self.assertEqual(waiting[0]['loads'], [])
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
+        self.approve_dispatch()
+        current = self.call('get', '/trucks', 'picker')[0]
+        self.assertEqual({l['reparto'] for l in current['loads']}, {'0001', '0002'})
+        total = current['summary']
+        self.assertEqual((total['bultos'], total['unidades'], total['loads'], total['courts']), (211, 12, 2, 2))
+        self.assertAlmostEqual(total['hl'], 25.44)
+        self.assertEqual((total['full_pallets'], total['picking_pallets'], total['pallets']), (2, 1, 3))
+        self.assertEqual((total['mine']['bultos'], total['mine']['unidades'], total['mine']['tasks']), (10, 6, 2))
+        self.assertEqual(total['mine']['pallets'], 1)
+        self.assertTrue(total['mine']['allocations'][0]['shared'])
+        next_truck = next(t for t in self.call('get', '/trucks') if t['id'] != current['id'])
+        next_id = next_truck['loads'][0]['id']
+        self.call('get', f'/loads/{next_id}', 'picker', expected=409)
+        self.call('post', f'/loads/{next_id}/courts/1/start/0', 'picker', expected=409)
+        for i, load in enumerate(current['loads']):
+            check = self.call('post', f'/loads/{load["id"]}/courts/1/start/0', 'picker')
+            self.call('post', f'/loads/{load["id"]}/courts/1/checks/0/{check["id"]}/finish', 'picker')
+            visible = self.call('get', '/trucks', 'picker')
+            self.assertEqual(visible[0]['id'], current['id'] if i == 0 else next_truck['id'])
+        # Neither court 2, controls nor full pallets have finished. Only this worker advances.
+        pallet_truck = self.call('get', '/trucks', 'pallet')[0]
+        self.assertEqual(pallet_truck['id'], current['id'])
+        self.assertEqual(pallet_truck['summary']['mine']['pallets'], 1)
+        self.assertEqual(pallet_truck['summary']['mine']['allocations'], [])
+        self.assertFalse(self.call('get', '/trucks')[0]['status']['complete'])
+
+    def test_dispatch_conflicts_permissions_and_atomic_selection(self):
+        second, next_source, excluded = self.dispatch_sources()
+        payload = self.select_dispatch({self.source.id, second.id, next_source.id})
+        self.call('post', '/dispatch', 'super', expected=409, data=payload)
+        self.call('get', '/dispatch?date=2026-10-15', 'picker', expected=403)
+        self.approve_dispatch()
+        path = self.start(0, 'picker')
+        board = self.call('get', '/dispatch?date=2026-10-15')
+        payload['versions'] = board['versions']
+        self.answer(path, '1001', 'picker')
+        # Ordinary operator activity must not invalidate a supervisor's queue edit.
+        self.call('post', '/dispatch', 'super', data=payload)
+        payload['entries'].reverse()
+        self.call('post', '/dispatch', expected=409, data=payload)
+        self.assertEqual(self.call('get', '/trucks', 'picker')[0]['id'], self.truck_id)
+        payload['entries'] = []
+        self.call('post', '/dispatch', expected=409, data=payload)
+        self.assertEqual(len(self.call('get', '/trucks', 'picker')[0]['loads']), 2)
+
+    def test_dispatch_deselection_invalidates_plan_and_missing_hl_is_explicit(self):
+        self.select_dispatch({self.source.id})
+        self.approve_dispatch()
+        summary = self.call('get', '/trucks', 'picker')[0]['summary']
+        self.assertIsNone(summary['hl'])
+        self.assertEqual(summary['hl_missing'], ['1001', '1002'])
+        self.select_dispatch(set())
+        self.assertEqual(self.call('get', '/trucks', 'picker'), [])
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
+        self.select_dispatch({self.source.id})
+        self.assertEqual(self.call('get', '/trucks', 'picker')[0]['planning_status'], 'pending')
+
     def test_live_monitor_includes_approvals_assets_and_safe_activity(self):
         from models import LogEntry
         actor = User.query.filter_by(username='admin').one()

@@ -55,7 +55,9 @@ class ConcurrentWarehouseTest(unittest.TestCase):
             load = ControlLoad(branch='Test', load_date='2026-10-27', reparto='TEST', truck_id=truck.id,
                 content=dict(reparto='TEST', camion='TEST', deposito='Test', fecha='2026-10-27',
                     canchas=[dict(numero=n, productos=[dict(sku='A', descripcion='Brahma', bultos=244, unidades=0)]) for n in range(1,11)]))
-            db.session.add(load); db.session.commit()
+            db.session.add(load); db.session.flush()
+            truck.state = dict(courts={}, dispatch=dict(load_ids=[load.id], position=1))
+            db.session.commit()
             cls.truck_id, cls.load_id = truck.id, load.id
 
     def request(self, user, path, data=None, method='POST'):
@@ -71,6 +73,26 @@ class ConcurrentWarehouseTest(unittest.TestCase):
             return self.request(*call)
         with ThreadPoolExecutor(max_workers=2) as pool:
             return list(pool.map(run, calls))
+
+    def test_dispatch_two_supervisors_cannot_overwrite_selection(self):
+        from models import Consolidado, ConsolidadoDetalle, ProcessingBatch
+        from datetime import datetime
+        with application.app.app_context():
+            batch = ProcessingBatch(nombre='Queue test', estado='completo')
+            db.session.add(batch); db.session.flush()
+            source = Consolidado(batch_id=batch.id, filename='synthetic.pdf', reparto='QUEUE',
+                camion='QUEUE', deposito='Test', fecha_reparto=datetime(2030, 1, 1))
+            db.session.add(source); db.session.flush()
+            db.session.add(ConsolidadoDetalle(consolidado_id=source.id, sku='A', descripcion='Test',
+                bultos=1, unidades=0, cancha='001 - CANCHA 1', almacen='Test'))
+            db.session.commit()
+            source_id = source.id
+        data = dict(date='2030-01-01', versions={}, entries=[dict(branch='Test', truck='QUEUE', source_ids=[source_id])])
+        responses = self.pair([('admin', '/dispatch', data), ('admin', '/dispatch', data)])
+        self.assertEqual(sorted(r[0] for r in responses), [200, 409], responses)
+        code, board = self.request('admin', '/dispatch?date=2030-01-01', method='GET')
+        self.assertEqual(code, 200)
+        self.assertTrue(board['groups'][0]['sources'][0]['selected'])
 
     def test_simultaneous_reservations_answers_and_monitor(self):
         endpoint = f'/trucks/{self.truck_id}/planning'

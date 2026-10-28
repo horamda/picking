@@ -15,7 +15,7 @@ export function groupControlTrucks(trucks, sources) {
             id: null, truck, load_date: date, branch, loads: [], pending: [],
             status: { shortages: [], assets: null, released_at: null, complete: false },
         })
-        groups.get(groupKey).pending.push(source)
+        if (!groups.get(groupKey).dispatch) groups.get(groupKey).pending.push(source)
     }
     return [...groups.entries()].map(([key, group]) => {
         group.loads = [...group.loads].sort((a, b) => (a.source_id || a.id) - (b.source_id || b.id))

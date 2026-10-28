@@ -30,3 +30,10 @@ test('a historical release cannot hide newly pending loads', () => {
     assert.equal(groupControlTrucks([released], [])[0].released, true)
     assert.equal(groupControlTrucks([released], [source])[0].released, false)
 })
+
+test('dispatch selection excludes unselected PDF loads from operative totals', () => {
+    const selected = { ...truck, dispatch: { load_ids: [1], position: 1 } }
+    const result = groupControlTrucks([selected], [source])[0]
+    assert.equal(result.total, 1)
+    assert.deepEqual(result.pending, [])
+})

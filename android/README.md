@@ -10,7 +10,9 @@ La app lee el producto y las cantidades; después abre el micrófono. Reconoce `
 
 El audio se reconoce localmente. Guardar respuestas reales necesita red: no existe cola offline ni reintento automático de escrituras. Tras un error, revisar el estado antes de reintentar. La lectura se detiene antes de escuchar para evitar que la app se confirme a sí misma.
 
-## Operación conectada (0.6)
+## Operación conectada (0.7)
+
+La cola de camiones se configura en **Supervisión → Planificar cargas**. La app muestra el resumen del camión actual y el trabajo de las canchas asignadas, conservando los repartos separados. Al finalizar esas tareas aparece el siguiente camión, sin esperar los controles ni otros operarios. El detalle de pallets permite consultar la distribución aprobada antes de empezar. Ver [flujo de selección y aprobación](../docs/cola-armado.md).
 
 Picking y faltantes usan tarjetas, cantidades grandes, avance y tiempo activo. La pantalla inicial muestra usuario, canchas y filtro. Atrás vuelve de faltantes al producto, del producto a sus canchas (pausando antes) y de canchas a cargas. El teclado y el audio deben verificarse también en el equipo físico del depósito.
 

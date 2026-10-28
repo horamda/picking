@@ -13,6 +13,8 @@ import { speak } from '../voice/speech'
 
 import { voicePrompt } from '../voice/productPrompt'
 import FullPalletInfo from '../components/FullPalletInfo'
+import DispatchBoard from '../components/DispatchBoard'
+import TruckWorkSummary from '../components/TruckWorkSummary'
 
 const base = '/load-control'
 const stages = ['Picking', 'Control 1', 'Control 2', 'Activos', 'Pallets completos']
@@ -46,6 +48,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     const [view, setView] = useState(initialView)
     const [search, setSearch] = useState('')
     const [planningTruck, setPlanningTruck] = useState(null)
+    const [dispatchRevision, setDispatchRevision] = useState(0)
     const [processFilter, setProcessFilter] = useState('all')
     const [date, setDate] = useState(todayInputValue())
     const [assetTruck, setAssetTruck] = useState(null)
@@ -57,7 +60,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     useEffect(() => { const timer = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(timer) }, [])
 
     async function refresh() {
-        const [t, s, o, a] = await Promise.all(['trucks', 'sources', 'operators', 'asset-types'].map(p => api.get(`${base}/${p}`, { params: p === 'trucks' ? { date } : {} })))
+        const [t, s, o, a] = await Promise.all(['trucks', 'sources', 'operators', 'asset-types'].map(p => api.get(`${base}/${p}`, { params: p === 'trucks' && !picker ? { date } : {} })))
         setTrucks(t.data); setSources(s.data); setOperators(o.data); setTypes(a.data); setLoaded(true)
     }
     async function act(fn) {
@@ -107,7 +110,9 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     }
     async function finish() {
         await api.post(`${workPath}/finish`)
-        await refresh(); await openLoad(load.id); setMessage('Proceso finalizado. Tiempo y responsable guardados.')
+        if (picker) { setWork(null); setLoad(null); setMode(''); setProcessFilter('all'); setSearch(''); await refresh() }
+        else { await refresh(); await openLoad(load.id) }
+        setMessage('Proceso finalizado. Tiempo y responsable guardados.')
     }
     async function reopen(court) {
         const reason = window.prompt('Motivo de reapertura. Se reinician los dos controles y se invalidan los activos; el historial y los tiempos quedan guardados.')
@@ -121,7 +126,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
         if (viewName === 'users') setUsers((await api.get(`${base}/users`)).data)
         if (viewName === 'loads') await refresh()
     }
-    const matches = (truck, reparto = '') => (!date || truck.load_date === date) && `${truck.truck} ${reparto} ${truck.branch}`.toLowerCase().includes(search.toLowerCase())
+    const matches = (truck, reparto = '') => (picker || !date || truck.load_date === date) && `${truck.truck} ${reparto} ${truck.branch}`.toLowerCase().includes(search.toLowerCase())
     const allGroups = useMemo(() => groupControlTrucks(trucks, sources), [trucks, sources])
     const groupedTrucks = filterProcessGroups(allGroups, visibleStages, processFilter).filter(t => matches(t, [...t.loads, ...t.pending].map(l => l.reparto).join(' ')))
     const shortages = trucks.flatMap(t => t.status.shortages.map(s => ({ ...s, truck: t })))
@@ -131,7 +136,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
 
     return <div className={`load-control mx-auto space-y-5 p-3 pb-24 sm:p-5 md:p-8 ${work ? "max-w-3xl" : "max-w-7xl"}`}>
         <header className={`flex flex-wrap items-start justify-between gap-4 ${work ? "hidden md:flex" : ""}`}>
-            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: palletizer ? 'Pallets completos' : picker ? "Picking" : controller ? "Controles y activos" : "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">{picker ? 'Seleccioná una carga y una cancha para preparar los productos.' : 'Doble control por cancha y activos de salida.'}</p></div>
+            <div><p className="text-sm font-medium text-brand-600">Operación de depósito</p><h1 className="text-2xl font-bold">{{ loads: palletizer ? 'Pallets completos' : picker ? "Picking" : controller ? "Controles y activos" : "Camiones y controles", shortages: "Supervisión de faltantes", performance: "Tiempos y errores", users: "Administración de usuarios" }[view]}</h1><p className="mt-1 text-sm text-slate-500">{picker ? 'Terminá tus canchas de todos los repartos del camión actual. Después aparece el siguiente.' : 'Doble control por cancha y activos de salida.'}</p></div>
             <button className={secondary} disabled={busy} onClick={() => act(() => go(view))}>Actualizar</button>
         </header>
         {supervisorOnly && <nav className="flex flex-wrap gap-3" aria-label="Supervisión"><Link className={secondary} to="/supervision">Seguimiento</Link><Link className={secondary} to="/supervision/cargas">Planificar cargas</Link><Link className={secondary} to="/supervision/faltantes">Faltantes y autorizaciones</Link></nav>}
@@ -142,7 +147,8 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
         {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</div>}
         {busy && <p role="status" className="text-sm text-slate-500">Procesando…</p>}
         <fieldset disabled={busy} className="min-w-0 space-y-5 disabled:opacity-75">
-        {manager && planningTruck && <PalletPlanning key={planningTruck.id} truck={planningTruck} onClose={() => { setPlanningTruck(null); act(refresh) }} />}
+        {manager && planningTruck && <PalletPlanning key={planningTruck.id} truck={planningTruck} onClose={() => { setPlanningTruck(null); setDispatchRevision(n => n + 1); act(refresh) }} />}
+        {picker && load && !work && <TruckWorkSummary summary={load.truck_summary} />}
         {view === 'loads' && !work && <label className="block max-w-sm text-sm">Estado del proceso
             <select className={input} value={processFilter} onChange={e => setProcessFilter(e.target.value)}>
                 <option value="all">Todos</option><option value="running">En curso</option>
@@ -150,14 +156,15 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
             </select>
         </label>}
         {view === 'loads' && !load && !assetTruck && <>
-            <div className="flex flex-wrap gap-3"><label className="min-w-48 flex-1 text-sm">Buscar camión o reparto<input className={input} value={search} onChange={e => setSearch(e.target.value)} placeholder="Patente, reparto o depósito" /></label><label className="text-sm">Fecha de reparto<input type="date" className={input} value={date} onChange={e => setDate(e.target.value)} /></label></div>
+            <div className="flex flex-wrap gap-3"><label className="min-w-48 flex-1 text-sm">Buscar camión o reparto<input className={input} value={search} onChange={e => setSearch(e.target.value)} placeholder="Patente, reparto o depósito" /></label>{!picker && <label className="text-sm">Fecha de reparto<input type="date" className={input} value={date} onChange={e => setDate(e.target.value)} /></label>}</div>
+        {manager && view === 'loads' && !load && <DispatchBoard key={`${date}:${dispatchRevision}`} date={date} onSaved={refresh} onPlan={setPlanningTruck} />}
             {!picker && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
                 ['Camiones', groupedTrucks.length],
                 ['Cargas del filtro', groupedTrucks.reduce((n, t) => n + t.total, 0)],
                 ['Cargas controladas', groupedTrucks.reduce((n, t) => n + t.completed, 0)],
                 ['Camiones liberados', groupedTrucks.filter(t => t.released).length],
             ].map(([label, value]) => <div className="rounded-2xl border border-slate-200 bg-white p-4" key={label}><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-bold">{value}</p></div>)}</div>}
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-sm text-slate-600">{picker ? 'Abrí una carga para preparar sus productos por cancha, con voz o con botones.' : 'Cada carga se controla por separado. El camión queda liberado al completar todas sus cargas, los activos y las autorizaciones de faltantes.'}</p><div className="flex gap-2"><button className={secondary} onClick={() => setDate(todayInputValue())}>Hoy</button><button className={secondary} onClick={() => { setDate(''); setSearch('') }}>Ver todas las fechas</button></div></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-sm text-slate-600">{picker ? 'Abrí una carga para preparar sus productos por cancha, con voz o con botones.' : 'Cada carga se controla por separado. El camión queda liberado al completar todas sus cargas, los activos y las autorizaciones de faltantes.'}</p>{!picker && <div className="flex gap-2"><button className={secondary} onClick={() => setDate(todayInputValue())}>Hoy</button><button className={secondary} onClick={() => { setDate(''); setSearch('') }}>Ver todas las fechas</button></div>}</div>
             <div className="grid items-start gap-5 xl:grid-cols-2">{groupedTrucks.map(t => <ControlTruckCard key={t.key} truck={t} manager={manager} pickingOnly={picker}
                 onOpen={id => act(() => openLoad(id))} onActivate={id => act(() => activate(id))} onPlan={() => { setPlanningTruck(t); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
                 onAssets={() => act(async () => { const { data } = await api.post(`${base}/trucks/${t.id}/assets/start`); setAssetTruck({ ...t, check: data }) })}
