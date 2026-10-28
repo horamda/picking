@@ -185,8 +185,8 @@ public final class MainActivity extends Activity {
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
-        if (stage() == 4) return "Prepará " + p.optInt("pallets") + " pallets completos de " + p.optString("descripcion") + ". Cuando termines, decí correcto.";
-        return "Producto " + (index+1) + " de " + products.length() + ". Agarrá " + p.optInt("bultos") + " bultos y " + p.optInt("unidades") + " unidades de " + p.optString("descripcion") + ". Cuando termines, decí correcto. Si falta mercadería, decí faltante.";
+        if (stage() == 4) return "Prepará " + p.optInt("pallets") + " pallets completos de " + p.optString("descripcion_voz", p.optString("descripcion")) + ". Cuando termines, decí correcto.";
+        return "Producto " + (index+1) + " de " + products.length() + ". Agarrá " + p.optInt("bultos") + " bultos y " + p.optInt("unidades") + " unidades de " + p.optString("descripcion_voz", p.optString("descripcion")) + ". Cuando termines, decí correcto. Si falta mercadería, decí faltante.";
     }
     private void product() {
         if(products.length()==0) { message("La cancha no tiene productos."); return; }

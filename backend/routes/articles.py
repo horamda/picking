@@ -4,7 +4,8 @@ from werkzeug.utils import secure_filename
 from werkzeug.exceptions import ServiceUnavailable
 
 from auth import auth_required, roles_required
-from models import Article, UploadedFile
+from models import Article, UploadedFile, LogEntry
+import json
 from services.csv_import import import_articles_from_csv
 from services.file_storage import create_uploaded_file_record, mark_uploaded_file, uploaded_file_to_dict
 from utils.db import db
@@ -44,6 +45,7 @@ def list_articles():
         'id': a.id,
         'sku': a.sku,
         'descripcion': a.descripcion,
+        'descripcion_voz': a.descripcion_voz,
         'division': a.division,
         'calibre': a.calibre,
         'unidades_por_bulto': a.unidades_por_bulto,
@@ -60,6 +62,39 @@ def list_articles():
         'has_next': pagination.has_next,
         'has_prev': pagination.has_prev,
     })
+
+
+@articles_bp.route('/<int:article_id>', methods=['GET'])
+@roles_required('administrador', 'supervisor')
+def article_detail(article_id):
+    article = db.session.get(Article, article_id)
+    if not article:
+        return jsonify(error='Artículo no encontrado'), 404
+    return jsonify(id=article.id, sku=article.sku, descripcion=article.descripcion,
+                   descripcion_voz=article.descripcion_voz, datos_origen=article.datos_origen or {})
+
+
+@articles_bp.route('/<int:article_id>/voice', methods=['PUT'])
+@roles_required('administrador', 'supervisor')
+def update_voice(article_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('descripcion_voz'), str):
+        return jsonify(error='Ingresá una descripción para voz'), 400
+    value = data['descripcion_voz'].strip()
+    if len(value) > 255:
+        return jsonify(error='La descripción admite hasta 255 caracteres'), 400
+    article = Article.query.filter_by(id=article_id).with_for_update().first()
+    if not article:
+        return jsonify(error='Artículo no encontrado'), 404
+    previous = article.descripcion_voz
+    if data.get('previous', '') != (previous or ''):
+        return jsonify(error='Otra persona modificó la descripción. Volvé a abrir el artículo.'), 409
+    article.descripcion_voz = value or None
+    db.session.add(LogEntry(user_id=g.current_user.id, action='editar_descripcion_voz',
+                            entity='articulo', entity_id=article.id,
+                            details=json.dumps({'before': previous, 'after': value}, ensure_ascii=False)))
+    db.session.commit()
+    return jsonify(descripcion_voz=article.descripcion_voz)
 
 
 @articles_bp.route('', methods=['POST'])

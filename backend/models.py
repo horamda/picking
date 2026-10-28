@@ -29,6 +29,8 @@ class Article(db.Model):
     unidades_por_bulto = db.Column(db.Integer, nullable=False, default=1)
     bultos_por_pallet = db.Column(db.Integer, nullable=False, default=1)
     activo = db.Column(db.Boolean, default=True)
+    descripcion_voz = db.Column(db.String(255), nullable=True)
+    datos_origen = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

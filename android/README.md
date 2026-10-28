@@ -10,7 +10,7 @@ La app lee el producto y las cantidades; después abre el micrófono. Reconoce `
 
 El audio se reconoce localmente. Guardar respuestas reales necesita red: no existe cola offline ni reintento automático de escrituras. Tras un error, revisar el estado antes de reintentar. La lectura se detiene antes de escuchar para evitar que la app se confirme a sí misma.
 
-## Operación conectada (0.2)
+## Operación conectada (0.3)
 
 El login acepta `operador` y `palletizador`. La API devuelve solo canchas asignadas y cargas aprobadas. Picking recibe remanentes; pallets completos recibe su cantidad de pallets y bultos. La respuesta del servidor al iniciar determina las cantidades que se leen. Las asignaciones se actualizan al refrescar cargas y se vuelven a verificar al escribir.
 
@@ -37,3 +37,5 @@ El APK debug es para pruebas, no para distribución definitiva. Las claves de pu
 - Pérdida de red durante confirmación, recuperación y ausencia de duplicados.
 - Restricciones de cancha verificadas también en el servidor antes de habilitar datos reales.
 - Compatibilidad de bibliotecas nativas en el modelo de teléfono utilizado.
+
+La versión 0.3 usa `descripcion_voz` del servidor cuando existe, manteniendo la descripción original en pantalla.

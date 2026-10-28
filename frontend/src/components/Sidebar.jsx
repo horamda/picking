@@ -13,8 +13,8 @@ const navItems = [
         ),
     },
     {
-        label: 'Carga PDF',
-        path: '/upload',
+        label: 'Importaciones',
+        path: '/importaciones',
         icon: (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
@@ -81,7 +81,7 @@ function SidebarContent({ onClose }) {
     const navigate = useNavigate()
     const user = getStoredUser()
     const manager = isManager(user?.role)
-    const groups = manager ? [['Depósito', [homeForRole(user?.role), '/equipo', '/operacion', '/upload']], ['Reportes', ['/', '/historial']], ...(user?.role === 'administrador' ? [['Administración', ['/configuracion', '/articulos', '/exclusiones']]] : [])] : [['Mi trabajo', [homeForRole(user?.role)]]]
+    const groups = manager ? [['Depósito', [homeForRole(user?.role), '/equipo', '/operacion']], ['Importaciones', ['/importaciones']], ['Reportes', ['/', '/historial']], ...(user?.role === 'supervisor' ? [['Catálogo', ['/articulos']]] : []), ...(user?.role === 'administrador' ? [['Administración', ['/configuracion', '/articulos', '/exclusiones']]] : [])] : [['Mi trabajo', [homeForRole(user?.role)]]]
     const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Supervisión'], ['/administracion', 'Administración'], ['/equipo', 'Equipo y canchas'], ['/configuracion', 'Camiones y capacidad']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
 
 

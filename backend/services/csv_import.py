@@ -1,6 +1,7 @@
 import csv
 import io
 import unicodedata
+from decimal import Decimal, InvalidOperation
 
 import sqlalchemy as sa
 
@@ -35,8 +36,11 @@ def get_value(row: dict, *names, default=None):
 
 def parse_int_field(value, field_name: str, min_value: int = 1) -> int:
     try:
-        parsed = int(float(str(value).replace(',', '.')))
-    except (TypeError, ValueError):
+        number = Decimal(str(value).replace(',', '.'))
+        if not number.is_finite() or number != number.to_integral_value():
+            raise ValueError()
+        parsed = int(number)
+    except (TypeError, ValueError, InvalidOperation):
         raise ValueError(f'{field_name} invalido')
     if parsed < min_value:
         raise ValueError(f'{field_name} debe ser mayor o igual a {min_value}')
@@ -70,6 +74,7 @@ def detect_delimiter(text: str) -> str:
 
 def parse_article_csv(file_bytes: bytes) -> dict:
     articles = []
+    excluded = []
     duplicates = []
     errors = []
     seen = set()
@@ -89,6 +94,11 @@ def parse_article_csv(file_bytes: bytes) -> dict:
     bpp_cols = {'bultos_por_pallet', 'bultos por pallet', 'bxp', 'pallet'}
 
     missing = []
+    for field in ('tipo de producto', 'activo', 'usado en dispositivo movil', 'anulado'):
+        if field not in normalized_headers:
+            missing.append(field)
+    if len(normalized_headers) != len(set(normalized_headers)):
+        missing.append('encabezados únicos (hay columnas duplicadas)')
     if not any(c in normalized_headers for c in sku_cols):
         missing.append(f'SKU (ej: sku, codigo)')
     if not any(c in normalized_headers for c in upb_cols):
@@ -105,6 +115,9 @@ def parse_article_csv(file_bytes: bytes) -> dict:
         }
 
     for index, raw_row in enumerate(reader, start=2):
+        if None in raw_row or any(value is None for value in raw_row.values()):
+            errors.append({'row': index, 'error': 'Cantidad de campos distinta al encabezado'})
+            continue
         row = normalize_row(raw_row)
         sku = get_value(row, 'sku', 'codigo', 'codigo_articulo', 'articulo')
 
@@ -117,6 +130,14 @@ def parse_article_csv(file_bytes: bytes) -> dict:
             duplicates.append({'row': index, 'sku': sku})
             continue
         seen.add(sku)
+
+        eligible = (normalize_key(row['tipo de producto']) == 'mercaderia'
+                    and normalize_key(row['activo']) == 'si'
+                    and normalize_key(row['usado en dispositivo movil']) == 'si'
+                    and normalize_key(row['anulado']) == 'no')
+        if not eligible:
+            excluded.append({'sku': sku, 'datos_origen': dict(raw_row)})
+            continue
 
         try:
             payload = {
@@ -134,13 +155,14 @@ def parse_article_csv(file_bytes: bytes) -> dict:
                     'bultos_por_pallet',
                     min_value=0,
                 ),
-                'activo': parse_bool(get_value(row, 'activo', 'estado'), True),
+                'activo': True,
+                'datos_origen': dict(raw_row),
             }
             articles.append(payload)
         except Exception as exc:
             errors.append({'row': index, 'sku': sku, 'error': str(exc)})
 
-    return {'articles': articles, 'duplicates': duplicates, 'errors': errors}
+    return {'articles': articles, 'excluded': excluded, 'duplicates': duplicates, 'errors': errors}
 
 
 def result_payload(mode: str, applied: bool, deleted=0, created=0, updated=0, unchanged=0, inactive=0, duplicates=None, errors=None):
@@ -157,61 +179,45 @@ def result_payload(mode: str, applied: bool, deleted=0, created=0, updated=0, un
     }
 
 
-def replace_articles(articles: list[dict], duplicates: list[dict], errors: list[dict]) -> dict:
-    if duplicates or errors:
-        return result_payload('replace', False, duplicates=duplicates, errors=errors)
-
-    deleted = Article.query.count()
-    try:
-        Article.query.delete(synchronize_session=False)
-        db.session.execute(sa.insert(Article), articles)
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        return result_payload('replace', False, duplicates=duplicates, errors=[{'row': None, 'error': str(exc)}])
-
-    inactive = sum(1 for article in articles if not article['activo'])
-    return result_payload('replace', True, deleted=deleted, created=len(articles), inactive=inactive)
-
-
-def merge_articles(articles: list[dict], duplicates: list[dict], errors: list[dict]) -> dict:
-    created = 0
-    updated = 0
-    unchanged = 0
-    inactive = 0
-
-    try:
-        for payload in articles:
-            sku = payload['sku']
-            values = {key: value for key, value in payload.items() if key != 'sku'}
-            article = Article.query.filter_by(sku=sku).first()
-            if article:
-                changed = any(getattr(article, key) != value for key, value in values.items())
-                for key, value in values.items():
-                    setattr(article, key, value)
-                updated += 1 if changed else 0
-                unchanged += 0 if changed else 1
-            else:
-                db.session.add(Article(**payload))
-                created += 1
-
-            if not values['activo']:
-                inactive += 1
-
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        return result_payload('merge', False, duplicates=duplicates, errors=errors + [{'row': None, 'error': str(exc)}])
-
-    return result_payload('merge', True, created=created, updated=updated, unchanged=unchanged, inactive=inactive, duplicates=duplicates, errors=errors)
-
-
 def import_articles_from_csv(file_bytes: bytes, mode: str = 'merge') -> dict:
     parsed = parse_article_csv(file_bytes)
-    articles = parsed['articles']
-    duplicates = parsed['duplicates']
-    errors = parsed['errors']
-
-    if mode == 'replace':
-        return replace_articles(articles, duplicates, errors)
-    return merge_articles(articles, duplicates, errors)
+    articles, excluded = parsed['articles'], parsed.get('excluded', [])
+    duplicates, errors = parsed['duplicates'], parsed['errors']
+    if mode not in ('merge', 'replace'):
+        errors.append({'row': 1, 'error': 'Modo invalido'})
+    if not articles and not excluded and not errors:
+        errors.append({'row': 1, 'error': 'CSV sin articulos'})
+    result = result_payload(mode, False, duplicates=duplicates, errors=errors)
+    result.update(eligible=len(articles), excluded=len(excluded))
+    if errors or duplicates:
+        return result
+    try:
+        # Serializes imports on PostgreSQL without adding a table or doing startup DDL.
+        if db.engine.dialect.name == 'postgresql':
+            db.session.execute(sa.text('SELECT pg_advisory_xact_lock(2710202602)'))
+        existing = {a.sku: a for a in Article.query.order_by(Article.sku).with_for_update().all()}
+        eligible_skus = {p['sku'] for p in articles}
+        for payload in articles:
+            article = existing.get(payload['sku'])
+            if article is None:
+                db.session.add(Article(**payload))
+                result['created'] += 1
+            else:
+                changed = any(getattr(article, key) != value for key, value in payload.items())
+                for key, value in payload.items():
+                    setattr(article, key, value)
+                result['updated' if changed else 'unchanged'] += 1
+        excluded_by_sku = {p['sku']: p for p in excluded}
+        for sku, article in existing.items():
+            if sku in excluded_by_sku:
+                article.datos_origen = excluded_by_sku[sku]['datos_origen']
+            if sku in excluded_by_sku or (mode == 'replace' and sku not in eligible_skus):
+                if article.activo:
+                    result['inactive'] += 1
+                article.activo = False
+        db.session.commit()
+        result['applied'] = True
+    except Exception:
+        db.session.rollback()
+        result = result_payload(mode, False, errors=[{'row': None, 'error': 'No se pudo guardar el maestro. No se aplicaron cambios.'}])
+    return result

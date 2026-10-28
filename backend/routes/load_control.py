@@ -67,6 +67,13 @@ def approved(truck):
 
 
 
+def voice_products(products):
+    skus = {p['sku'] for p in products}
+    descriptions = dict(db.session.query(Article.sku, Article.descripcion_voz)
+                        .filter(Article.sku.in_(skus)).all()) if skus else {}
+    return [dict(p, descripcion_voz=descriptions.get(p['sku']) or p['descripcion']) for p in products]
+
+
 def task_products(load, court, stage):
     plan = load.truck.state.get('planning')
     if not plan:
@@ -165,6 +172,8 @@ def serialize_load(load, summary=False):
                                shortages=list(cs['shortages'].values()), done=court_done(cs))
         if summary:
             court['cantidad'] = len(court.pop('productos'))
+        else:
+            court['productos'] = voice_products(court['productos'])
     if g.current_user.role.name in ('operador', 'palletizador'):
         result['canchas'] = [c for c in result['canchas'] if c.get('cantidad', len(c.get('productos', []))) > 0]
     return result
@@ -330,7 +339,7 @@ def start(load_id, number, stage):
         reserve_timer(check)
         cs['checks'][str(stage)] = check
         save_state(load.truck, state, g.current_user, 'iniciar_control', dict(load_id=load.id, court=number, stage=stage))
-    return jsonify(dict(check, products=task_products(load, court, stage))) if stage in (0, 4) else jsonify(check)
+    return jsonify(dict(check, products=voice_products(task_products(load, court, stage)))) if stage in (0, 4) else jsonify(check)
 
 
 def access(load_id, number, stage, check_id):

@@ -5,7 +5,7 @@ import DepotMonitorPage from './pages/DepotMonitorPage'
 import WarehousePage from './pages/WarehousePage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
-import UploadPage from './pages/UploadPage'
+import ImportsPage from './pages/ImportsPage'
 import ArticlesPage from './pages/ArticlesPage'
 import HistoryPage from './pages/HistoryPage'
 import OperationsPage from './pages/OperationsPage'
@@ -62,7 +62,8 @@ function App() {
                                             <Route path="/equipo" element={<WarehousePage section="team" />} />
                                             <Route path="/configuracion" element={<WarehousePage section="settings" />} />
                                             <Route path="/pallets" element={<LoadControlPage key="pallets" palletsOnly />} />
-                                            <Route path="/upload" element={<UploadPage />} />
+                                            <Route path="/importaciones" element={<ImportsPage />} />
+                                            <Route path="/upload" element={<Navigate to="/importaciones?tipo=pdf" replace />} />
                                             <Route path="/operacion" element={<OperationsPage />} />
                                             <Route path="/picking" element={<LoadControlPage key="picking" pickingOnly />} />
                                             <Route path="/controles" element={<LoadControlPage key="controles" controlsOnly />} />
