@@ -2,6 +2,19 @@
 from fractions import Fraction
 
 
+def plan_for_capacity(rows, capacity, mix_courts=False):
+    """Keep courts separate unless requested or needed to fit the truck."""
+    if type(mix_courts) is not bool:
+        raise ValueError('La mezcla entre canchas debe ser verdadero o falso.')
+    rows = list(rows)
+    separate = simulate_pallets(rows, capacity, False)
+    required = not separate['fits_estimate']
+    result = simulate_pallets(rows, capacity, True) if mix_courts or required else separate
+    result.update(separate_pallets=separate['total_pallets'], automatic_mix=required,
+                  saved_positions=separate['total_pallets'] - result['total_pallets'])
+    return result
+
+
 def simulate_pallets(rows, capacity, mix_courts=False):
     if type(capacity) is not int or capacity <= 0:
         raise ValueError('La capacidad debe ser una cantidad entera positiva de pallets físicos.')

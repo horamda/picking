@@ -46,13 +46,14 @@ export default function PalletPlanning({ truck, onClose }) {
         {locked && <p className="rounded-xl bg-amber-100 p-3">El trabajo ya comenzó. Se conserva el plan aprobado y no se pueden cambiar sus cantidades.</p>}
         <form className="flex flex-wrap items-end gap-4" onSubmit={simulate}>
             <label className="text-sm">Capacidad del camión en pallets físicos<input className="mt-1 block min-h-12 rounded-xl border p-3" type="number" min="1" step="1" required value={capacity} disabled={busy || locked} onChange={e => { setCapacity(e.target.value); setResult(null) }} /></label>
-            <label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={mix} disabled={busy || locked} onChange={e => { setMix(e.target.checked); setResult(null) }} />Permitir mezcla entre canchas</label>
+            <label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={mix} disabled={busy || locked} onChange={e => { setMix(e.target.checked); setResult(null) }} />Combinar canchas aunque entren separadas</label>
             <button className={button} disabled={busy || locked}>{busy ? 'Simulando…' : 'Simular carga'}</button>
         </form>
         <p className="text-sm text-slate-600">La capacidad se carga desde administración. Podés probar alternativas; para aprobar debe coincidir con la capacidad guardada. La mezcla puede cambiarse para esta carga.</p>
         {error && <p role="alert" className="text-red-800">{error}</p>}
         {approved && !locked && <p role="status" className="rounded-xl bg-emerald-100 p-4">Carga aprobada. Las tareas ya están disponibles para el equipo asignado.</p>}
         {result && <>
+            <p className="rounded-xl bg-white p-3">{result.automatic_mix ? `Separadas: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; se propone combinar canchas: ${result.total_pallets} pallets.` : 'Las canchas se mantienen separadas si entran, salvo que elijas combinarlas.'}</p>
             <label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />Revisé altura, estabilidad y compatibilidad del armado propuesto.</label>
             <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>
             <div role="status" className={`rounded-xl p-4 ${result.fits_estimate ? 'bg-emerald-100' : 'bg-red-100'}`}>

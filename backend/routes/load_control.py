@@ -13,7 +13,7 @@ from werkzeug.exceptions import HTTPException
 
 from auth import auth_required, roles_required, current_user_payload
 from models import Consolidado, User, LogEntry, Article
-from services.pallet_planning import simulate_pallets
+from services.pallet_planning import plan_for_capacity
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
@@ -463,7 +463,7 @@ def simulate_truck(truck_id):
     if not rows:
         fail('El camión no tiene productos para simular.')
     try:
-        result = simulate_pallets(rows, data.get('capacity'), data.get('mix_courts', False))
+        result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False))
     except ValueError as exc:
         fail(str(exc))
     return jsonify(dict(result, fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
@@ -952,11 +952,13 @@ def approve_plan(truck_id):
     if data.get('physical_review') is not True:
         fail('Confirma la revision fisica de altura, estabilidad y compatibilidad.')
     try:
-        plan = simulate_pallets(planning_rows(truck), capacity.pallet_capacity, mix)
+        plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix)
     except ValueError as exc:
         fail(str(exc))
     if not plan['fits_estimate']:
         fail('El armado excede la capacidad del camion.', 409)
+    if plan['mix_courts'] != mix:
+        fail('El armado requiere combinar canchas. Volve a simular y revisar la propuesta.', 409)
     plan.update(fingerprint=fingerprint, approved_at=now(), approved_by=g.current_user.id)
     from datetime import datetime
     started = truck.state.get('planning_started_at')

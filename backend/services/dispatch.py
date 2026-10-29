@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 import unicodedata
 
 from services.load_control import selected_loads, court_state
-from services.pallet_planning import simulate_pallets
+from services.pallet_planning import simulate_pallets, plan_for_capacity
 
 
 def totals(rows, catalog):
@@ -44,11 +44,12 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False):
             continue
         valid.append(dict(row, bultos_por_pallet=article.bultos_por_pallet, unidades_por_bulto=article.unidades_por_bulto))
     # Capacity affects the fit check, not packing. Never expose the placeholder as a real capacity.
-    plan = simulate_pallets(valid, capacity or 1, mix_courts)
+    plan = plan_for_capacity(valid, capacity, mix_courts) if capacity and not missing else simulate_pallets(valid, capacity or 1, mix_courts)
     result.update(pallets=plan['total_pallets'] if not missing else None,
                   pallets_known=plan['total_pallets'], full_pallets_known=plan['full_count'],
                   picking_pallets_known=plan['mixed_count'], pallet_missing=sorted(missing),
-                  capacity=capacity, mix_courts=mix_courts,
+                  capacity=capacity, mix_courts=plan['mix_courts'],
+                  automatic_mix=plan.get('automatic_mix', False), separate_pallets=plan.get('separate_pallets'),
                   fits=None if missing or capacity is None else plan['fits_estimate'])
     descriptions = {row['sku']: row['descripcion'] for row in rows}
     result['missing'] = [dict(sku=sku, descripcion=descriptions[sku], hl=sku in result['hl_missing'],

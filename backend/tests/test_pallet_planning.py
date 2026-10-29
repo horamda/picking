@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.pallet_planning import simulate_pallets
+from services.pallet_planning import simulate_pallets, plan_for_capacity
 
 
 def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA'):
@@ -11,6 +11,22 @@ def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA'):
 
 
 class PlanningTest(unittest.TestCase):
+    def test_capacity_drives_combination_without_changing_work(self):
+        rows = [row(25, court=i, sku=str(i)) for i in range(1, 10)]
+        plan = plan_for_capacity(rows, 8)
+        self.assertEqual((plan['separate_pallets'], plan['total_pallets']), (9, 5))
+        self.assertTrue(plan['automatic_mix'])
+        self.assertTrue(plan['fits_estimate'])
+        self.assertEqual(sum(i['bultos'] for p in plan['mixed_pallets'] for i in p['items']), 225)
+        self.assertEqual([i['court'] for i in plan['picking_tasks']], list(range(1, 10)))
+        separate = plan_for_capacity(rows[:7], 8)
+        self.assertFalse(separate['automatic_mix'])
+        self.assertFalse(separate['mix_courts'])
+        self.assertEqual(separate['total_pallets'], 7)
+        too_large = plan_for_capacity(rows, 4)
+        self.assertFalse(too_large['fits_estimate'])
+        self.assertEqual(too_large['excess_positions'], 1)
+
     def test_full_pallets_and_remainder(self):
         result = simulate_pallets([row()], 5)
         self.assertEqual(result['full_count'], 4)

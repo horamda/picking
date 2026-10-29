@@ -215,6 +215,23 @@ class ControlFlowTest(unittest.TestCase):
         self.assertIsNone(preview['capacity'])
         self.assertIsNone(preview['fits'])
 
+    def test_automatic_combination_preview_matches_approved_plan(self):
+        second, _, _ = self.dispatch_sources()
+        self.select_dispatch([self.source.id, second.id])
+        self.call('put', '/settings', data=dict(branch='Central', truck='ABC123', capacity=3, mix_courts_default=False))
+        preview = self.call('post', '/dispatch/preview', data=dict(source_ids=[self.source.id, second.id]))
+        endpoint = f'/trucks/{self.truck_id}/planning'
+        plan = self.call('post', endpoint+'/simulate', data=dict(capacity=3, mix_courts=False))
+        self.assertTrue(plan['automatic_mix'])
+        self.assertTrue(plan['mix_courts'])
+        self.assertEqual((plan['separate_pallets'], plan['total_pallets']), (4, 3))
+        self.assertEqual(preview['pallets'], plan['total_pallets'])
+        self.assertTrue(preview['automatic_mix'])
+        self.call('post', endpoint+'/approve', data=dict(plan, physical_review=True))
+        saved = db.session.get(ControlTruck, self.truck_id).state['planning']
+        self.assertEqual(saved['mixed_pallets'], plan['mixed_pallets'])
+        self.assertTrue(saved['automatic_mix'])
+
     def test_live_monitor_includes_approvals_assets_and_safe_activity(self):
         from models import LogEntry
         actor = User.query.filter_by(username='admin').one()
