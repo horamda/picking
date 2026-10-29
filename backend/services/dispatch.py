@@ -53,6 +53,35 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False):
     descriptions = {row['sku']: row['descripcion'] for row in rows}
     result['missing'] = [dict(sku=sku, descripcion=descriptions[sku], hl=sku in result['hl_missing'],
                               pallets=sku in missing) for sku in sorted(missing | set(result['hl_missing']))]
+    def equivalents(items):
+        cases, pallets = Decimal(0), Decimal(0)
+        cases_missing, pallets_missing = False, False
+        for row in items:
+            article = catalog.get(row['sku'])
+            upb = article.unidades_por_bulto if article else None
+            bpp = article.bultos_por_pallet if article else None
+            amount = Decimal(row['bultos'])
+            if row.get('unidades', 0):
+                if not upb or upb <= 0:
+                    cases_missing = pallets_missing = True
+                    continue
+                amount += Decimal(row['unidades']) / upb
+            cases += amount
+            if amount and (not bpp or bpp <= 0 or not article.activo):
+                pallets_missing = True
+            elif amount:
+                pallets += amount / bpp
+        return dict(bultos_equiv=float(cases) if not cases_missing else None,
+                    pallets_equiv=float(pallets) if not pallets_missing else None)
+    result.update(equivalents(rows))
+    result['court_totals'] = []
+    for court in sorted({row['court'] for row in rows}):
+        items = [row for row in rows if row['court'] == court]
+        result['court_totals'].append(dict(court=court, **totals(items, catalog), **equivalents(items)))
+    result['assembly'] = [dict(id=f'F{index + 1:03}', count=item['pallets'],
+        items=[dict(item, **equivalents([item]))]) for index, item in enumerate(plan['full_pallets'])]
+    result['assembly'] += [dict(id=pallet['id'], count=1,
+        items=[dict(item, **equivalents([item])) for item in pallet['items']]) for pallet in plan['mixed_pallets']]
     return result
 
 
