@@ -32,6 +32,8 @@ La compilación, pruebas y lint se verifican localmente. La escucha, pronunciaci
 
 ## Compilar
 
+Android 0.9 presenta el camión y su resumen, seguido de sus cargas/repartos y las canchas asignadas dentro de cada uno. Cada cancha muestra estado y cantidad de productos; cada reparto muestra el avance de canchas terminadas. El filtro solo oculta tareas de la vista: no cambia la cola ni los totales del camión. Tocar una cancha abre su detalle; iniciar o retomar sigue siendo una acción explícita. Mantiene la guía por voz de 0.8.
+
 Requisitos: JDK 17, Android SDK plataforma 35 y conexión para descargar dependencias la primera vez.
 
 1. Descargar el ZIP oficial `https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip`.

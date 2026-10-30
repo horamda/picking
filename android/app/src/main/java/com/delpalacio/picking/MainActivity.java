@@ -326,28 +326,44 @@ public final class MainActivity extends Activity {
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
+                text(truck.optString("load_date")+" · "+loads.length()+" cargas con trabajo asignado",15);
                 text("Terminá tus canchas de todos sus repartos. Después aparecerá el siguiente camión.",14);content=body;
                 truckSummary(truck.optJSONObject("summary"),truck.optString("planning_status").equals("pending"));
                 for(int l=0;l<loads.length();l++) { JSONObject item=loads.getJSONObject(l); JSONArray courts=item.getJSONArray("canchas"); boolean show=false;
                     for(int c=0;c<courts.length();c++) if(matches(courts.getJSONObject(c))) show=true;
                     if(show) {
-                        found++;content=card(BORDER);text("Camión "+truck.optString("truck"),20);
-                        text("Reparto "+item.optString("reparto")+" · "+truck.optString("load_date"),14);
-                        styledButton("Ver canchas →",GREEN,Color.WHITE,GREEN,()->openLoad(item.optInt("id")));content=body;
+                        found++;content=card(BORDER);text("Carga · Reparto "+item.optString("reparto"),20);
+                        int done=0,total=0;
+                        for(int c=0;c<courts.length();c++){
+                            JSONObject taskCourt=courts.getJSONObject(c);
+                            if(!assigned.contains(taskCourt.optInt("numero")))continue;
+                            total++;if(processState(taskCourt).equals("Finalizados"))done++;
+                        }
+                        text("Tus canchas: "+done+" de "+total+" finalizadas",14);
+                        for(int c=0;c<courts.length();c++){
+                            JSONObject taskCourt=courts.getJSONObject(c);if(!matches(taskCourt))continue;
+                            gap(8);text("Cancha "+taskCourt.optInt("numero")+" · "+processState(taskCourt),18);
+                            text(taskCourt.optInt("cantidad")+" productos",14);
+                            button("Ver cancha "+taskCourt.optInt("numero")+" →",()->openLoad(item.optInt("id"),taskCourt.optInt("numero")));
+                        }
+                        content=body;
                     }
                 }
             }
-            message(found == 0 ? "Sin cargas para tus canchas y este filtro. El supervisor debe habilitar las cargas desde la web." : "Elegí una carga. Filtro: " + filter);
-            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.8.0",12);
+            message(found == 0 ? "No hay tareas visibles con este filtro. Probá Todos o consultá al supervisor si el camión espera aprobación." : "Elegí una cancha dentro de su reparto. Filtro: " + filter);
+            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.9.0",12);
         });
     }
     private void openLoad(int id) {
+        openLoad(id,0);
+    }
+    private void openLoad(int id,int selectedCourt) {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
             truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
-            for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c)) continue; count++;
+            for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
                 if(stage()==0 && c.optInt("full_pallet_count")>0){
                     text("Pallets completos · Información",16);
