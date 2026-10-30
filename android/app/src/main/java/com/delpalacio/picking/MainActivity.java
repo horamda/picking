@@ -92,6 +92,11 @@ public final class MainActivity extends Activity {
         v.setIncludeFontPadding(false);v.setPadding(0,dp(3),0,dp(3));return v;
     }
     private LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
+    private LinearLayout disclosure(String title){
+        LinearLayout panel=column();panel.setVisibility(View.GONE);
+        button(title,()->panel.setVisibility(panel.getVisibility()==View.GONE?View.VISIBLE:View.GONE));
+        content.addView(panel);return panel;
+    }
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     private void gap(int height){View v=new View(this);content.addView(v,new LinearLayout.LayoutParams(1,dp(height)));}
     private LinearLayout card(int border){
@@ -304,15 +309,10 @@ public final class MainActivity extends Activity {
     }
     private void listLoads() {
         currentScreen = "loads"; voice=false; check = null; court = null;
-        stopAudio(); check=null; screen("Mis cargas");
+        stopAudio(); check=null; screen("Tu próximo trabajo");
         content=card(BORDER);text("Hola, "+user.optString("username"),22);
         List<Integer> sortedCourts=new ArrayList<>(assigned);Collections.sort(sortedCourts);
-        TextView assignments=text("Tus canchas: " + sortedCourts,14);text("Elegí una carga habilitada para comenzar o retomar tu trabajo.",14);content=body;
-        content=card(BORDER);text("Estado del trabajo",13);
-        Spinner options = new Spinner(this); options.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Todos","En curso","Sin iniciar","Pausados","Finalizados"}));
-        content.addView(options); options.setSelection(Arrays.asList("Todos","En curso","Sin iniciar","Pausados","Finalizados").indexOf(filter));
-        button("Aplicar filtro / actualizar", () -> { filter=options.getSelectedItem().toString(); listLoads(); });
-        content=body;
+        TextView assignments=text("Tus canchas: " + sortedCourts,14);content=body;
         task(() -> obj("permissions", json("GET","/load-control/my-courts",null), "trucks", new JSONArray(api.request("GET","/load-control/trucks",null))), response -> {
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
@@ -326,13 +326,36 @@ public final class MainActivity extends Activity {
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
-                text(truck.optString("load_date")+" · "+loads.length()+" cargas con trabajo asignado",15);
-                text("Terminá tus canchas de todos sus repartos. Después aparecerá el siguiente camión.",14);content=body;
-                truckSummary(truck.optJSONObject("summary"),truck.optString("planning_status").equals("pending"));
+                text(truck.optString("load_date")+" · "+loads.length()+" cargas",15);
+                JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
+                if(mine!=null)text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
+                JSONObject nextLoad=null,nextCourt=null;int best=99;
+                for(int l=0;l<loads.length();l++){
+                    JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
+                    for(int c=0;c<candidates.length();c++){
+                        JSONObject taskCourt=candidates.getJSONObject(c);
+                        if(!assigned.contains(taskCourt.optInt("numero")) || taskCourt.optInt("cantidad")==0)continue;
+                        String state=processState(taskCourt);int rank=state.equals("En curso")?0:state.equals("Pausados")?1:state.equals("Sin iniciar")?2:99;
+                        if(rank<best){best=rank;nextLoad=candidate;nextCourt=taskCourt;}
+                    }
+                }
+                if(nextLoad!=null && !truck.optString("planning_status").equals("pending")){
+                    final int loadId=nextLoad.optInt("id"),courtNumber=nextCourt.optInt("numero");
+                    text("Próxima tarea: reparto "+nextLoad.optString("reparto")+" · Cancha "+courtNumber,16);
+                    styledButton("Continuar picking →",GREEN,Color.WHITE,GREEN,()->{filter="Todos";openLoad(loadId,courtNumber);});
+                }else text(truck.optString("planning_status").equals("pending")?"Esperando aprobación del supervisor":"Sin tareas pendientes en este camión",16);
+                content=body;
+                content=disclosure("Ver resumen y pallets del camión");
+                truckSummary(summary,truck.optString("planning_status").equals("pending"));
+                content=body;LinearLayout tasksPanel=disclosure("Elegir tarea");content=tasksPanel;
+                if(!filter.equals("Todos"))tasksPanel.setVisibility(View.VISIBLE);
+                Spinner options=new Spinner(this);options.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Todos","En curso","Sin iniciar","Pausados","Finalizados"}));
+                content.addView(options);options.setSelection(Arrays.asList("Todos","En curso","Sin iniciar","Pausados","Finalizados").indexOf(filter));
+                button("Aplicar filtro",()->{filter=options.getSelectedItem().toString();listLoads();});
                 for(int l=0;l<loads.length();l++) { JSONObject item=loads.getJSONObject(l); JSONArray courts=item.getJSONArray("canchas"); boolean show=false;
                     for(int c=0;c<courts.length();c++) if(matches(courts.getJSONObject(c))) show=true;
                     if(show) {
-                        found++;content=card(BORDER);text("Carga · Reparto "+item.optString("reparto"),20);
+                        found++;content=tasksPanel;LinearLayout loadPanel=disclosure("Reparto "+item.optString("reparto"));content=loadPanel;
                         int done=0,total=0;
                         for(int c=0;c<courts.length();c++){
                             JSONObject taskCourt=courts.getJSONObject(c);
@@ -346,12 +369,14 @@ public final class MainActivity extends Activity {
                             text(taskCourt.optInt("cantidad")+" productos",14);
                             button("Ver cancha "+taskCourt.optInt("numero")+" →",()->openLoad(item.optInt("id"),taskCourt.optInt("numero")));
                         }
-                        content=body;
+                        content=tasksPanel;
                     }
                 }
+                content=body;
             }
-            message(found == 0 ? "No hay tareas visibles con este filtro. Probá Todos o consultá al supervisor si el camión espera aprobación." : "Elegí una cancha dentro de su reparto. Filtro: " + filter);
-            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.9.0",12);
+            message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
+            button("Actualizar trabajo",this::listLoads);
+            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.10.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -361,7 +386,7 @@ public final class MainActivity extends Activity {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
-            truckSummary(load.optJSONObject("truck_summary"),false);
+            content=disclosure("Ver resumen del camión");truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
@@ -390,7 +415,7 @@ public final class MainActivity extends Activity {
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
-        return "Reparto "+load.optString("reparto")+". Cancha "+court.optInt("numero")+". "+ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
+        return ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
     }
     private void product() {
         currentScreen = "product";
@@ -506,7 +531,7 @@ public final class MainActivity extends Activity {
             if(!voiceBound)throw new IllegalStateException("No se pudo conectar el servicio de voz.");
         }catch(Exception e){voice=false;stopAudio();error(e);}
     }
-    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":(demo?"":summarySpeech(load.optJSONObject("truck_summary")))+prompt());}
+    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":"Reparto "+load.optString("reparto")+". Cancha "+court.optInt("numero")+". "+prompt());}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==11){enableAfterPermission=true;if(grants.length==0 || grants[0]!=PackageManager.PERMISSION_GRANTED)message("Para ver el control de voz fuera de la app, habilitá las notificaciones en Android.");}

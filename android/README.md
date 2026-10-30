@@ -32,6 +32,8 @@ La compilación, pruebas y lint se verifican localmente. La escucha, pronunciaci
 
 ## Compilar
 
+Android 0.10 simplifica el inicio: camión, avance y Continuar picking. Prioriza tareas en curso, después pausadas y luego sin iniciar, conservando el orden del servidor en cada grupo. Continuar abre el detalle sin iniciar un cronómetro automáticamente. Elegir tarea despliega filtros y repartos; cada reparto despliega sus canchas. Resumen, pallets y sesión permanecen plegados. Al activar voz se anuncia reparto y cancha; las siguientes lecturas se concentran en producto, cantidades y destinos. Verificación visual y acústica en teléfono pendiente.
+
 Android 0.9 presenta el camión y su resumen, seguido de sus cargas/repartos y las canchas asignadas dentro de cada uno. Cada cancha muestra estado y cantidad de productos; cada reparto muestra el avance de canchas terminadas. El filtro solo oculta tareas de la vista: no cambia la cola ni los totales del camión. Tocar una cancha abre su detalle; iniciar o retomar sigue siendo una acción explícita. Mantiene la guía por voz de 0.8.
 
 Requisitos: JDK 17, Android SDK plataforma 35 y conexión para descargar dependencias la primera vez.
