@@ -1,5 +1,13 @@
 # Plan operativo integral
 
+## Avance verificado al 30/10/2026
+
+- Publicados en la rama de trabajo y Railway: comprobantes de respuestas para recuperación, verificación del SKU completo, advertencias de tiempos mayores a 12 horas y registro de teléfonos autenticados.
+- Android 0.14.1 publicado. Firebase configurado en un worker separado; migración de dispositivos aplicada con autorización. API y worker en SUCCESS. Falta probar entrega en un teléfono real.
+- Pruebas: 40 de flujo backend, 4 de notificaciones, 3 de concurrencia/migración en PostgreSQL local (10 operarios), 10 Android y 7 de parser web; builds y lint Android correctos.
+- Decisión del usuario: verificar todos los dígitos del SKU. Sin impresora ni datos de peso/altura: mantener simulación revisada por supervisor, sin afirmar ajuste físico garantizado.
+- Pendiente del plan integral: pedidos de ayuda y seguimiento de faltantes, investigación/corrección auditada de tiempos históricos, aviso de actualización dentro de Android, revisión final del simulador y aceptación completa en el depósito. El enlace de descarga administrativo ya apunta a 0.14.1.
+
 Mantener Flask/PostgreSQL, React y Android nativo. Rama feature/voz-picking; sin PR ni cambios de esquema implícitos. Preservar reportes y auditoría.
 
 ## Orden y criterios de cierre
