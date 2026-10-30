@@ -16,6 +16,7 @@ import ExclusionsPage from './pages/ExclusionsPage'
 import axiosClient from './api/axiosClient'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
+import ThemeSwitch from './components/ThemeSwitch'
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -28,6 +29,7 @@ function App() {
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
+            <ThemeSwitch />
             <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route

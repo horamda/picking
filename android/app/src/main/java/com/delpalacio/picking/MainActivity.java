@@ -36,7 +36,27 @@ public final class MainActivity extends Activity {
     private Button voiceButton;
     private EditText shortageB, shortageU;
     private String lastHeard="";
-    private static final int INK=0xff0f172a, MUTED=0xff607493, GREEN=0xff059669, RED=0xffb91c1c, BORDER=0xffdce5ef, BG=0xfff0f5f9;
+    private int INK=0xff0f172a, MUTED=0xff607493, BORDER=0xffdce5ef, BG=0xfff0f5f9, SURFACE=Color.WHITE;
+    private static final int GREEN=0xff059669, RED=0xffb91c1c;
+    private boolean dark;
+    private void applyTheme(){
+        dark=getPreferences(0).getBoolean("dark",false);
+        setTheme(dark?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
+        INK=dark?0xffe2e8f0:0xff0f172a;MUTED=dark?0xffadbed3:0xff607493;
+        BORDER=dark?0xff3b4b63:0xffdce5ef;BG=dark?0xff0b1220:0xfff0f5f9;SURFACE=dark?0xff182235:Color.WHITE;
+        getWindow().setStatusBarColor(SURFACE);getWindow().setNavigationBarColor(SURFACE);
+        getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    }
+    private void inputs(View v,List<EditText> fields){
+        if(v instanceof EditText)fields.add((EditText)v);
+        if(v instanceof android.view.ViewGroup){android.view.ViewGroup g=(android.view.ViewGroup)v;for(int i=0;i<g.getChildCount();i++)inputs(g.getChildAt(i),fields);}
+    }
+    private void toggleTheme(){
+        List<EditText> fields=new ArrayList<>();inputs(root,fields);List<String> values=new ArrayList<>();for(EditText field:fields)values.add(field.getText().toString());
+        getPreferences(0).edit().putBoolean("dark",!dark).apply();applyTheme();
+        if(currentScreen.equals("login")){login();fields.clear();inputs(root,fields);for(int i=0;i<Math.min(fields.size(),values.size());i++)fields.get(i).setText(values.get(i));}
+        else listLoads();
+    }
     private final Runnable clockTick=new Runnable(){public void run(){updateClock();handler.postDelayed(this,1000);}};
     private Api api;
     private JSONObject user, load, court, check;
@@ -70,9 +90,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.WHITE);
-        getWindow().setNavigationBarColor(Color.WHITE);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        applyTheme();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         tts = new TextToSpeech(this, result -> {
             if (result == TextToSpeech.SUCCESS) {
@@ -84,9 +102,16 @@ public final class MainActivity extends Activity {
     }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private GradientDrawable shape(int color,int border,int radius) {
+        if(dark){
+            if(color==Color.WHITE)color=SURFACE;
+            if(color==0xffd1fae5 || color==0xffecfdf5)color=0xff10382e;
+            if(color==0xfffff1f2)color=0xff451c2b;
+            if(border==0xffcbd5e1)border=BORDER;
+        }
         GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));d.setStroke(dp(1),border);return d;
     }
     private TextView label(String value,int size,int color,boolean bold) {
+        if(dark && color==0xff047857)color=0xff6ee7b7;
         TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(color);
         if(bold)v.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));
         v.setIncludeFontPadding(false);v.setPadding(0,dp(3),0,dp(3));return v;
@@ -107,7 +132,7 @@ public final class MainActivity extends Activity {
         voiceStatus=null;heardView=null;voiceButton=null;clockView=null;shortageB=null;shortageU=null;
         root=column();root.setBackgroundColor(BG);root.setFitsSystemWindows(true);
         boolean working=currentScreen.equals("product") || currentScreen.equals("shortage");
-        LinearLayout header=column();header.setBackgroundColor(Color.WHITE);header.setPadding(dp(16),dp(8),dp(16),dp(10));root.addView(header);
+        LinearLayout header=column();header.setBackgroundColor(SURFACE);header.setPadding(dp(16),dp(8),dp(16),dp(10));root.addView(header);
         if(working){
             LinearLayout top=row();header.addView(top);
             top.addView(label("Camión "+load.optString("camion","Demo")+" · Cancha "+court.optInt("numero"),12,MUTED,false),new LinearLayout.LayoutParams(0,-2,1));
@@ -124,6 +149,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();content=body;
         content.setPadding(dp(16),dp(16),dp(16),dp(20));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         status=label("",14,INK,false);status.setVisibility(View.GONE);content.addView(status);
+        if(currentScreen.equals("login") || currentScreen.equals("loads"))button(dark?"Modo claro":"Modo oscuro",this::toggleTheme);
         setContentView(root);
         if(demo)message("Demostración · No guarda datos");
     }
@@ -139,6 +165,8 @@ public final class MainActivity extends Activity {
         styledButton(title,Color.WHITE,INK,BORDER,action);
     }
     private Button styledButton(String title,int fill,int ink,int border,Runnable action){
+        if(dark && fill==INK && ink==Color.WHITE)ink=BG;
+        if(dark && fill==0xfffff1f2)ink=0xfffda4af;
         Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(ink);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setMinHeight(dp(52));b.setMinimumHeight(dp(52));
         b.setPadding(dp(12),dp(12),dp(12),dp(12));b.setBackground(shape(fill,border,12));b.setStateListAnimator(null);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(10);content.addView(b,lp);b.setOnClickListener(v->{if(!busy)action.run();});return b;
@@ -157,7 +185,7 @@ public final class MainActivity extends Activity {
             if(voice){voice=false;stopAudio();updateVoiceUi("Voz desactivada");}else enableVoice();
         });voiceButton.setLayoutParams(new LinearLayout.LayoutParams(dp(112),-2));
         voiceStatus=label(voice?"Preparando…":"Voz desactivada",13,MUTED,false);voiceStatus.setPadding(dp(12),0,0,0);controls.addView(voiceStatus,new LinearLayout.LayoutParams(0,-2,1));content=panel;
-        gap(10);heardView=text(lastHeard.isEmpty()?"Todavía no escuché un comando":"Escuché: “"+lastHeard+"”",14);heardView.setTextColor(0xff047857);heardView.setPadding(dp(12),dp(10),dp(12),dp(10));heardView.setBackground(shape(0xffecfdf5,0xffa7f3d0,8));
+        gap(10);heardView=text(lastHeard.isEmpty()?"Todavía no escuché un comando":"Escuché: “"+lastHeard+"”",14);heardView.setTextColor(dark?0xff6ee7b7:0xff047857);heardView.setPadding(dp(12),dp(10),dp(12),dp(10));heardView.setBackground(shape(0xffecfdf5,0xffa7f3d0,8));
         text(currentScreen.equals("shortage")?"Decí, por ejemplo: un bulto y luego dos unidades.":"Decí correcto o faltante. La app lee cada producto en voz alta.",12);content=parent;
     }
     private void updateVoiceUi(String state){if(voiceButton!=null)voiceButton.setText(voice?"Parar voz":"Activar voz");if(voiceStatus!=null)voiceStatus.setText(state);}
@@ -248,6 +276,7 @@ public final class MainActivity extends Activity {
     }
     private String summarySpeech(JSONObject summary) {
         if(summary==null)return "El resumen del camión no está disponible. ";
+        if(summary.isNull("pallets"))return "Plan de armado pendiente. Consultá al supervisor para conocer tus pallets y cantidades asignadas.";
         String speech="Carga total del camión: "+summary.optInt("loads")+" repartos, "+summary.optInt("courts")+" canchas. "+amount(summary,"pallets")+" pallets físicos previstos. ";
         JSONObject mine=summary.optJSONObject("mine");
         if(mine!=null){
@@ -278,6 +307,12 @@ public final class MainActivity extends Activity {
         if(summary==null)return;
         content=card(BORDER);text("Este camión · Carga seleccionada",20);
         button("Escuchar resumen del camión",()->speak(summarySpeech(summary)));
+        if(summary.isNull("pallets")){
+            text("Plan de armado pendiente",20);
+            text("No hay un plan aprobado vigente para calcular tus pallets y cantidades asignadas. Consultá al supervisor.",15);
+            text("Carga total: "+amount(summary,"bultos")+" bultos + "+amount(summary,"unidades")+" unidades",16);
+            content=body;return;
+        }
         text(summary.optInt("loads")+" repartos · "+summary.optInt("courts")+" canchas",15);
         text(amount(summary,"bultos")+" bultos + "+amount(summary,"unidades")+" unidades · "+amount(summary,"hl")+" HL",16);
         text("Pallets físicos previstos: "+amount(summary,"pallets")+" / "+amount(summary,"capacity")+" de capacidad",18);
@@ -328,7 +363,7 @@ public final class MainActivity extends Activity {
                 content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
                 text(truck.optString("load_date")+" · "+loads.length()+" cargas",15);
                 JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
-                if(mine!=null)text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
+                if(mine!=null && !summary.isNull("pallets"))text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
                 JSONObject nextLoad=null,nextCourt=null;int best=99;
                 for(int l=0;l<loads.length();l++){
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
@@ -376,7 +411,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.10.0",12);content=body;
+            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.11.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -436,7 +471,7 @@ public final class MainActivity extends Activity {
         }
         if(check.optJSONObject("answers").has(p.optString("sku"))) text("Este producto ya tiene una respuesta guardada.",16);
         if(stage()==0 && p.optInt("full_pallets_count")>0){
-            gap(6);TextView full=text("Pallets completos: "+p.optInt("full_pallets_count")+" · "+p.optInt("full_pallets_bultos")+" bultos",14);full.setTextColor(0xff0369a1);
+            gap(6);TextView full=text("Pallets completos: "+p.optInt("full_pallets_count")+" · "+p.optInt("full_pallets_bultos")+" bultos",14);full.setTextColor(dark?0xff7dd3fc:0xff0369a1);
             text("Informativo · Se registran por separado del picking indicado arriba.",12);
         }
         content=body;voicePanel();
@@ -452,7 +487,7 @@ public final class MainActivity extends Activity {
         button("Escuchar / repetir producto", () -> speak(prompt()));
         button("Pausar y volver a canchas",this::pauseAndLeave);
         text("Reparto "+load.optString("reparto")+" · "+user.optString("username"),12);
-        LinearLayout footer=column();footer.setPadding(dp(16),dp(10),dp(16),dp(4));footer.setBackgroundColor(Color.WHITE);root.addView(footer);content=footer;
+        LinearLayout footer=column();footer.setPadding(dp(16),dp(10),dp(16),dp(4));footer.setBackgroundColor(SURFACE);root.addView(footer);content=footer;
         button("Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle("Finalizar picking")
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
             .setNegativeButton("Seguir",(d,w)->product()).setOnCancelListener(d->product()).setPositiveButton("Finalizar",(d,w)->finishPicking()).show(); });
