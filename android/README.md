@@ -1,5 +1,7 @@
 # Del Palacio · Android nativo
 
+Android 0.14.1 incorpora Firebase Messaging y registro autenticado del teléfono al iniciar sesión. En «Mi sesión → Notificaciones · Probar Firebase» se habilitan los permisos y se consulta el estado del registro. Requiere instalar esta versión e iniciar sesión para recibir avisos automáticos. La prueba de recepción en un teléfono real sigue pendiente. Ver `docs/notificaciones-android.md` en la raíz del repositorio.
+
 Primera versión de prueba en Java, con vistas nativas de Android, TextToSpeech y Vosk. No utiliza WebView. Mantiene Flask como backend. Android 8 o posterior; acceso HTTPS por Wi-Fi o datos móviles.
 
 ## Probar sin tocar datos
