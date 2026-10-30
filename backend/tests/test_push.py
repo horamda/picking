@@ -1,7 +1,7 @@
 """Isolated DB fixtures; Firebase sends are mocked and production is never used."""
 from test_load_control import ControlFlowTest, application, db, tearDownModule
 from services.push import PushDevice, available_tasks, utcnow, retry_delay
-from push_worker import process_device
+from push_worker import process_device, tick
 from models import User
 from services.load_control import ControlTruck
 from unittest.mock import patch, Mock
@@ -19,6 +19,10 @@ for name in list(dir(ControlFlowTest)):
 
 
 class PushDeviceTest(PushTest):
+    def test_empty_worker_tick_releases_database_session(self):
+        tick()
+        self.assertFalse(db.session.registry.has())
+
     def test_disabled_and_registration_ownership(self):
         token = 'fake-token-for-isolated-test-only'
         with patch.dict('os.environ', {'PUSH_ENABLED': '0'}):

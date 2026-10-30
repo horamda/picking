@@ -31,6 +31,7 @@ def tick():
     stamp = utcnow()
     ids = [r[0] for r in db.session.query(PushDevice.token_hash).filter(
         PushDevice.expires_at > stamp, PushDevice.next_attempt <= stamp).limit(200).all()]
+    db.session.remove()  # Also close the read transaction when no devices are registered.
     for device_id in ids:
         try:
             device = PushDevice.query.filter(PushDevice.token_hash == device_id,
