@@ -94,7 +94,8 @@ def dispatch_board():
             rows = [dict(p, load_id=source.id, court=c['numero']) for c in data['canchas'] for p in c['productos']]
             load = next((l for l in t.loads if l.source_id == source.id), None) if t else None
             selected = bool(t and load and load.id in t.state.get('dispatch', {}).get('load_ids', []))
-            group['sources'].append(dict(id=source.id, reparto=source.reparto, selected=selected, totals=totals(rows, dispatch_catalog()), error=None))
+            group['sources'].append(dict(id=source.id, reparto=source.reparto, selected=selected,
+                court_numbers=sorted({r['court'] for r in rows}), totals=totals(rows, dispatch_catalog()), error=None))
         except ValueError as exc:
             group['sources'].append(dict(id=source.id, reparto=source.reparto, selected=False, totals=None, error=str(exc)))
     prefix = max((t.state.get('dispatch', {}).get('position', 0) for t in trucks
