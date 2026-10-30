@@ -22,6 +22,14 @@ El supervisor aprueba las cargas desde la web; administración configura capacid
 
 Cerrar Android apaga el micrófono pero no pausa el cronómetro del servidor: usar **Pausar y volver**. El trabajo real requiere conexión. La respuesta confirmada por el servidor es la que cuenta; no existe cola offline. La prueba acústica con teléfono y ruido de depósito continúa pendiente.
 
+## Guía del plan aprobado (0.8)
+
+Al activar voz, Android lee el resumen del camión y el trabajo asignado. Cada producto indica reparto, cancha y cantidades por pallet destino, usando los identificadores del plan aprobado. Si un producto ocupa varios pallets, los enumera con sus cantidades; avisa cuando el pallet se comparte entre canchas. El resumen también tiene un botón para escucharlo antes de comenzar. Al finalizar una cancha consulta la cola y anuncia el camión vigente. Seleccionar cancha, finalizar y confirmar faltantes mantienen sus botones.
+
+Identificar físicamente los pallets con los códigos del plan (M001, M002, etc.) dentro de cada camión. La app no puede verificar que la etiqueta física corresponda. No se inventan destinos cuando falta el plan: se indica consultar al supervisor. La guía requiere instalar el APK 0.8; actualizar la web no actualiza Android.
+
+La compilación, pruebas y lint se verifican localmente. La escucha, pronunciación de códigos y operación con ruido requieren una prueba en el teléfono del depósito.
+
 ## Compilar
 
 Requisitos: JDK 17, Android SDK plataforma 35 y conexión para descargar dependencias la primera vez.

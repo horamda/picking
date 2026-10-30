@@ -2,6 +2,15 @@ package com.delpalacio.picking;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class ProductSpeechTest {
+    @Test public void palletDestinationsSpeakExactAmounts(){
+        String first=ProductSpeech.destination("M001",2,0,true);
+        assertTrue(first.contains("M001"));assertTrue(first.contains("2 bultos"));
+        assertTrue(first.contains("Compartido"));assertFalse(first.contains("unidades"));
+        String second=ProductSpeech.destination("M002",0,3,false);
+        assertTrue(second.contains("3 unidades"));assertFalse(second.contains("bultos"));
+        assertFalse(second.contains("Compartido"));
+        assertEquals("",ProductSpeech.destination("M003",0,0,false));
+    }
     @Test public void speaksOnlyPositiveQuantities(){
         String units=ProductSpeech.prompt("Agua",0,4,0,0,0,3);
         assertTrue(units.contains("Agarrá 4 unidades de Agua"));assertFalse(units.contains("bultos"));

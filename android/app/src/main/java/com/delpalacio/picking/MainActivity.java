@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
     private TextToSpeech tts;
     private VoiceSessionService voiceSession;
     private boolean voiceBound, enableAfterPermission;
+    private boolean announceQueue;
     private final VoiceSessionService.Listener voiceListener=new VoiceSessionService.Listener(){
         public void onReady(){if(voice && !isDestroyed())activateVoice();}
         public void onText(String text){if(voice && !busy && !isDestroyed())command(text);}
@@ -240,9 +241,38 @@ public final class MainActivity extends Activity {
         if(data.isNull(key) || !data.has(key))return "Pendiente";
         return java.text.NumberFormat.getNumberInstance(new java.util.Locale("es","AR")).format(data.optDouble(key));
     }
+    private String summarySpeech(JSONObject summary) {
+        if(summary==null)return "El resumen del camión no está disponible. ";
+        String speech="Carga total del camión: "+summary.optInt("loads")+" repartos, "+summary.optInt("courts")+" canchas. "+amount(summary,"pallets")+" pallets físicos previstos. ";
+        JSONObject mine=summary.optJSONObject("mine");
+        if(mine!=null){
+            speech+="Tu trabajo: "+mine.optInt("loads")+" repartos y "+mine.optInt("courts")+" canchas. "+amount(mine,"bultos")+" bultos y "+amount(mine,"unidades")+" unidades. Participa en "+amount(mine,"pallets")+" pallets. ";
+            if(!mine.isNull("hl"))speech+=amount(mine,"hl")+" hectolitros. ";
+            if(stage()==0 && mine.optInt("full_pallets_info")>0)speech+=mine.optInt("full_pallets_info")+" pallets completos se preparan por separado. ";
+        }
+        return speech;
+    }
+    private String destinations(JSONObject product) {
+        if(demo || stage()!=0 || load==null || court==null)return "";
+        JSONObject summary=load.optJSONObject("truck_summary");
+        JSONObject mine=summary==null?null:summary.optJSONObject("mine");
+        JSONArray allocations=mine==null?null:mine.optJSONArray("allocations");
+        StringBuilder result=new StringBuilder();
+        if(allocations!=null)for(int i=0;i<allocations.length();i++){
+            JSONObject pallet=allocations.optJSONObject(i);JSONArray items=pallet.optJSONArray("items");
+            if(items==null)continue;
+            for(int j=0;j<items.length();j++){
+                JSONObject item=items.optJSONObject(j);
+                if(item.optInt("load_id")==load.optInt("id") && item.optInt("court")==court.optInt("numero") && item.optString("sku").equals(product.optString("sku")))
+                    result.append(ProductSpeech.destination(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
+            }
+        }
+        return result.length()==0?"Destino de pallet no disponible. Consultá al supervisor. ":result.toString();
+    }
     private void truckSummary(JSONObject summary,boolean waiting) {
         if(summary==null)return;
         content=card(BORDER);text("Este camión · Carga seleccionada",20);
+        button("Escuchar resumen del camión",()->speak(summarySpeech(summary)));
         text(summary.optInt("loads")+" repartos · "+summary.optInt("courts")+" canchas",15);
         text(amount(summary,"bultos")+" bultos + "+amount(summary,"unidades")+" unidades · "+amount(summary,"hl")+" HL",16);
         text("Pallets físicos previstos: "+amount(summary,"pallets")+" / "+amount(summary,"capacity")+" de capacidad",18);
@@ -288,6 +318,11 @@ public final class MainActivity extends Activity {
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
             List<Integer> refreshed=new ArrayList<>(assigned);Collections.sort(refreshed);assignments.setText("Tus canchas: "+refreshed);
             JSONArray trucks=response.getJSONArray("trucks");
+            if(announceQueue){
+                announceQueue=false;
+                if(trucks.length()==0)speak("Cancha finalizada. No tenés más camiones habilitados pendientes.");
+                else {JSONObject next=trucks.getJSONObject(0);speak("Cancha finalizada. Tu camión actual es "+next.optString("truck")+". "+summarySpeech(next.optJSONObject("summary"))+"Elegí el reparto y la cancha para continuar.");}
+            }
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
@@ -303,7 +338,7 @@ public final class MainActivity extends Activity {
                 }
             }
             message(found == 0 ? "Sin cargas para tus canchas y este filtro. El supervisor debe habilitar las cargas desde la web." : "Elegí una carga. Filtro: " + filter);
-            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.7.0",12);
+            button("Cerrar sesión", this::login);text("Del Palacio · Android 0.8.0",12);
         });
     }
     private void openLoad(int id) {
@@ -328,15 +363,18 @@ public final class MainActivity extends Activity {
         });
     }
     private void startCourt(JSONObject c) {
-        task(() -> json("POST","/load-control/loads/"+load.optInt("id")+"/courts/"+c.optInt("numero")+"/start/"+stage(),obj()), result -> {
-            court=c; check=result; products=result.getJSONArray("products"); index=0;
+        task(() -> {
+            JSONObject started=json("POST","/load-control/loads/"+load.optInt("id")+"/courts/"+c.optInt("numero")+"/start/"+stage(),obj());
+            return obj("check",started,"load",json("GET","/load-control/loads/"+load.optInt("id"),null));
+        }, result -> {
+            load=result.getJSONObject("load");court=c; check=result.getJSONObject("check"); products=check.getJSONArray("products"); index=0;
             JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).getString("sku"))) index++;
             product();
         });
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
-        return ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length());
+        return "Reparto "+load.optString("reparto")+". Cancha "+court.optInt("numero")+". "+ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
     }
     private void product() {
         currentScreen = "product";
@@ -345,6 +383,8 @@ public final class MainActivity extends Activity {
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);
+        String destination=destinations(p);
+        if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
         gap(8);LinearLayout amounts=row();content.addView(amounts);
         for(int i=0;i<2;i++){
@@ -430,7 +470,7 @@ public final class MainActivity extends Activity {
     private void finishPicking() {
         voice=false;stopAudio();
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
-        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";listLoads();});
+        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;listLoads();});
     }
     private void enableVoice() {
         if(!visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;
@@ -450,7 +490,7 @@ public final class MainActivity extends Activity {
             if(!voiceBound)throw new IllegalStateException("No se pudo conectar el servicio de voz.");
         }catch(Exception e){voice=false;stopAudio();error(e);}
     }
-    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":prompt());}
+    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":(demo?"":summarySpeech(load.optJSONObject("truck_summary")))+prompt());}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==11){enableAfterPermission=true;if(grants.length==0 || grants[0]!=PackageManager.PERMISSION_GRANTED)message("Para ver el control de voz fuera de la app, habilitá las notificaciones en Android.");}
