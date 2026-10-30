@@ -66,6 +66,15 @@ class ControlFlowTest(unittest.TestCase):
         plan = self.call('post', f'/trucks/{self.truck_id}/planning/simulate', data=dict(capacity=20, mix_courts=False))
         self.call('post', f'/trucks/{self.truck_id}/planning/approve', data=dict(plan, physical_review=True))
 
+    def test_worker_view_matches_preparation_permission(self):
+        detail = self.call('get', f'/loads/{self.load_id}', 'picker')
+        self.assertEqual(detail['planning_status'], 'approved')
+        self.assertTrue(detail['canchas'][0]['can_prepare'])
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'admin')
+        detail = self.call('get', f'/loads/{self.load_id}', 'picker')
+        self.assertFalse(detail['canchas'][0]['can_prepare'])
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
+
     def tearDown(self):
         db.session.remove()
 

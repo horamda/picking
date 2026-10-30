@@ -70,6 +70,26 @@ public final class MainActivity extends Activity {
     private VoiceSessionService voiceSession;
     private boolean voiceBound, enableAfterPermission;
     private boolean announceQueue;
+    private String queueVersion="";
+    private boolean refreshing;
+    private JSONObject fetchQueue() throws Exception {
+        return obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
+    }
+    private String queueVersion(JSONObject response) throws Exception {
+        StringBuilder key=new StringBuilder(response.getJSONObject("permissions").toString());
+        JSONArray trucks=response.getJSONArray("trucks");
+        for(int i=0;i<trucks.length();i++){JSONObject truck=trucks.getJSONObject(i);key.append('|').append(truck.optInt("id")).append(':').append(truck.optInt("version")).append(':').append(truck.optString("planning_status"));}
+        return key.toString();
+    }
+    private final Runnable syncQueue=new Runnable(){public void run(){
+        handler.postDelayed(this,15000);
+        if(!visible || busy || refreshing || user==null || demo || !currentScreen.equals("loads"))return;
+        refreshing=true;int generation=requestVersion;
+        network.execute(()->{try{
+            String updated=queueVersion(fetchQueue());
+            handler.post(()->{refreshing=false;if(!isDestroyed() && generation==requestVersion && visible && !busy && currentScreen.equals("loads") && !updated.equals(queueVersion))listLoads();});
+        }catch(Exception e){handler.post(()->{refreshing=false;if(visible && currentScreen.equals("loads"))message("Sin actualizar: revisá la conexión. Los datos visibles pueden estar desactualizados.");});}});
+    }};
     private final VoiceSessionService.Listener voiceListener=new VoiceSessionService.Listener(){
         public void onReady(){if(voice && !isDestroyed())activateVoice();}
         public void onText(String text){if(voice && !busy && !isDestroyed())command(text);}
@@ -348,7 +368,8 @@ public final class MainActivity extends Activity {
         content=card(BORDER);text("Hola, "+user.optString("username"),22);
         List<Integer> sortedCourts=new ArrayList<>(assigned);Collections.sort(sortedCourts);
         TextView assignments=text("Tus canchas: " + sortedCourts,14);content=body;
-        task(() -> obj("permissions", json("GET","/load-control/my-courts",null), "trucks", new JSONArray(api.request("GET","/load-control/trucks",null))), response -> {
+        task(this::fetchQueue, response -> {
+            queueVersion=queueVersion(response);
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
             List<Integer> refreshed=new ArrayList<>(assigned);Collections.sort(refreshed);assignments.setText("Tus canchas: "+refreshed);
@@ -369,7 +390,7 @@ public final class MainActivity extends Activity {
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
                     for(int c=0;c<candidates.length();c++){
                         JSONObject taskCourt=candidates.getJSONObject(c);
-                        if(!assigned.contains(taskCourt.optInt("numero")) || taskCourt.optInt("cantidad")==0)continue;
+                        if(!assigned.contains(taskCourt.optInt("numero")) || taskCourt.optInt("cantidad")==0 || !taskCourt.optBoolean("can_prepare",true))continue;
                         String state=processState(taskCourt);int rank=state.equals("En curso")?0:state.equals("Pausados")?1:state.equals("Sin iniciar")?2:99;
                         if(rank<best){best=rank;nextLoad=candidate;nextCourt=taskCourt;}
                     }
@@ -411,7 +432,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.11.0",12);content=body;
+            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.12.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -421,6 +442,7 @@ public final class MainActivity extends Activity {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
+            if(load.optString("planning_status").equals("legacy"))text("Carga anterior en control. No permite iniciar un armado nuevo; consultá al supervisor.",16);
             content=disclosure("Ver resumen del camión");truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
@@ -431,7 +453,7 @@ public final class MainActivity extends Activity {
                     if(full!=null)for(int n=0;n<full.length();n++){JSONObject item=full.optJSONObject(n);text(item.optInt("pallets")+" pallets · "+item.optString("descripcion")+" ("+item.optInt("bultos")+" bultos)",13);}
                     text("Se registran por separado del picking de bultos y unidades sueltas.",12);
                 }
-                if(!state.equals("Finalizados") && c.optJSONArray("productos").length()>0) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c));
+                if(!state.equals("Finalizados") && c.optJSONArray("productos").length()>0 && c.optBoolean("can_prepare",true)) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c));
                 else if(c.optJSONArray("productos").length()==0)text("Esta cancha solo tiene pallets completos; no requiere picking de sueltos.",14);
                 content=body;
             }
@@ -626,8 +648,8 @@ public final class MainActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
     private void stopAudio(){speechVersion++;stopMic();if(tts!=null)tts.stop();if(!voice)stopVoiceSession();}
-    @Override protected void onResume(){super.onResume();visible=true;handler.removeCallbacks(clockTick);handler.post(clockTick);resumeVoiceAfterPermission();}
-    @Override protected void onPause(){visible=false;handler.removeCallbacks(clockTick);super.onPause();}
+    @Override protected void onResume(){super.onResume();visible=true;handler.removeCallbacks(clockTick);handler.post(clockTick);handler.removeCallbacks(syncQueue);handler.post(syncQueue);resumeVoiceAfterPermission();}
+    @Override protected void onPause(){visible=false;handler.removeCallbacks(syncQueue);handler.removeCallbacks(clockTick);super.onPause();}
     @Override public void onBackPressed(){
         if(busy){message("Esperá a que termine la operación.");return;}
         if(currentScreen.equals("shortage")){stopAudio();product();return;}

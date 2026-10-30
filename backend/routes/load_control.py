@@ -361,6 +361,9 @@ def get_court(load, number):
 
 def serialize_load(load, summary=False):
     result = dict(id=load.id, source_id=load.source_id, **deepcopy(load.content))
+    valid_plan = approved(load.truck)
+    legacy = legacy_in_progress(load.truck)
+    result['planning_status'] = 'approved' if valid_plan else 'legacy' if legacy else 'pending'
     result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in assigned_courts(g.current_user.id)]
     for court in result['canchas']:
         pallet_info = full_pallets_info(load, court)
@@ -370,6 +373,12 @@ def serialize_load(load, summary=False):
         if not manager() and g.current_user.role.name in ('operador', 'palletizador'):
             court['productos'] = task_products(load, court, 0 if g.current_user.role.name == 'operador' else 4)
         cs = court_state(load.truck.state, load.id, court['numero'])
+        worker_stage = '4' if g.current_user.role.name == 'palletizador' else '0'
+        worker_check = cs['checks'].get(worker_stage)
+        court['can_prepare'] = bool((valid_plan or (legacy and worker_check))
+            and '1' not in cs['checks'] and '2' not in cs['checks']
+            and (not worker_check or (worker_check.get('status') == 'active'
+                and worker_check.get('user_id') in (None, g.current_user.id))))
         checks = [dict({k: v for k, v in check.items() if k != 'answers'}, answered=len(check.get('answers', {})), elapsed_seconds=elapsed(check), timing=timing(check)) for check in cs['checks'].values()]
         court['status'] = dict(checks=checks,
                                shortages=list(cs['shortages'].values()), done=court_done(cs))
