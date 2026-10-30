@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
     private LinearLayout content;
     private LinearLayout root, body;
     private TextView status;
-    private TextView voiceStatus, heardView, clockView, bHint, uHint;
+    private TextView voiceStatus, heardView, clockView, bHint, uHint, shortageFeedback;
     private Button voiceButton;
     private EditText shortageB, shortageU;
     private String lastHeard="";
@@ -149,7 +149,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(12);content.addView(v,lp);return v;
     }
     private void screen(String title) {
-        voiceStatus=null;heardView=null;voiceButton=null;clockView=null;shortageB=null;shortageU=null;
+        voiceStatus=null;heardView=null;voiceButton=null;clockView=null;shortageB=null;shortageU=null;shortageFeedback=null;
         root=column();root.setBackgroundColor(BG);root.setFitsSystemWindows(true);
         boolean working=currentScreen.equals("product") || currentScreen.equals("shortage");
         LinearLayout header=column();header.setBackgroundColor(SURFACE);header.setPadding(dp(16),dp(8),dp(16),dp(10));root.addView(header);
@@ -226,6 +226,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void error(Exception error) {
+        if(currentScreen.equals("shortage") && shortageFeedback!=null)shortageFeedback.setText(error.getMessage());
         boolean announce=voice;
         if(voice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
         message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
@@ -432,7 +433,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.12.0",12);content=body;
+            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.13.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -535,28 +536,38 @@ public final class MainActivity extends Activity {
         currentScreen = "shortage";
         JSONObject p=products.optJSONObject(index); screen("Registrar faltante");voicePanel();
         content=card(0xfffecaca);text("Registrar faltante",20);
+        text("Cantidad que encontraste (no la cantidad que falta)",16);
         text(p.optString("descripcion")+" · planilla: "+p.optInt("bultos")+" bultos + "+p.optInt("unidades")+" unidades",13);gap(8);
         LinearLayout form=content, quantities=row();content.addView(quantities);
         for(int i=0;i<2;i++){
             LinearLayout field=column();LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);if(i==0)lp.rightMargin=dp(10);quantities.addView(field,lp);content=field;
-            text(i==0?"Bultos físicos":"Unidades físicas",12);EditText value=input(i==0?"Bultos físicos":"Unidades físicas",InputType.TYPE_CLASS_NUMBER);value.setTextSize(22);value.setText("0");
+            text(i==0?"Bultos encontrados":"Unidades encontradas",12);EditText value=input(i==0?"Bultos físicos":"Unidades físicas",InputType.TYPE_CLASS_NUMBER);value.setTextSize(22);value.setText("0");
             TextView hint=text("Tocá para corregir",11);
             if(i==0){shortageB=value;bHint=hint;}else{shortageU=value;uHint=hint;}
         }
-        content=form;gap(8);text("Proceso al que corresponde",13);TextView origin=text(stage()==4?"Pallets completos":"Picking",16);origin.setPadding(dp(14),dp(14),dp(14),dp(14));origin.setBackground(shape(Color.WHITE,0xffcbd5e1,12));
+        content=form;button("No encontré nada",()->{shortageB.setText("0");shortageU.setText("0");});
+        gap(8);text("Proceso al que corresponde",13);TextView origin=text(stage()==4?"Pallets completos":"Picking",16);origin.setPadding(dp(14),dp(14),dp(14),dp(14));origin.setBackground(shape(Color.WHITE,0xffcbd5e1,12));
         text("Responsable: "+user.optString("username"),12);gap(4);
         text("Observación (opcional)",13); EditText note=input("Escribí qué pasó con el producto…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
+        shortageFeedback=text("",16);shortageFeedback.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        android.text.TextWatcher watcher=new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            public void onTextChanged(CharSequence s,int start,int before,int count){shortageFeedback.setText(ShortageAmounts.summary(shortageB.getText().toString(),shortageU.getText().toString(),p.optInt("bultos"),p.optInt("unidades")));}
+            public void afterTextChanged(android.text.Editable s){}
+        };
+        shortageB.addTextChangedListener(watcher);shortageU.addTextChangedListener(watcher);watcher.onTextChanged("",0,0,0);
         styledButton("Registrar faltante",RED,Color.WHITE,RED,() -> {
             try {
+                String validation=ShortageAmounts.error(shortageB.getText().toString(),shortageU.getText().toString(),p.optInt("bultos"),p.optInt("unidades"));
+                if(!validation.isEmpty()){shortageFeedback.setText(validation);return;}
                 int physicalB=Integer.parseInt(shortageB.getText().toString()),physicalU=Integer.parseInt(shortageU.getText().toString());
-                if(physicalB<0 || physicalU<0 || physicalB>p.optInt("bultos") || physicalU>p.optInt("unidades") || (physicalB==p.optInt("bultos") && physicalU==p.optInt("unidades"))) throw new Exception("Las cantidades deben ser menores a la planilla y no negativas.");
                 int responsible=demo?0:user.getInt("id");
                 answer(obj("result","shortage","physical_b",physicalB,"physical_u",physicalU,"responsible_user_id",responsible,"origin","picking","note",note.getText().toString()));
             } catch(Exception e) {error(e);}
         });
         button("Cancelar",()->{stopAudio();product();});content=body;
         text("El faltante se confirma con un toque. La voz solo completa las cantidades; revisalas antes de guardar.",12);
-        if(voice)speak("Indicá los bultos y unidades físicos. Para guardar el faltante, tocá Registrar faltante.");
+        if(voice)speak("Decí la cantidad que encontraste, no lo que falta. Si no encontraste nada, tocá No encontré nada. Revisá y tocá Registrar faltante para guardar.");
     }
     private void pauseAndLeave() {
         voice=false;stopAudio();
