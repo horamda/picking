@@ -66,6 +66,44 @@ class ControlFlowTest(unittest.TestCase):
         plan = self.call('post', f'/trucks/{self.truck_id}/planning/simulate', data=dict(capacity=20, mix_courts=False))
         self.call('post', f'/trucks/{self.truck_id}/planning/approve', data=dict(plan, physical_review=True))
 
+    def test_answer_receipt_prevents_duplicate_audit_and_payload_reuse(self):
+        from models import LogEntry
+        check=self.call('post',f'/loads/{self.load_id}/courts/1/start/0','picker')
+        path=f'/loads/{self.load_id}/courts/1/checks/0/{check["id"]}'
+        key='11111111-1111-4111-8111-111111111111'
+        data=dict(sku='1001',result='shortage',physical_b=0,physical_u=0,request_id=key)
+        self.assertFalse(self.call('get',path+'/receipts/'+key,'picker')['found'])
+        first=self.call('post',path+'/answer','picker',data=data)
+        count=LogEntry.query.filter_by(action='respuesta_control').count()
+        replay=self.call('post',path+'/answer','picker',data=data)
+        self.assertEqual(first['answers'],replay['answers'])
+        self.assertEqual(LogEntry.query.filter_by(action='respuesta_control').count(),count)
+        self.call('post',path+'/answer','picker',expected=409,data=dict(data,physical_b=1))
+        receipt=self.call('get',path+'/receipts/'+key,'picker')
+        self.assertTrue(receipt['found']);self.assertFalse(receipt['superseded'])
+        self.call('get',path+'/receipts/'+key,'ana',expected=403)
+        self.call('post',path+'/finish','picker')
+        self.assertTrue(self.call('get',path+'/receipts/'+key,'picker')['found'])
+
+    def test_full_sku_verification_and_zero_found_exception(self):
+        check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
+        path = f'/loads/{self.load_id}/courts/1/checks/0/{check["id"]}/answer'
+        payload = dict(sku='1001', result='ok', verification_mode='full_sku')
+        self.call('post', path, 'picker', expected=400, data=payload)
+        self.call('post', path, 'picker', expected=400, data=dict(payload, verified_sku='001'))
+        answer = self.call('post', path, 'picker', data=dict(payload, verified_sku='1001'))
+        self.assertEqual(answer['answers']['1001']['verification'], 'full_sku')
+        answer = self.call('post', path, 'picker', data=dict(sku='1002', result='shortage',
+            verification_mode='full_sku', physical_b=0, physical_u=0))
+        self.assertEqual(answer['answers']['1002']['verification'], 'not_found')
+
+    def test_long_timer_is_flagged_without_changing_history(self):
+        from services.load_control import timing
+        check=dict(active_seconds=142*3600,started_at=(datetime.now(timezone.utc)-timedelta(hours=143)).isoformat(),timer_started_at=None)
+        result=timing(check)
+        self.assertTrue(result['needs_review'])
+        self.assertEqual(result['active_seconds'],142*3600)
+
     def test_worker_view_matches_preparation_permission(self):
         detail = self.call('get', f'/loads/{self.load_id}', 'picker')
         self.assertEqual(detail['planning_status'], 'approved')
@@ -758,7 +796,7 @@ class ControlFlowTest(unittest.TestCase):
         from services.load_control import timing
         end = datetime.now(timezone.utc)
         result = timing(dict(started_at=(end-timedelta(seconds=20)).isoformat(), finished_at=end.isoformat(), active_seconds=5, timer_started_at=None))
-        self.assertEqual(result, dict(active_seconds=5, wall_seconds=20, paused_seconds=15))
+        self.assertEqual(result, dict(active_seconds=5, wall_seconds=20, paused_seconds=15, needs_review=False, warning=None))
         endpoint = f'/trucks/{self.truck_id}/planning'
         self.call('post', endpoint+'/start', 'super')
         self.approve_current()

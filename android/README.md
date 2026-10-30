@@ -40,7 +40,7 @@ Requisitos: JDK 17, Android SDK plataforma 35 y conexión para descargar depende
 
 1. Descargar el ZIP oficial `https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip`.
 2. Ejecutar `python prepare_model.py RUTA_AL_ZIP` desde esta carpeta. El script valida SHA-256. Modelo: Apache-2.0, publicado por Alpha Cephei; conservar el README incluido.
-3. Definir `ANDROID_HOME` o `sdk.dir` en `local.properties` (excluido de Git).
+3. Definir `ANDROID_HOME` o `sdk.dir` en `local.properties` (excluido de Git). Copiar la configuración Firebase de `com.delpalacio.picking` en `app/google-services.json` (excluida de Git).
 4. Ejecutar `gradlew.bat assembleDebug testDebugUnitTest lintDebug` en Windows, o `./gradlew` en Linux/macOS.
 
 El APK debug es para pruebas, no para distribución definitiva. Las claves de publicación no se guardan en Git. No hay despliegue ni cambio en producción.

@@ -1,11 +1,12 @@
 from copy import deepcopy
 import hashlib
 import json
+import re
 from uuid import uuid4
 from datetime import datetime, timedelta
 from sqlalchemy import text
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify, request, has_request_context
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm import selectinload
@@ -24,6 +25,43 @@ from services.users import create_user as register_user, UserCreationError
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
+
+
+@load_control_bp.route('/push/device', methods=['POST', 'DELETE'])
+@roles_required('operador', 'palletizador')
+def push_device():
+    from services.push import PushDevice, enabled, utcnow, token_digest
+    if not enabled():
+        return jsonify(error='Notificaciones automáticas todavía no habilitadas.'), 503
+    token = body().get('token')
+    if not isinstance(token, str) or not 20 <= len(token) <= 4096 or any(c.isspace() for c in token):
+        fail('Identificador de dispositivo inválido.')
+    digest = token_digest(token)
+    device = PushDevice.query.filter_by(token_hash=digest).with_for_update().first()
+    if request.method == 'DELETE':
+        if device and device.user_id == g.current_user.id:
+            db.session.delete(device)
+        db.session.commit()
+        return jsonify(ok=True)
+    stamp = utcnow()
+    if device is None:
+        device = PushDevice(token_hash=digest, token=token, user_id=g.current_user.id,
+            known_tasks=[], failures=0, next_attempt=stamp)
+        db.session.add(device)
+    elif device.user_id != g.current_user.id:
+        # Shared phone: the authenticated login owning the current token replaces its prior association.
+        device.user_id = g.current_user.id
+        device.known_tasks = []
+        device.failures = 0
+        device.next_attempt = stamp
+    device.last_seen = stamp
+    device.expires_at = stamp + timedelta(days=7)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        fail('Registro simultáneo. Volvé a actualizar.', 409)
+    return jsonify(ok=True, expires_at=device.expires_at.isoformat())
 
 
 def manager():
@@ -599,10 +637,26 @@ def access(load_id, number, stage, check_id):
 def answer(load_id, number, stage, check_id):
     data = body()
     load, court, state, cs, check = access(load_id, number, stage, check_id)
+    request_id = data.get('request_id')
+    digest = hashlib.sha256(json.dumps({k:v for k,v in data.items() if k != 'request_id'}, sort_keys=True).encode()).hexdigest()
+    if request_id is not None:
+        if not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9-]{36}', request_id):
+            fail('Identificador de registro invalido.')
+        receipt = check.get('receipts', {}).get(request_id)
+        if receipt:
+            if receipt['digest'] != digest:
+                fail('Ese identificador ya corresponde a otra respuesta.', 409)
+            return jsonify(check)
+        if len(check.get('receipts', {})) >= 20000:
+            fail('Limite de registros alcanzado. Consulta al supervisor.', 409)
     sku = str(data.get('sku', ''))
     prod = next((p for p in court['productos'] if p['sku'] == sku), None)
     if not prod:
         fail('Producto inexistente.', 404)
+    if data.get('verification_mode') == 'full_sku':
+        not_found = data.get('result') == 'shortage' and data.get('physical_b') == 0 and data.get('physical_u') == 0
+        if not not_found and data.get('verified_sku') != sku:
+            fail('Verifica el codigo completo del producto antes de confirmar.')
     if stage in (0, 4) and data.get('result') == 'corrected':
         fail('En picking solo se registra correcto o faltante.')
     if not check.get('timer_started_at'):
@@ -647,12 +701,36 @@ def answer(load_id, number, stage, check_id):
         if shortage:
             del shortages[sku]
     check['answers'][sku] = dict(sku=sku, result=result, physical_b=b, physical_u=u, note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
+    if data.get('verification_mode') == 'full_sku':
+        check['answers'][sku]['verification'] = 'not_found' if not_found else 'full_sku'
+    if request_id:
+        check['answers'][sku]['request_id'] = request_id
+        check.setdefault('receipts', {})[request_id] = dict(digest=digest, sku=sku, saved_at=check['answers'][sku]['saved_at'])
     if incident and not confirmation:
         state.setdefault('incidents', {})[f'{check_id}:{sku}'] = dict(check['answers'][sku],
             load_id=load.id, court=number, stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control',
                dict(load_id=load.id, court=number, stage=stage, **check['answers'][sku]))
     return jsonify(check)
+
+
+@load_control_bp.get('/loads/<int:load_id>/courts/<int:number>/checks/<int:stage>/<check_id>/receipts/<request_id>')
+@auth_required
+def answer_receipt(load_id, number, stage, check_id, request_id):
+    require_stage(stage)
+    load = get_load(load_id)
+    get_court(load, number)
+    check = court_state(load.truck.state, load.id, number)['checks'].get(str(stage))
+    if not check or check.get('id') != check_id:
+        fail('La tarea cambio. Consulta al supervisor antes de repetir el registro.', 409)
+    if check.get('user_id') != g.current_user.id:
+        fail('No es tu control.', 403)
+    receipt = check.get('receipts', {}).get(request_id)
+    if not receipt:
+        return jsonify(found=False)
+    answer = check['answers'].get(receipt['sku'], {})
+    return jsonify(found=True, saved_at=receipt['saved_at'],
+        superseded=answer.get('request_id') != request_id, check=check)
 
 
 @load_control_bp.post('/loads/<int:load_id>/courts/<int:number>/checks/<int:stage>/<check_id>/finish')
@@ -848,9 +926,12 @@ def asset_timer(truck_id, action):
 
 
 def planning_rows(truck):
-    if not hasattr(request, 'planning_catalog'):
-        request.planning_catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
-    catalog = request.planning_catalog
+    if has_request_context():
+        if not hasattr(request, 'planning_catalog'):
+            request.planning_catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
+        catalog = request.planning_catalog
+    else:
+        catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
     rows = []
     for load in sorted(selected_loads(truck), key=lambda l: (l.source_id or l.id, l.id)):
         for court in load.content['canchas']:

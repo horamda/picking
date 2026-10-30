@@ -36,6 +36,13 @@ public final class MainActivity extends Activity {
     private Button voiceButton;
     private EditText shortageB, shortageU;
     private String lastHeard="";
+    private String verifiedProduct="";
+    private String productKey(){return check.optString("id")+":"+products.optJSONObject(index).optString("sku");}
+    private boolean productVerified(){return demo || verifiedProduct.equals(productKey());}
+    private void verifyProduct(String value){
+        if(ProductCode.parse(value).equals(products.optJSONObject(index).optString("sku"))){verifiedProduct=productKey();product();message("Código completo verificado.");}
+        else {message("El código no coincide. Revisá el producto y decí todos sus dígitos.");if(voice)speak("El código no coincide. Revisá el producto y repetí todos sus dígitos.");}
+    }
     private int INK=0xff0f172a, MUTED=0xff607493, BORDER=0xffdce5ef, BG=0xfff0f5f9, SURFACE=Color.WHITE;
     private static final int GREEN=0xff059669, RED=0xffb91c1c;
     private boolean dark;
@@ -70,6 +77,7 @@ public final class MainActivity extends Activity {
     private VoiceSessionService voiceSession;
     private boolean voiceBound, enableAfterPermission;
     private boolean announceQueue;
+    private Set<String> knownTasks;
     private String queueVersion="";
     private boolean refreshing;
     private JSONObject fetchQueue() throws Exception {
@@ -84,6 +92,7 @@ public final class MainActivity extends Activity {
     private final Runnable syncQueue=new Runnable(){public void run(){
         handler.postDelayed(this,15000);
         if(!visible || busy || refreshing || user==null || demo || !currentScreen.equals("loads"))return;
+        PushRegistration.sync(MainActivity.this,api);
         refreshing=true;int generation=requestVersion;
         network.execute(()->{try{
             String updated=queueVersion(fetchQueue());
@@ -110,6 +119,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        PickingMessagingService.createChannel(this);
         applyTheme();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         tts = new TextToSpeech(this, result -> {
@@ -227,6 +237,11 @@ public final class MainActivity extends Activity {
     }
     private void error(Exception error) {
         if(currentScreen.equals("shortage") && shortageFeedback!=null)shortageFeedback.setText(error.getMessage());
+        if(pendingAnswer()) new AlertDialog.Builder(this)
+            .setTitle("Registro por verificar")
+            .setMessage("No repitas la respuesta. Primero consult? si qued? guardada en el servidor.")
+            .setNegativeButton("M?s tarde",null)
+            .setPositiveButton("Verificar guardado",(d,w)->recoverAnswer(false)).show();
         boolean announce=voice;
         if(voice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
         message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
@@ -240,7 +255,40 @@ public final class MainActivity extends Activity {
     }
     private int stage() { return !demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
     private String path() { return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id"); }
+    private String pendingKey(){return "pending_answer:"+api.base+":"+user.optInt("id");}
+    private boolean pendingAnswer(){return !demo && api!=null && user!=null && getPreferences(0).contains(pendingKey());}
+    private void recoverAnswer(boolean retry){
+        if(!pendingAnswer())return;
+        try {
+            JSONObject pending=new JSONObject(getPreferences(0).getString(pendingKey(),""));
+            String endpoint=pending.getString("path");JSONObject payload=pending.getJSONObject("payload");
+            task(()->{
+                JSONObject receipt=json("GET",endpoint+"/receipts/"+payload.getString("request_id"),null);
+                if(!receipt.optBoolean("found") && retry)return obj("found",true,"check",json("POST",endpoint+"/answer",payload));
+                return receipt;
+            },receipt->{
+                if(!receipt.optBoolean("found")){message("El servidor no registra esta operación. Podés reintentar el mismo registro sin duplicarlo.");return;}
+                getPreferences(0).edit().remove(pendingKey()).commit();
+                if(receipt.optBoolean("superseded")){listLoads();message("El registro existió pero fue reemplazado. Revisá la tarea antes de continuar.");return;}
+                if(currentScreen.equals("product") || currentScreen.equals("shortage")){
+                    if(path().equals(endpoint) && products.optJSONObject(index).optString("sku").equals(payload.optString("sku"))){check=receipt.getJSONObject("check");afterAnswer();message("Guardado confirmado por el servidor.");return;}
+                }
+                listLoads();message("Guardado confirmado por el servidor.");
+            });
+        }catch(Exception e){error(e);}
+    }
+    private void pendingControls(){
+        if(!pendingAnswer())return;
+        text("Registro por verificar",18);
+        text("No repitas la carga. Primero comprobá si el servidor la guardó.",14);
+        button("Verificar guardado",()->recoverAnswer(false));
+        button("Reintentar mismo registro",()->new AlertDialog.Builder(this).setTitle("Reintentar registro")
+            .setMessage("Primero se consultará el comprobante. Solo si no existe se enviará el mismo registro.")
+            .setNegativeButton("Cancelar",null).setPositiveButton("Verificar y reintentar",(d,w)->recoverAnswer(true)).show());
+    }
     private void login() {
+        PushRegistration.logout(this);
+        requestVersion++; knownTasks=null;
         currentScreen = "login"; load = null; court = null; filter = "Todos";
         voice = false; stopAudio(); check = null; demo = false; api = null; user = null; screen("Picking por voz");
         content=card(BORDER);text("Tu jornada, paso a paso",22);text("Ingresá para ver tus cargas y preparar cada producto con asistencia por voz.",14);gap(10);
@@ -275,7 +323,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.7.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.14.1 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -364,11 +412,13 @@ public final class MainActivity extends Activity {
         content=body;
     }
     private void listLoads() {
+        if(!demo && api!=null && user!=null)PushRegistration.sync(this,api);
         currentScreen = "loads"; voice=false; check = null; court = null;
         stopAudio(); check=null; screen("Tu próximo trabajo");
         content=card(BORDER);text("Hola, "+user.optString("username"),22);
         List<Integer> sortedCourts=new ArrayList<>(assigned);Collections.sort(sortedCourts);
         TextView assignments=text("Tus canchas: " + sortedCourts,14);content=body;
+        pendingControls();
         task(this::fetchQueue, response -> {
             queueVersion=queueVersion(response);
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
@@ -380,6 +430,29 @@ public final class MainActivity extends Activity {
                 if(trucks.length()==0)speak("Cancha finalizada. No tenés más camiones habilitados pendientes.");
                 else {JSONObject next=trucks.getJSONObject(0);speak("Cancha finalizada. Tu camión actual es "+next.optString("truck")+". "+summarySpeech(next.optJSONObject("summary"))+"Elegí el reparto y la cancha para continuar.");}
             }
+            Set<String> availableTasks=new HashSet<>();
+            for(int t=0;t<trucks.length();t++) {
+                JSONObject truck=trucks.getJSONObject(t);
+                if(truck.optString("planning_status").equals("pending"))continue;
+                JSONArray items=truck.getJSONArray("loads");
+                for(int l=0;l<items.length();l++) {
+                    JSONObject item=items.getJSONObject(l); JSONArray courts=item.getJSONArray("canchas");
+                    for(int c=0;c<courts.length();c++) {
+                        JSONObject candidate=courts.getJSONObject(c);
+                        if(assigned.contains(candidate.optInt("numero")) && candidate.optInt("cantidad")>0
+                            && candidate.optBoolean("can_prepare",false) && !processState(candidate).equals("Finalizados"))
+                            availableTasks.add(item.optInt("id")+":"+candidate.optInt("numero"));
+                    }
+                }
+            }
+            Set<String> newTasks=new HashSet<>(availableTasks);
+            if(knownTasks!=null)newTasks.removeAll(knownTasks);
+            if(knownTasks!=null && !newTasks.isEmpty()) {
+                text("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.",18);
+                speak("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.");
+            }
+            knownTasks=availableTasks;
+            text("Actualizaci?n autom?tica cada 15 segundos mientras est?s en esta pantalla.",13);
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
@@ -433,7 +506,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Cerrar sesión", this::login);text("Del Palacio · Android 0.13.0",12);content=body;
+            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.14.1",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -473,6 +546,7 @@ public final class MainActivity extends Activity {
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
+        if(!productVerified())return "Producto "+p.optString("descripcion_voz",p.optString("descripcion"))+". Verificá el código completo, dígito por dígito. Si no encontraste el producto, decí faltante.";
         return ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
     }
     private void product() {
@@ -482,6 +556,11 @@ public final class MainActivity extends Activity {
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);
+        if(!productVerified()){
+            EditText code=input("Código completo del producto",InputType.TYPE_CLASS_NUMBER);
+            button("Verificar código",()->verifyProduct(code.getText().toString()));
+            text("Decí o ingresá todos los dígitos del código del producto. No se confirma con Correcto hasta verificarlo.",14);
+        }else text("Código verificado",13);
         String destination=destinations(p);
         if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
@@ -498,6 +577,7 @@ public final class MainActivity extends Activity {
             text("Informativo · Se registran por separado del picking indicado arriba.",12);
         }
         content=body;voicePanel();
+        pendingControls();
         boolean paused=check.isNull("timer_started_at");
         if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar picking", () -> startCourt(court)); }
         else { styledButton("Correcto →",GREEN,Color.WHITE,GREEN, () -> answer(obj("result","ok")));styledButton("Faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage); }
@@ -519,10 +599,29 @@ public final class MainActivity extends Activity {
     }
     private void answer(JSONObject data) {
         if(busy || check==null || check.isNull("timer_started_at")) return;
+        if(pendingAnswer()){message("Hay un registro por verificar. Volvé al producto o al inicio y usá Verificar guardado.");return;}
+        boolean noneFound=data.optString("result").equals("shortage") && data.optInt("physical_b",-1)==0 && data.optInt("physical_u",-1)==0;
+        if(!productVerified() && !noneFound){message("Verificá el código completo del producto antes de registrar cantidades encontradas.");return;}
+        try{data.put("verification_mode","full_sku");if(productVerified())data.put("verified_sku",products.optJSONObject(index).optString("sku"));}catch(Exception e){error(e);return;}
         stopAudio();
         try { data.put("sku",products.getJSONObject(index).getString("sku")); } catch(Exception e) {error(e);return;}
         if(demo) { try { check.getJSONObject("answers").put(data.getString("sku"),data); } catch(Exception e){error(e);} afterAnswer();return; }
-        task(() -> json("POST",path()+"/answer",data), result -> {check=result;afterAnswer();});
+        try{data.put("request_id",UUID.randomUUID().toString());}catch(Exception e){error(e);return;}
+        String endpoint=path();
+        if(!getPreferences(0).edit().putString(pendingKey(),obj("path",endpoint,"payload",data).toString()).commit()){
+            message("No se pudo conservar el comprobante en este teléfono. No se envió el registro.");return;
+        }
+        message("Enviando registro…");
+        task(() -> {
+            try { return json("POST",endpoint+"/answer",data); }
+            catch(Api.HttpError e) {
+                if(e.status==400 || e.status==403 || e.status==422)
+                    getPreferences(0).edit().remove(pendingKey()).commit();
+                throw e;
+            }
+        }, result -> {
+            getPreferences(0).edit().remove(pendingKey()).commit();check=result;afterAnswer();message("Guardado en el servidor.");
+        });
     }
     private void afterAnswer() {
         if(index<products.length()-1) {index++;product();}
@@ -642,6 +741,7 @@ public final class MainActivity extends Activity {
             message("Revisá las cantidades y tocá Registrar faltante.");return;
         }
         if(!currentScreen.equals("product"))return;
+        if(!productVerified() && !ProductCode.parse(text).isEmpty()){verifyProduct(text);return;}
         switch(VoiceCommands.parse(text)){
             case "ok" -> answer(obj("result","ok"));
             case "shortage" -> shortage();

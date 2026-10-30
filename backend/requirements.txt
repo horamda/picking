@@ -9,3 +9,4 @@ PyJWT==2.8.0
 Werkzeug==3.0.0
 gunicorn>=21,<24
 alembic>=1.13,<2
+firebase-admin==7.7.0

@@ -9,6 +9,7 @@ import { groupControlTrucks } from '../utils/controlTrucks'
 import ControlTruckCard from '../components/ControlTruckCard'
 import PalletPlanning from '../components/PalletPlanning'
 import VoiceControl from '../components/VoiceControl'
+import { productCode } from '../voice/productCode'
 import { speak } from '../voice/speech'
 
 import { voicePrompt } from '../voice/productPrompt'
@@ -28,6 +29,8 @@ const liveSeconds = check => (check.active_seconds || 0) + (check.timer_started_
 
 export default function LoadControlPage({ pickingOnly = false, controlsOnly = false, palletsOnly = false, supervisorOnly = false, initialView = 'loads' }) {
     const user = getStoredUser()
+    const pendingKey = `picking-answer:${user?.id}`
+    const [pendingAnswer, setPendingAnswer] = useState(() => { try { return JSON.parse(localStorage.getItem(pendingKey) || 'null') } catch { return null } })
     const palletizer = palletsOnly || user?.role === 'palletizador'
     const picker = palletizer || pickingOnly || user?.role === 'operador'
     const controller = controlsOnly || user?.role === 'controlador'
@@ -56,6 +59,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     const [users, setUsers] = useState([])
     const [audit, setAudit] = useState(null)
     const [voiceQty, setVoiceQty] = useState({ b: '', u: '' })
+    const [code, setCode] = useState({ key: '', value: '' })
     const [, tick] = useState(0)
     useEffect(() => { const timer = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(timer) }, [])
 
@@ -66,7 +70,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     async function act(fn) {
         if (busy) return
         setBusy(true); setError(''); setMessage('')
-        try { await fn() } catch (err) { setError(err.response?.data?.error || 'No se pudo completar la operación. Revisá la conexión y reintentá.') }
+        try { await fn() } catch (err) { setError(err.response?.data?.error || err.message || 'No se pudo completar la operación. Revisá la conexión y reintentá.') }
         finally { setBusy(false) }
     }
     useEffect(() => { act(refresh) }, [date])
@@ -88,16 +92,44 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
     }
     const workPath = work ? `${base}/loads/${load.id}/courts/${work.court.numero}/checks/${work.check.stage}/${work.check.id}` : ''
     async function sendAnswer(data) {
-        const response = await api.post(`${workPath}/answer`, { sku: work.court.productos[index].sku, ...data })
+        if (pendingAnswer) throw new Error('Hay un registro por verificar. Consultá su comprobante antes de continuar.')
+        const sku = work.court.productos[index].sku
+        const verification = [0,4].includes(work.check.stage)
+        const verified = code.key === `${work.check.id}:${sku}` && code.value === sku
+        const absent = data.result === 'shortage' && data.physical_b === 0 && data.physical_u === 0
+        if (verification && !verified && !absent) throw new Error('Verificá el código completo del producto.')
+        const payload = { sku, ...data, request_id: crypto.randomUUID(), ...(verification ? { verification_mode: 'full_sku', verified_sku: verified ? sku : undefined } : {}) }
+        const pending = { path: workPath, payload }
+        localStorage.setItem(pendingKey, JSON.stringify(pending)); setPendingAnswer(pending)
+        let response
+        try { response = await api.post(`${workPath}/answer`, payload) }
+        catch (error) {
+            if ([400, 403, 422].includes(error.response?.status)) {
+                localStorage.removeItem(pendingKey); setPendingAnswer(null)
+            }
+            throw error
+        }
+        localStorage.removeItem(pendingKey); setPendingAnswer(null); setMessage('Guardado confirmado por el servidor.')
         setWork({ ...work, check: response.data }); setMode('')
         if (index < work.court.productos.length - 1) setIndex(index + 1)
     }
+    async function recoverAnswer(retry) {
+        const { data: receipt } = await api.get(`${pendingAnswer.path}/receipts/${pendingAnswer.payload.request_id}`)
+        if (!receipt.found && !retry) { setMessage('No se encontró el comprobante. Podés reintentar el mismo registro.'); return }
+        if (!receipt.found) await api.post(`${pendingAnswer.path}/answer`, pendingAnswer.payload)
+        localStorage.removeItem(pendingKey); setPendingAnswer(null); setWork(null); setLoad(null)
+        await refresh(); setMessage(receipt.superseded ? 'La respuesta fue reemplazada. Revisá la tarea.' : 'Guardado confirmado. Podés retomar la cancha.')
+    }
     // Comandos de voz: "correcto" confirma, "faltante"/"error corregido" abren el formulario,
     // "bultos/unidades" completan el faltante. El envío final del faltante sigue siendo un toque.
-    function handleVoice(cmd) {
+    function handleVoice(cmd, transcript) {
         if (!work) return
         const total = work.court.productos.length
         const p = work.court.productos[index]
+        if (!mode && [0,4].includes(work.check.stage) && productCode(transcript)) {
+            const value=productCode(transcript);setCode({ key: `${work.check.id}:${p.sku}`, value });
+            setMessage(value===p.sku ? 'Código completo verificado.' : 'El código no coincide. Revisá el producto.');return
+        }
         if (cmd.action === 'ok') { if (!mode && work.check.timer_started_at) act(() => sendAnswer({ result: 'ok' })); return }
         if (cmd.action === 'shortage' && work.check.timer_started_at) { setMode('shortage'); return }
         if (cmd.action === 'corrected' && [1, 2].includes(work.check.stage) && work.check.timer_started_at) { setMode('corrected'); return }
@@ -144,6 +176,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
             {[['loads', 'Control operativo', 'Camiones y cargas'], ...(manager ? [['shortages', 'Supervisión', 'Faltantes y autorizaciones'], ['performance', 'Rendimiento', 'Tiempos y errores'], ...(user?.role === 'administrador' ? [['users', 'Administración', 'Usuarios y roles']] : [])] : [])].map(([key, label, description]) => <button key={key} disabled={busy} aria-current={view === key ? "page" : undefined} className={`${view === key ? button : secondary} text-left p-4`} onClick={() => act(() => go(key))}><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs opacity-80">{description}</span></button>)}
         </nav>}
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>}
+        {pendingAnswer && <section className={card}><h2 className="font-bold">Registro por verificar</h2><p>No repitas la respuesta: consultá si quedó guardada.</p><div className="mt-3 flex flex-wrap gap-3"><button disabled={busy} className={secondary} onClick={() => act(() => recoverAnswer(false))}>Verificar guardado</button><button disabled={busy} className={secondary} onClick={() => act(() => recoverAnswer(true))}>Verificar y reintentar mismo registro</button></div></section>}
         {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</div>}
         {busy && <p role="status" className="text-sm text-slate-500">Procesando…</p>}
         <fieldset disabled={busy} className="min-w-0 space-y-5 disabled:opacity-75">
@@ -189,7 +222,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
             <section className={`${card} sticky top-2 z-10 ring-1 ring-slate-100`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{stages[work.check.stage]} · Cancha {work.court.numero}</h2><p className="text-sm text-slate-500">Reparto {load.reparto} · {work.check.username}</p></div><div className="text-right"><p className="font-mono text-xl">{duration(liveSeconds(work.check))}</p><p className="text-xs text-slate-500">{work.check.timer_started_at ? 'Tiempo activo' : 'Pausado'}</p></div></div><button className={`${secondary} mt-3`} onClick={() => act(async () => { if (work.check.timer_started_at) { const r = await api.post(`${workPath}/pause`); setWork({ ...work, check: r.data }) } else await begin(work.court, work.check.stage) })}>{work.check.timer_started_at ? 'Pausar tiempo' : 'Reanudar proceso'}</button></section>
             {(() => {
                 const p = work.court.productos[index], confirmation = work.check.stage === 2 && mode === 'shortage' && work.court.status.shortages.some(s => s.sku === p.sku), done = Object.keys(work.check.answers).length, total = work.court.productos.length, saved = work.check.answers[p.sku]
-                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><div className="mb-3"><VoiceControl prompt={voicePrompt(p, index, total, work?.check?.stage)} onCommand={handleVoice} /></div>{p.pallets > 0 && <p className="text-2xl font-bold">Prepará {p.pallets} pallets completos</p>}<p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{work.check.stage === 0 && p.full_pallets_count > 0 && <FullPalletInfo items={[{ sku: p.sku, descripcion: p.descripcion, pallets: p.full_pallets_count, bultos: p.full_pallets_bultos }]} />}{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
+                return <><section className={card}><div className="flex justify-between text-sm text-slate-500"><span>Producto {index + 1}/{total}</span><span>{done}/{total} registrados</span></div><progress className="my-3 w-full accent-emerald-600" value={done} max={total} aria-label="Productos controlados" /><div className="mb-3"><VoiceControl prompt={voicePrompt(p, index, total, work?.check?.stage)} onCommand={handleVoice} /></div>{p.pallets > 0 && <p className="text-2xl font-bold">Prepará {p.pallets} pallets completos</p>}<div>{[0,4].includes(work.check.stage) && <label className="block text-sm">Verificá el código completo<input className={input} inputMode="numeric" value={code.key === `${work.check.id}:${p.sku}` ? code.value : ''} onChange={e => setCode({ key: `${work.check.id}:${p.sku}`, value: e.target.value.trim() })} /><span>{code.key === `${work.check.id}:${p.sku}` && code.value === p.sku ? 'Código verificado' : 'Decí todos los dígitos o ingresalos aquí.'}</span></label>}</div><p className="text-sm text-slate-500">SKU {p.sku} · {p.almacen}</p><h3 className="my-2 text-xl font-semibold">{p.descripcion}</h3><div className="my-4 grid grid-cols-2 gap-3">{[['Bultos', p.bultos], ['Unidades', p.unidades]].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-100 p-4 text-center"><p className="text-xs uppercase text-slate-500">{label} de la planilla</p><b className="text-4xl sm:text-5xl">{value}</b></div>)}</div>{work.check.stage === 0 && p.full_pallets_count > 0 && <FullPalletInfo items={[{ sku: p.sku, descripcion: p.descripcion, pallets: p.full_pallets_count, bultos: p.full_pallets_bultos }]} />}{saved && <p className="mb-3 rounded-xl bg-emerald-50 p-2 text-sm text-emerald-800">Guardado: {{ ok: 'Correcto', corrected: 'Error corregido', shortage: 'Faltante' }[saved.result]}</p>}
                     {!mode ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><button disabled={!work.check.timer_started_at} className={`${button} min-h-16 bg-emerald-600 text-base`} onClick={() => act(() => sendAnswer({ result: 'ok' }))}>Correcto →</button>{[1, 2].includes(work.check.stage) && <button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-amber-300 bg-amber-50 text-amber-900`} onClick={() => setMode('corrected')}>Error corregido</button>}<button disabled={!work.check.timer_started_at} className={`${secondary} min-h-16 border-red-200 bg-red-50 text-red-800`} onClick={() => setMode('shortage')}>Faltante real</button></div> : <form key={`${p.sku}-${mode}`} className="space-y-3" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); act(() => sendAnswer({ result: mode, note: f.get('note'), physical_b: Number(f.get('b')), physical_u: Number(f.get('u')), responsible_user_id: Number(f.get('responsible')), origin: f.get('origin') })) }}>
                         <h4 className="font-semibold">{mode === 'shortage' ? 'Registrar faltante' : 'Registrar error corregido'}</h4>
                         {mode === 'shortage' && <div className="grid grid-cols-2 gap-3"><label className="text-sm">Bultos físicos<input name="b" className={input} inputMode="numeric" type="number" min="0" max={p.bultos} step="1" required value={voiceQty.b} onChange={e => setVoiceQty(q => ({ ...q, b: e.target.value }))} /></label><label className="text-sm">Unidades físicas<input name="u" className={input} inputMode="numeric" type="number" min="0" max={p.unidades} step="1" required value={voiceQty.u} onChange={e => setVoiceQty(q => ({ ...q, u: e.target.value }))} /></label></div>}

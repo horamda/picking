@@ -65,7 +65,9 @@ def timing(check):
     start = check.get('started_at')
     end = check.get('finished_at')
     wall = max(0, ((datetime.fromisoformat(end) if end else datetime.now(timezone.utc)) - datetime.fromisoformat(start)).total_seconds()) if start else 0
-    return dict(active_seconds=active, wall_seconds=round(wall, 1), paused_seconds=round(max(0, wall-active), 1))
+    return dict(active_seconds=active, wall_seconds=round(wall, 1), paused_seconds=round(max(0, wall-active), 1),
+        needs_review=active > 12*3600,
+        warning='Tiempo activo superior a 12 horas. Revisar pausas y jornada; el historial no fue modificado.' if active > 12*3600 else None)
 
 
 def stop_timer(check):

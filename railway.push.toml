@@ -1,0 +1,5 @@
+[build]
+dockerfilePath = "Dockerfile.push"
+
+[deploy]
+restartPolicyType = "on_failure"

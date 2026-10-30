@@ -21,6 +21,7 @@ from sqlalchemy.schema import CreateTable, DropTable
 from models import Role, User, Article
 from services.load_control import ControlTruck, ControlLoad, ControlTimer
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity
+from services.push import PushDevice, utcnow
 from auth import AuthService
 from utils.db import db
 
@@ -35,7 +36,17 @@ class ConcurrentWarehouseTest(unittest.TestCase):
                 for table in reversed(db.metadata.sorted_tables):
                     connection.execute(DropTable(table, if_exists=True))
                 for table in db.metadata.sorted_tables:
-                    connection.execute(CreateTable(table))
+                    if table.name != 'push_devices':
+                        connection.execute(CreateTable(table))
+                # Exercise the proposed migration on disposable PostgreSQL, not a substitute schema.
+                import importlib.util
+                from alembic.migration import MigrationContext
+                from alembic.operations import Operations
+                spec = importlib.util.spec_from_file_location('push_migration', Path(__file__).resolve().parents[1] / 'migrations/versions/20261030_01_push_devices.py')
+                migration = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(migration)
+                with Operations.context(MigrationContext.configure(connection)):
+                    migration.upgrade()
             roles = {n: Role(name=n) for n in ('administrador', 'operador')}
             db.session.add_all(roles.values())
             db.session.flush()
@@ -93,6 +104,21 @@ class ConcurrentWarehouseTest(unittest.TestCase):
         code, board = self.request('admin', '/dispatch?date=2030-01-01', method='GET')
         self.assertEqual(code, 200)
         self.assertTrue(board['groups'][0]['sources'][0]['selected'])
+
+    def test_push_device_lock_skips_a_second_sender(self):
+        from datetime import timedelta
+        from sqlalchemy.orm import Session
+        with application.app.app_context():
+            user = User.query.filter_by(username='one').one()
+            stamp = utcnow()
+            device = PushDevice(token_hash='f'*64, token='synthetic-token', user_id=user.id,
+                last_seen=stamp, expires_at=stamp+timedelta(days=1), known_tasks=[], next_attempt=stamp, failures=0)
+            db.session.add(device); db.session.commit()
+            with Session(db.engine) as first, Session(db.engine) as second:
+                self.assertIsNotNone(first.query(PushDevice).with_for_update(skip_locked=True).first())
+                self.assertIsNone(second.query(PushDevice).with_for_update(skip_locked=True).first())
+                first.rollback()
+                self.assertIsNotNone(second.query(PushDevice).with_for_update(skip_locked=True).first())
 
     def test_simultaneous_reservations_answers_and_monitor(self):
         endpoint = f'/trucks/{self.truck_id}/planning'

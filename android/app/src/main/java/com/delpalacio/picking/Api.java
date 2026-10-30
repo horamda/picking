@@ -9,6 +9,10 @@ import java.io.ByteArrayOutputStream;
 
 /** Explicit HTTPS requests. No credentials in URLs, logs or persistent storage. */
 final class Api {
+    static final class HttpError extends Exception {
+        final int status;
+        HttpError(int status, String message) { super(message); this.status = status; }
+    }
     final String base;
     String token = "";
     Api(String base) {
@@ -43,7 +47,7 @@ final class Api {
                 String message = status == 401 ? "Sesión vencida. Salí e ingresá nuevamente." : "El servidor no pudo completar la operación (" + status + ").";
                 if (status == 404 && path.equals("/load-control/my-courts")) message = "Este servidor todavía no tiene asignaciones para Android. Usá la demostración hasta habilitarlas.";
                 try { message = new JSONObject(text).optString("error", message); } catch (Exception ignored) { }
-                throw new Exception(message);
+                throw new HttpError(status, message);
             }
             return text;
         } finally { connection.disconnect(); }
