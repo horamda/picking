@@ -104,7 +104,7 @@ def worker_queue(trucks, courts, stage, products):
     return [t for t in ordered if pending_for_worker(t, courts, stage, products)]
 
 
-def truck_summary(truck, catalog, courts=None, stage=0, valid=True):
+def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None):
     summary = totals(original_rows(truck), catalog)
     plan = truck.state.get('planning') if valid else None
     summary.update(pallets=plan['total_pallets'] if plan else None,
@@ -115,10 +115,19 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True):
         return summary
     tasks = (plan or {}).get('picking_tasks' if stage == 0 else 'full_pallets', [])
     own = [p for p in tasks if p['court'] in courts and (p['bultos'] or p.get('unidades', 0))]
+    if user_id is not None:
+        from services.assistance import products_for, can_access, personal_check
+        own = []
+        for load in selected_loads(truck):
+            for court in load.content['canchas']:
+                if court['numero'] in courts or can_access(load, court['numero'], user_id, stage):
+                    rows = [p for p in tasks if p['load_id'] == load.id and p['court'] == court['numero'] and (p['bultos'] or p.get('unidades', 0))]
+                    own.extend(products_for(load, court, stage, user_id, rows))
+    own_keys = {(p['load_id'], p['court'], p['sku']) for p in own}
     own_summary = totals(own, catalog)
     allocations = []
     for pallet in ((plan or {}).get('mixed_pallets', []) if stage == 0 else []):
-        items = [i for i in pallet['items'] if i['court'] in courts]
+        items = [i for i in pallet['items'] if (i['load_id'], i['court'], i['sku']) in own_keys]
         if items:
             allocations.append(dict(id=pallet['id'], shared=len({i['court'] for i in pallet['items']}) > 1, items=items))
     own_summary.update(stage=stage, pallets=len(allocations) if plan and stage == 0 else sum(p.get('pallets', 0) for p in own) if plan else None,
@@ -126,7 +135,8 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True):
                        full_pallets_info=sum(p['pallets'] for p in (plan or {}).get('full_pallets', []) if p['court'] in courts))
     own_summary['tasks'] = len({(p['load_id'], p['court']) for p in own})
     own_summary['finished_tasks'] = sum(
-        court_state(truck.state, load_id, court)['checks'].get(str(stage), {}).get('status') == 'done'
+        ((personal_check(court_state(truck.state, load_id, court), stage, user_id) or {}) if user_id is not None
+         else court_state(truck.state, load_id, court)['checks'].get(str(stage), {})).get('status') == 'done'
         for load_id, court in {(p['load_id'], p['court']) for p in own})
     summary['mine'] = own_summary
     return summary

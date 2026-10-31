@@ -313,7 +313,6 @@ public final class MainActivity extends Activity {
                 JSONObject permissions = json("GET","/load-control/my-courts",null);
                 JSONArray courts = permissions.getJSONArray("courts");
                 assigned.clear(); for (int i=0;i<courts.length();i++) assigned.add(courts.getInt(i));
-                if (assigned.isEmpty()) throw new Exception("No tenés canchas asignadas. Pedile la asignación al supervisor.");
                 return person;
             }, person -> {
                 user = person; password.setText(""); getPreferences(0).edit().putString("server",api.base).apply(); listLoads();
@@ -338,7 +337,8 @@ public final class MainActivity extends Activity {
             return x.optString("status").equals("done") ? "Finalizados" : x.isNull("timer_started_at") ? "Pausados" : "En curso"; }
         return "Sin iniciar";
     }
-    private boolean matches(JSONObject c) { return assigned.contains(c.optInt("numero")) && (filter.equals("Todos") || filter.equals(processState(c))); }
+    private boolean canSeeCourt(JSONObject c) { return assigned.contains(c.optInt("numero")) || c.optBoolean("assistance", false); }
+    private boolean matches(JSONObject c) { return canSeeCourt(c) && (filter.equals("Todos") || filter.equals(processState(c))); }
     private String amount(JSONObject data,String key) {
         if(data.isNull(key) || !data.has(key))return "Pendiente";
         return java.text.NumberFormat.getNumberInstance(new java.util.Locale("es","AR")).format(data.optDouble(key));
@@ -439,7 +439,7 @@ public final class MainActivity extends Activity {
                     JSONObject item=items.getJSONObject(l); JSONArray courts=item.getJSONArray("canchas");
                     for(int c=0;c<courts.length();c++) {
                         JSONObject candidate=courts.getJSONObject(c);
-                        if(assigned.contains(candidate.optInt("numero")) && candidate.optInt("cantidad")>0
+                        if(canSeeCourt(candidate) && candidate.optInt("cantidad")>0
                             && candidate.optBoolean("can_prepare",false) && !processState(candidate).equals("Finalizados"))
                             availableTasks.add(item.optInt("id")+":"+candidate.optInt("numero"));
                     }
@@ -464,7 +464,7 @@ public final class MainActivity extends Activity {
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
                     for(int c=0;c<candidates.length();c++){
                         JSONObject taskCourt=candidates.getJSONObject(c);
-                        if(!assigned.contains(taskCourt.optInt("numero")) || taskCourt.optInt("cantidad")==0 || !taskCourt.optBoolean("can_prepare",true))continue;
+                        if(!canSeeCourt(taskCourt) || taskCourt.optInt("cantidad")==0 || !taskCourt.optBoolean("can_prepare",true))continue;
                         String state=processState(taskCourt);int rank=state.equals("En curso")?0:state.equals("Pausados")?1:state.equals("Sin iniciar")?2:99;
                         if(rank<best){best=rank;nextLoad=candidate;nextCourt=taskCourt;}
                     }
@@ -489,13 +489,14 @@ public final class MainActivity extends Activity {
                         int done=0,total=0;
                         for(int c=0;c<courts.length();c++){
                             JSONObject taskCourt=courts.getJSONObject(c);
-                            if(!assigned.contains(taskCourt.optInt("numero")))continue;
+                            if(!canSeeCourt(taskCourt))continue;
                             total++;if(processState(taskCourt).equals("Finalizados"))done++;
                         }
                         text("Tus canchas: "+done+" de "+total+" finalizadas",14);
                         for(int c=0;c<courts.length();c++){
                             JSONObject taskCourt=courts.getJSONObject(c);if(!matches(taskCourt))continue;
                             gap(8);text("Cancha "+taskCourt.optInt("numero")+" · "+processState(taskCourt),18);
+                            if(taskCourt.optBoolean("assistance",false))text("Refuerzo de hoy · Solo los productos que te asignó el supervisor",14);
                             text(taskCourt.optInt("cantidad")+" productos",14);
                             button("Ver cancha "+taskCourt.optInt("numero")+" →",()->openLoad(item.optInt("id"),taskCourt.optInt("numero")));
                         }
@@ -506,7 +507,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.14.1",12);content=body;
+            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.15.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -521,6 +522,7 @@ public final class MainActivity extends Activity {
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
+                if(c.optBoolean("assistance",false))text("Refuerzo de hoy · Tu asignación semanal no cambia",14);
                 if(stage()==0 && c.optInt("full_pallet_count")>0){
                     text("Pallets completos · Información",16);
                     JSONArray full=c.optJSONArray("full_pallets_info");
@@ -540,6 +542,7 @@ public final class MainActivity extends Activity {
             return obj("check",started,"load",json("GET","/load-control/loads/"+load.optInt("id"),null));
         }, result -> {
             load=result.getJSONObject("load");court=c; check=result.getJSONObject("check"); products=check.getJSONArray("products"); index=0;
+            if(c.optBoolean("assistance",false))speak("Refuerzo en cancha "+c.optInt("numero")+". Tenés "+products.length()+" productos asignados. Prepará solamente los productos que indica la app.");
             JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).getString("sku"))) index++;
             product();
         });

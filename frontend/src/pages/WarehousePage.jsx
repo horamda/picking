@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import api from '../api/axiosClient'
 import { todayInputValue } from '../utils/format'
 import { getStoredUser } from '../utils/auth'
+import WeeklyStaffing from '../components/WeeklyStaffing'
+import DailyAssistance from '../components/DailyAssistance'
 
 const field = 'mt-1 min-h-12 w-full rounded-xl border border-slate-300 bg-white p-3'
 const button = 'min-h-12 rounded-xl bg-brand-500 px-5 py-3 font-semibold text-white disabled:opacity-50'
@@ -65,6 +67,8 @@ export default function WarehousePage({ section = 'overview', supervision = fals
             {!processes.some(p => filter === 'all' || state(p) === filter) && <p className={card}>No hay procesos en este estado. Las cargas pendientes se preparan en «Planificar cargas».</p>}
         </>}
         {section === 'team' && <>
+            <WeeklyStaffing users={users} />
+            <DailyAssistance users={users} />
             <p className="text-slate-600">Asigná una o varias canchas por persona. Al retirar una cancha, su proceso activo se pausa y queda disponible para otro operario; el historial se conserva.</p>
             <div className="grid gap-3 md:grid-cols-2">{users.map(u => <article key={u.id} className={card}><h2 className="font-bold">{u.username}</h2><p className="text-sm text-slate-500">{roles[u.role]}{!u.active && ' · Inactivo'}</p><p className="my-3">Canchas: {u.courts.join(', ') || 'Sin asignar'}</p>{['operador', 'controlador', 'palletizador'].includes(u.role) && <button className={button} onClick={() => { setAssignment({ id: u.id, username: u.username, text: u.courts.join(', ') }); requestAnimationFrame(() => document.getElementById('assignment-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })) }}>Asignar canchas</button>}</article>)}</div>
             {assignment && <section id="assignment-form" className={card}><form onSubmit={e => { e.preventDefault(); save(async () => { await api.put(`/load-control/users/${assignment.id}/courts`, { courts: courts(assignment.text) }); setAssignment(null) }) }}><h2 className="text-lg font-bold">Canchas de {assignment.username}</h2><label className="mt-3 block">Números separados por coma<input autoFocus className={field} value={assignment.text} onChange={e => setAssignment({ ...assignment, text: e.target.value })} placeholder="1, 2, 3" /></label><p className="my-3 text-sm">Dejar vacío quita el acceso a todas las canchas.</p><button disabled={busy} className={button}>Guardar asignación</button><button type="button" className="ml-3 min-h-12 px-4" onClick={() => setAssignment(null)}>Cancelar</button></form></section>}

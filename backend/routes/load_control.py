@@ -22,6 +22,7 @@ from services.dispatch import totals, truck_summary, worker_queue, selection_pre
 from services.pdf_articles import enable_pdf_articles
 from utils.db import db
 from services.users import create_user as register_user, UserCreationError
+from services.assistance import helpers, usable, personal_check, products_for, queue_for, can_access as assistance_access
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
@@ -79,12 +80,7 @@ def current_dispatch_truck():
     g.dispatch_configured = db.session.query(ControlTruck.id).filter(
         ControlTruck.state['dispatch']['load_ids'].as_string().isnot(None)).first() is not None
     rows = ControlTruck.query.filter(ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
-    # A pre-existing reservation must remain resumable during rollout.
-    owned = [t for t in rows if any(ch.get('stage') == stage and ch.get('status') == 'active'
-             and ch.get('user_id') == g.current_user.id for c in t.state.get('courts', {}).values()
-             for ch in c.get('checks', {}).values())]
-    queue = worker_queue(rows, assigned_courts(g.current_user.id), stage, task_products)
-    current = (sorted(owned, key=lambda t: (t.load_date, t.id)) or queue or [None])[0]
+    current = (queue_for(rows, assigned_courts(g.current_user.id), stage, g.current_user.id, task_products) or [None])[0]
     request.environ['picking.dispatch_current'] = current
     return current
 
@@ -390,7 +386,9 @@ def ensure_open(truck):
 
 
 def get_court(load, number):
-    require_court(number)
+    stage = 4 if g.current_user.role.name == 'palletizador' else 0
+    if not preparation_worker() or not assistance_access(load, number, g.current_user.id, stage):
+        require_court(number)
     court = next((c for c in load.content['canchas'] if c['numero'] == number), None)
     if not court:
         fail('Cancha inexistente.', 404)
@@ -402,22 +400,29 @@ def serialize_load(load, summary=False):
     valid_plan = approved(load.truck)
     legacy = legacy_in_progress(load.truck)
     result['planning_status'] = 'approved' if valid_plan else 'legacy' if legacy else 'pending'
-    result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in assigned_courts(g.current_user.id)]
+    worker_stage = 4 if g.current_user.role.name == 'palletizador' else 0
+    result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in assigned_courts(g.current_user.id)
+        or (preparation_worker() and assistance_access(load, c['numero'], g.current_user.id, worker_stage))]
     for court in result['canchas']:
         pallet_info = full_pallets_info(load, court)
         court['full_pallet_count'] = sum(p['pallets'] for p in pallet_info)
         if not summary:
             court['full_pallets_info'] = pallet_info
         if not manager() and g.current_user.role.name in ('operador', 'palletizador'):
-            court['productos'] = task_products(load, court, 0 if g.current_user.role.name == 'operador' else 4)
+            court['productos'] = products_for(load, court, worker_stage, g.current_user.id, task_products(load, court, worker_stage))
         cs = court_state(load.truck.state, load.id, court['numero'])
-        worker_stage = '4' if g.current_user.role.name == 'palletizador' else '0'
-        worker_check = cs['checks'].get(worker_stage)
+        worker_check = personal_check(cs, worker_stage, g.current_user.id)
+        court['assistance'] = bool(worker_check and worker_check.get('day'))
         court['can_prepare'] = bool((valid_plan or (legacy and worker_check))
             and '1' not in cs['checks'] and '2' not in cs['checks']
             and (not worker_check or (worker_check.get('status') == 'active'
                 and worker_check.get('user_id') in (None, g.current_user.id))))
-        checks = [dict({k: v for k, v in check.items() if k != 'answers'}, answered=len(check.get('answers', {})), elapsed_seconds=elapsed(check), timing=timing(check)) for check in cs['checks'].values()]
+        if worker_check and worker_check.get('day') and not usable(worker_check):
+            court['can_prepare'] = False
+        visible_checks = list(cs['checks'].values())
+        if preparation_worker() and court['assistance']:
+            visible_checks = [c for c in visible_checks if c['stage'] != worker_stage] + [worker_check]
+        checks = [dict({k: v for k, v in check.items() if k != 'answers'}, answered=len(check.get('answers', {})), elapsed_seconds=elapsed(check), timing=timing(check)) for check in visible_checks]
         court['status'] = dict(checks=checks,
                                shortages=list(cs['shortages'].values()), done=court_done(cs))
         if summary:
@@ -496,7 +501,7 @@ def trucks():
             version=t.version, planning_status='approved' if valid else 'legacy' if legacy_in_progress(t) else 'pending', status=st, loads=loads,
             dispatch=t.state.get('dispatch'), queue_current=queued,
             summary=truck_summary(t, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
-                                  4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(valid))))
+                                  4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(valid), user_id=g.current_user.id if preparation_worker() else None)))
     return jsonify(result)
 
 
@@ -527,7 +532,7 @@ def load_detail(load_id):
         fail('La carga espera aprobacion del supervisor.', 409)
     result = serialize_load(load)
     result['truck_summary'] = truck_summary(load.truck, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
-                                           4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(approved(load.truck)))
+                                           4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(approved(load.truck)), user_id=g.current_user.id if preparation_worker() else None)
     if not manager() and not result['canchas']:
         fail('No tenes canchas asignadas en esta carga.', 403)
     return jsonify(result)
@@ -581,6 +586,8 @@ def start(load_id, number, stage):
         fail('El control ya comenz?; no se puede iniciar picking retroactivamente.', 409)
     if stage == 1 and any(cs['checks'].get(str(n), {}).get('status') == 'active' for n in (0, 4)):
         fail('Primero debe finalizar el picking en curso.', 409)
+    if stage == 1 and any(h['status'] == 'active' for h in helpers(cs)):
+        fail('Primero deben finalizar los refuerzos de esta cancha.', 409)
     if stage == 1 and not legacy_in_progress(load.truck) and any(task_products(load, court, n) and cs['checks'].get(str(n), {}).get('status') != 'done' for n in (0, 4)):
         fail('Primero deben finalizar picking y pallets completos de esta cancha.', 409)
     previous = cs['checks'].get('1')
@@ -589,8 +596,10 @@ def start(load_id, number, stage):
             fail('Primero debe finalizar el control 1.', 409)
         if previous['user_id'] == g.current_user.id:
             fail('El segundo control debe hacerlo otra persona.', 403)
-    check = cs['checks'].get(str(stage))
+    check = personal_check(cs, stage, g.current_user.id)
     if check:
+        if check.get('day') and not usable(check):
+            fail('El refuerzo venció. Pedí al supervisor revisar lo pendiente.', 409)
         if check['status'] != 'active':
             fail('El control ya finalizó.', 409)
         if check['user_id'] is None:
@@ -599,6 +608,8 @@ def start(load_id, number, stage):
             fail('Control reservado por otro empleado.', 409)
         if not check.get('timer_started_at'):
             reserve_timer(check)
+            if not check.get('started_at'):
+                check['started_at'] = now()
             check['timer_started_at'] = now()
             save_state(load.truck, state, g.current_user, 'reanudar_proceso', dict(load_id=load.id, court=number, stage=stage))
     else:
@@ -608,7 +619,7 @@ def start(load_id, number, stage):
         reserve_timer(check)
         cs['checks'][str(stage)] = check
         save_state(load.truck, state, g.current_user, 'iniciar_control', dict(load_id=load.id, court=number, stage=stage))
-    return jsonify(dict(check, products=voice_products(task_products(load, court, stage)))) if stage in (0, 4) else jsonify(check)
+    return jsonify(dict(check, products=voice_products(products_for(load, court, stage, g.current_user.id, task_products(load, court, stage))))) if stage in (0, 4) else jsonify(check)
 
 
 def access(load_id, number, stage, check_id):
@@ -619,14 +630,16 @@ def access(load_id, number, stage, check_id):
     if not approved(load.truck) and not legacy_in_progress(load.truck) and not request.path.endswith('/pause'):
         fail('La planificacion necesita revision del supervisor.', 409)
     if stage in (0, 4):
-        court['productos'] = task_products(load, court, stage)
+        court['productos'] = products_for(load, court, stage, g.current_user.id, task_products(load, court, stage))
     state = deepcopy(load.truck.state)
     cs = edit_court(state, load.id, number)
-    check = cs['checks'].get(str(stage))
+    check = personal_check(cs, stage, g.current_user.id, check_id)
     if not check or check['id'] != check_id:
         fail('El control fue reabierto. Volvé a seleccionar la cancha.', 409)
     if check['user_id'] != g.current_user.id:
         fail('No es tu control.', 403)
+    if check.get('day') and not usable(check) and not request.path.endswith('/pause'):
+        fail('El refuerzo venció. El supervisor debe revisar lo pendiente.', 409)
     if check['status'] != 'active':
         fail('Control finalizado.', 409)
     return load, court, state, cs, check
@@ -720,7 +733,7 @@ def answer_receipt(load_id, number, stage, check_id, request_id):
     require_stage(stage)
     load = get_load(load_id)
     get_court(load, number)
-    check = court_state(load.truck.state, load.id, number)['checks'].get(str(stage))
+    check = personal_check(court_state(load.truck.state, load.id, number), stage, g.current_user.id, check_id)
     if not check or check.get('id') != check_id:
         fail('La tarea cambio. Consulta al supervisor antes de repetir el registro.', 409)
     if check.get('user_id') != g.current_user.id:
@@ -737,7 +750,7 @@ def answer_receipt(load_id, number, stage, check_id, request_id):
 @auth_required
 def finish(load_id, number, stage, check_id):
     load, court, state, cs, check = access(load_id, number, stage, check_id)
-    if stage != 0 and any(p['sku'] not in check['answers'] for p in court['productos']):
+    if (stage != 0 or check.get('day')) and any(p['sku'] not in check['answers'] for p in court['productos']):
         fail('Hay productos pendientes de controlar.', 409)
     release_timer(check)
     check.update(status='done', finished_at=now())
@@ -756,13 +769,15 @@ def reopen(load_id, number):
     get_court(load, number)
     state = deepcopy(load.truck.state)
     old = deepcopy(edit_court(state, load.id, number))
+    if any(h['status'] == 'active' for h in helpers(old)):
+        fail('Finalizá o devolvé los refuerzos antes de reabrir la cancha.', 409)
     for check in old['checks'].values():
         if check['stage'] in (0, 4) and check['status'] == 'done':
             continue
         release_timer(check)
         state.setdefault('archived_checks', []).append(dict(check, load_id=load.id, court=number, status='reopened'))
     keep = {stage: check for stage, check in old['checks'].items() if stage in ('0', '4') and check['status'] == 'done'}
-    state['courts'][f'{load.id}:{number}'] = {'checks': keep, 'shortages': {}}
+    state['courts'][f'{load.id}:{number}'] = {'checks': keep, 'shortages': {}, 'helpers': helpers(old)}
     old_assets = state.pop('assets', None)
     asset_check = state.pop('asset_check', None)
     if asset_check:
@@ -886,6 +901,7 @@ def performance():
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
                 entries.extend(dict(c, load_id=load.id, court=court['numero']) for c in cs['checks'].values())
+                entries.extend(dict(c, load_id=load.id, court=court['numero'], assistance=True) for c in helpers(cs))
         for check in entries:
             entry = dict(truck=truck.truck, date=truck.load_date, branch=truck.branch,
                          **{k: v for k, v in check.items() if k != 'answers'}, answered=len(check.get('answers', {})), elapsed_seconds=elapsed(check), timing=timing(check))
@@ -1088,11 +1104,21 @@ def warehouse_monitor():
         for load in selected_loads(truck):
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
+                for h in helpers(cs):
+                    rows.append(dict(id=h['id'], load_id=load.id, truck=truck.truck, reparto=load.reparto,
+                        branch=truck.branch, court=court['numero'], stage=h['stage'], user_id=h['user_id'],
+                        username=h['username'], assistance=True, expired=not usable(h),
+                        status='done' if h['status'] in ('done', 'returned') else 'running' if h.get('timer_started_at') else 'paused' if h.get('started_at') else 'pending',
+                        answered=len(h['answers']), personal_answered=len(h['answers']), total=len(h['skus']),
+                        elapsed_seconds=elapsed(h), timing=timing(h), shortages=sum(a['result']=='shortage' for a in h['answers'].values()),
+                        planning='approved' if plan else 'pending'))
                 for stage in (0, 4, 1, 2):
                     products = task_products(load, court, stage) if stage in (0, 4) else court['productos']
                     if not products:
                         continue
                     check = cs['checks'].get(str(stage), {})
+                    if stage in (0, 4):
+                        products = products_for(load, court, stage, check.get('user_id'), products)
                     answers = check.get('answers', {})
                     answered = sum(p['sku'] in answers for p in products)
                     rows.append(dict(id=f'{load.id}:{court["numero"]}:{stage}', load_id=load.id,
@@ -1152,3 +1178,10 @@ def activity():
 def saved_plan(truck_id):
     truck = get_truck(truck_id)
     return jsonify(plan=truck.state.get('planning'), locked=any(c.get('checks') for c in truck.state.get('courts', {}).values()), version=truck.version)
+
+
+from routes.staffing import register as register_staffing
+register_staffing(load_control_bp)
+
+from routes.assistance import register as register_assistance
+register_assistance(load_control_bp)

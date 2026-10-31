@@ -36,13 +36,18 @@ class ConcurrentWarehouseTest(unittest.TestCase):
                 for table in reversed(db.metadata.sorted_tables):
                     connection.execute(DropTable(table, if_exists=True))
                 for table in db.metadata.sorted_tables:
-                    if table.name != 'push_devices':
+                    if table.name not in ('push_devices', 'staffing_weeks'):
                         connection.execute(CreateTable(table))
                 # Exercise the proposed migration on disposable PostgreSQL, not a substitute schema.
                 import importlib.util
                 from alembic.migration import MigrationContext
                 from alembic.operations import Operations
                 spec = importlib.util.spec_from_file_location('push_migration', Path(__file__).resolve().parents[1] / 'migrations/versions/20261030_01_push_devices.py')
+                migration = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(migration)
+                with Operations.context(MigrationContext.configure(connection)):
+                    migration.upgrade()
+                spec = importlib.util.spec_from_file_location('staffing_migration', Path(__file__).resolve().parents[1] / 'migrations/versions/20261030_02_staffing_weeks.py')
                 migration = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(migration)
                 with Operations.context(MigrationContext.configure(connection)):
@@ -175,6 +180,49 @@ class ConcurrentWarehouseTest(unittest.TestCase):
         with application.app.app_context():
             db.session.remove()
             db.engine.dispose()
+
+    def test_z_assistance_simultaneous_answers_in_same_court(self):
+        from unittest.mock import patch
+        with application.app.app_context():
+            role=Role.query.filter_by(name='operador').one()
+            ids={}
+            for name in ('owner_help_test','helper_test'):
+                user=User(username=name,email=name+'@test.local',password_hash='unused',active=True,role=role)
+                db.session.add(user);db.session.flush()
+                ids[name]=user.id;self.tokens[name]=AuthService.generate_token(user)
+            db.session.add(UserCourt(user_id=ids['owner_help_test'],court_number=20))
+            db.session.add(Article(sku='B',descripcion='Otro',bultos_por_pallet=50,unidades_por_bulto=12,activo=True))
+            db.session.add(TruckCapacity(branch='Test',truck='HELP',pallet_capacity=20))
+            truck=ControlTruck(branch='Test',truck='HELP',load_date='2026-10-28',state={'courts':{}})
+            db.session.add(truck);db.session.flush()
+            load=ControlLoad(branch='Test',truck_id=truck.id,load_date='2026-10-28',reparto='HELP',content=dict(
+                reparto='HELP',camion='HELP',deposito='Test',fecha='2026-10-28',canchas=[dict(numero=20,productos=[
+                    dict(sku=s,descripcion=s,bultos=2,unidades=0) for s in ('A','B')])]))
+            db.session.add(load);db.session.flush()
+            truck.state=dict(courts={},dispatch=dict(load_ids=[load.id],position=1))
+            db.session.commit();truck_id,load_id=truck.id,load.id
+        code,plan=self.request('admin',f'/trucks/{truck_id}/planning/simulate',dict(capacity=20,mix_courts=False))
+        self.assertEqual(code,200,plan)
+        self.assertEqual(self.request('admin',f'/trucks/{truck_id}/planning/approve',dict(plan,physical_review=True))[0],200)
+        code,owner=self.request('owner_help_test',f'/loads/{load_id}/courts/20/start/0')
+        self.assertEqual(code,200,owner)
+        owner_path=f'/loads/{load_id}/courts/20/checks/0/{owner["id"]}'
+        self.request('owner_help_test',owner_path+'/pause')
+        with application.app.app_context():
+            version=db.session.get(ControlTruck,truck_id).version
+        with patch.dict(os.environ,{'STAFFING_ENABLED':'1'}):
+            code,assignment=self.request('admin',f'/loads/{load_id}/courts/20/assistance/0',dict(version=version,user_id=ids['helper_test'],skus=['B']))
+        self.assertEqual(code,201,assignment)
+        self.assertEqual(self.request('owner_help_test',f'/loads/{load_id}/courts/20/start/0')[0],200)
+        code,helper=self.request('helper_test',f'/loads/{load_id}/courts/20/start/0')
+        self.assertEqual(code,200,helper)
+        responses=self.pair([('owner_help_test',owner_path+'/answer',dict(sku='A',result='ok')),
+            ('helper_test',f'/loads/{load_id}/courts/20/checks/0/{helper["id"]}/answer',dict(sku='B',result='ok'))])
+        self.assertEqual([r[0] for r in responses],[200,200],responses)
+        with application.app.app_context():
+            cs=db.session.get(ControlTruck,truck_id).state['courts'][f'{load_id}:20']
+            self.assertEqual(set(cs['checks']['0']['answers']),{'A'})
+            self.assertEqual(set(cs['helpers'][0]['answers']),{'B'})
 
 
 

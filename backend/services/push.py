@@ -36,18 +36,15 @@ def retry_delay(failures):
 
 def available_tasks(user, trucks):
     # Reuse the approved plan, assigned courts and individual truck queue.
-    from services.dispatch import worker_queue
     from services.warehouse import assigned_courts
     from services.load_control import selected_loads, court_state
     from routes.load_control import approved, task_products
+    from services.assistance import queue_for, can_access, personal_check, products_for, usable
     if not user.active or user.role.name not in ('operador', 'palletizador'):
         return []
     stage = 4 if user.role.name == 'palletizador' else 0
     courts = assigned_courts(user.id)
-    owned = [t for t in trucks if any(c.get('stage') == stage and c.get('status') == 'active'
-        and c.get('user_id') == user.id for cs in t.state.get('courts', {}).values()
-        for c in cs.get('checks', {}).values())]
-    queue = sorted(owned, key=lambda t: (t.load_date, t.id)) or worker_queue(trucks, courts, stage, task_products)
+    queue = queue_for(trucks, courts, stage, user.id, task_products)
     if not queue or not approved(queue[0]):
         return []
     truck = queue[0]
@@ -55,10 +52,12 @@ def available_tasks(user, trucks):
     for load in selected_loads(truck):
         for court in load.content['canchas']:
             number = court['numero']
-            if number not in courts or not task_products(load, court, stage):
+            if (number not in courts and not can_access(load, number, user.id, stage)) or not products_for(load, court, stage, user.id, task_products(load, court, stage)):
                 continue
             checks = court_state(truck.state, load.id, number)['checks']
-            check = checks.get(str(stage), {})
+            check = personal_check(court_state(truck.state, load.id, number), stage, user.id) or {}
+            if check.get('day') and not usable(check):
+                continue
             if check.get('status') == 'done' or (check and check.get('user_id') != user.id):
                 continue
             if checks.get('1') or checks.get('2'):

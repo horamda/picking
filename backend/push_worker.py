@@ -28,6 +28,16 @@ def process_device(device, tasks, sender=send_notice):
 
 
 def tick():
+    from services.staffing import activate_due_week
+    try:
+        activate_due_week()
+        from services.assistance import pause_expired
+        pause_expired()
+    except Exception:
+        db.session.rollback()
+        app.logger.error('No se pudo activar la planificación semanal; se reintentará.')
+    finally:
+        db.session.remove()
     stamp = utcnow()
     ids = [r[0] for r in db.session.query(PushDevice.token_hash).filter(
         PushDevice.expires_at > stamp, PushDevice.next_attempt <= stamp).limit(200).all()]
