@@ -84,7 +84,7 @@ def register(bp):
             fail('El proceso ya finalizó o está en control.', 409)
         if primary.get('user_id') == user.id:
             fail('El titular ya tiene estos productos asignados.')
-        if any(h['user_id'] == user.id and h['status'] in ('active', 'done') for h in helpers(cs, stage)):
+        if any(h['user_id'] == user.id and h['day'] == local_day().isoformat() and h['status'] in ('active', 'done') for h in helpers(cs, stage)):
             fail('Ese operario ya tiene un refuerzo en esta cancha.', 409)
         # Finished helpers keep their exclusive SKUs; unfinished work cannot be double-assigned.
         available = products_for(load, court, stage, primary.get('user_id'), task_products(load, court, stage))

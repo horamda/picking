@@ -81,8 +81,9 @@ class AssistanceTest(Fixture):
         helper=self.call('post',self.start_path,'helper')
         with patch('services.assistance.local_day',return_value=date(2099,1,1)):
             pause_expired()
-            self.call('post',self.check_path(helper)+'/answer','helper',data=dict(sku='1002',result='ok'),expected=409)
-            self.call('post',self.start_path,'helper',expected=409)
+            self.call('post',self.check_path(helper)+'/answer','helper',data=dict(sku='1002',result='ok'),expected=403)
+            self.call('post',self.start_path,'helper',expected=403)
+            self.call('get',f'/loads/{self.load_id}','helper',expected=403)
         primary=self.call('post',self.start_path,'picker')
         self.assertEqual([p['sku'] for p in primary['products']],['1001'])
 

@@ -15,18 +15,18 @@ def personal_check(cs, stage, user_id, check_id=None):
     candidates = helpers(cs, stage) + [cs.get('checks', {}).get(str(stage), {})]
     if check_id:
         return next((c for c in candidates if c.get('id') == check_id), None)
-    helper = next((h for h in helpers(cs, stage) if h['user_id'] == user_id and h['status'] in ('active', 'done')), None)
+    helper = next((h for h in helpers(cs, stage) if h['user_id'] == user_id and h['day'] == local_day().isoformat() and h['status'] in ('active', 'done')), None)
     return helper or cs.get('checks', {}).get(str(stage))
 
 
 def can_access(load, number, user_id, stage):
     cs = court_state(load.truck.state, load.id, number)
-    return any(h['user_id'] == user_id and h['status'] in ('active', 'done') for h in helpers(cs, stage))
+    return any(h['user_id'] == user_id and h['day'] == local_day().isoformat() and h['status'] in ('active', 'done') for h in helpers(cs, stage))
 
 
 def products_for(load, court, stage, user_id, products):
     cs = court_state(load.truck.state, load.id, court['numero'])
-    own = next((h for h in helpers(cs, stage) if h['user_id'] == user_id and h['status'] in ('active', 'done')), None)
+    own = next((h for h in helpers(cs, stage) if h['user_id'] == user_id and h['day'] == local_day().isoformat() and h['status'] in ('active', 'done')), None)
     # Expired work stays reserved until explicit reconciliation; never silently duplicate it.
     delegated = {sku for h in helpers(cs, stage) if h['status'] in ('active', 'done') for sku in h['skus']}
     return [p for p in products if p['sku'] in own['skus']] if own else [p for p in products if p['sku'] not in delegated]
