@@ -15,7 +15,7 @@ from werkzeug.exceptions import HTTPException
 from auth import auth_required, roles_required, current_user_payload
 from models import Consolidado, User, LogEntry, Article
 from services.pallet_planning import plan_for_capacity
-from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts
+from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts, truck_capacity, depot_key
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
 from services.dispatch import totals, truck_summary, worker_queue, selection_preview
@@ -242,7 +242,7 @@ def preview_dispatch():
     if len(keys) != 1:
         fail('La vista previa debe corresponder a un solo camión, depósito y fecha.')
     branch, truck, date = keys.pop()
-    capacity = db.session.get(TruckCapacity, (branch, truck))
+    capacity = truck_capacity(branch, truck)
     depot = db.session.get(DepotSettings, branch)
     existing = ControlTruck.query.filter_by(branch=branch, truck=truck, load_date=date).first()
     saved_plan = existing.state.get('planning', {}) if existing else {}
@@ -283,7 +283,7 @@ def legacy_in_progress(truck):
 
 def approved(truck):
     plan = truck.state.get('planning', {})
-    capacity = db.session.get(TruckCapacity, (truck.branch, truck.truck))
+    capacity = truck_capacity(truck.branch, truck.truck)
     if not (plan.get('approved_at') and capacity and capacity.pallet_capacity == plan['capacity']):
         return False
     # Once physical work starts, its approved quantities are frozen. Catalog updates
@@ -1039,6 +1039,9 @@ def warehouse_settings():
 def save_settings():
     data = body()
     branch = str(data.get('branch') or '').strip()
+    known_branches = {r.branch for r in db.session.query(ControlTruck.branch).distinct().all() if depot_key(r.branch) == depot_key(branch)}
+    if len(known_branches) == 1:
+        branch = known_branches.pop()
     name = truck_name(data.get('truck'))
     capacity, mix = data.get('capacity'), data.get('mix_courts_default')
     if not branch or len(branch) > 255 or not name or len(name) > 255 or type(capacity) is not int or capacity <= 0 or type(mix) is not bool:
@@ -1074,7 +1077,7 @@ def approve_plan(truck_id):
         fail('La carga cambio. Volve a simular antes de aprobar.', 409)
     if any(c.get('checks') for c in truck.state.get('courts', {}).values()):
         fail('El trabajo ya comenzo; no se puede reemplazar el plan.', 409)
-    capacity = db.session.get(TruckCapacity, (truck.branch, truck.truck))
+    capacity = truck_capacity(truck.branch, truck.truck)
     if not capacity or data.get('capacity') != capacity.pallet_capacity:
         fail('La capacidad debe coincidir con la configurada por administracion.', 409)
     mix = data.get('mix_courts')
@@ -1205,7 +1208,8 @@ def activity():
 @roles_required(*MANAGERS)
 def saved_plan(truck_id):
     truck = get_truck(truck_id)
-    return jsonify(plan=truck.state.get('planning'), loads=[dict(id=l.id, reparto=l.reparto) for l in selected_loads(truck)],
+    capacity = truck_capacity(truck.branch, truck.truck)
+    return jsonify(configured_capacity=capacity.pallet_capacity if capacity else None, plan=truck.state.get('planning'), loads=[dict(id=l.id, reparto=l.reparto) for l in selected_loads(truck)],
         locked=any(c.get('checks') for c in truck.state.get('courts', {}).values()), version=truck.version)
 
 

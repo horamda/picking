@@ -14,6 +14,26 @@ for name in dir(ControlFlowTest):
 
 
 class RepartoPlanningTest(Fixture):
+    def test_capacity_accepts_unique_pdf_depot_code_alias(self):
+        from services.warehouse import DepotSettings, TruckCapacity, truck_capacity
+        truck=db.session.get(ControlTruck,self.truck_id)
+        truck.branch='001 - CASA CENTRAL'
+        db.session.add(DepotSettings(branch='1',mix_courts_default=False));db.session.flush()
+        db.session.add(TruckCapacity(branch='1',truck=truck.truck,pallet_capacity=9));db.session.commit()
+        path=f'/trucks/{self.truck_id}/planning'
+        self.assertEqual(self.call('get',path)['configured_capacity'],9)
+        plan=self.call('post',path+'/simulate',data=dict(capacity=9,mix_courts=False))
+        self.call('post',path+'/approve',data=dict(plan,physical_review=True))
+        self.assertIsNone(truck_capacity('002 - OTHER',truck.truck))
+
+    def test_configuration_resolves_pdf_depot_and_exact_capacity_wins(self):
+        from services.warehouse import TruckCapacity
+        truck=db.session.get(ControlTruck,self.truck_id)
+        truck.branch='001 - CASA CENTRAL';db.session.commit()
+        self.call('put','/settings',data=dict(branch='1',truck=truck.truck,capacity=9,mix_courts_default=False))
+        self.assertEqual(db.session.get(TruckCapacity,('001 - CASA CENTRAL',truck.truck)).pallet_capacity,9)
+        self.assertEqual(self.call('get',f'/trucks/{self.truck_id}/planning')['configured_capacity'],9)
+
     def test_compact_selection_is_signed_persisted_and_sent_to_workers(self):
         second, other_truck, _ = self.dispatch_sources()
         self.select_dispatch([self.source.id, second.id, other_truck.id])
