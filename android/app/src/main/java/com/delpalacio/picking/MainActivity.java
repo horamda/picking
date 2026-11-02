@@ -36,13 +36,6 @@ public final class MainActivity extends Activity {
     private Button voiceButton;
     private EditText shortageB, shortageU;
     private String lastHeard="";
-    private String verifiedProduct="";
-    private String productKey(){return check.optString("id")+":"+products.optJSONObject(index).optString("sku");}
-    private boolean productVerified(){return demo || verifiedProduct.equals(productKey());}
-    private void verifyProduct(String value){
-        if(ProductCode.parse(value).equals(products.optJSONObject(index).optString("sku"))){verifiedProduct=productKey();product();message("Código completo verificado.");}
-        else {message("El código no coincide. Revisá el producto y decí todos sus dígitos.");if(voice)speak("El código no coincide. Revisá el producto y repetí todos sus dígitos.");}
-    }
     private int INK=0xff0f172a, MUTED=0xff607493, BORDER=0xffdce5ef, BG=0xfff0f5f9, SURFACE=Color.WHITE;
     private static final int GREEN=0xff059669, RED=0xffb91c1c;
     private boolean dark;
@@ -561,7 +554,6 @@ public final class MainActivity extends Activity {
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
         String separation=ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),p.optBoolean("separate_reparto"));
-        if(!productVerified())return separation+"Producto "+p.optString("descripcion_voz",p.optString("descripcion"))+". Verificá el código completo, dígito por dígito. Si no encontraste el producto, decí faltante.";
         return separation+ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
     }
     private void product() {
@@ -572,11 +564,6 @@ public final class MainActivity extends Activity {
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);
-        if(!productVerified()){
-            EditText code=input("Código completo del producto",InputType.TYPE_CLASS_NUMBER);
-            button("Verificar código",()->verifyProduct(code.getText().toString()));
-            text("Decí o ingresá todos los dígitos del código del producto. No se confirma con Correcto hasta verificarlo.",14);
-        }else text("Código verificado",13);
         String destination=destinations(p);
         if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
@@ -616,9 +603,6 @@ public final class MainActivity extends Activity {
     private void answer(JSONObject data) {
         if(busy || check==null || check.isNull("timer_started_at")) return;
         if(pendingAnswer()){message("Hay un registro por verificar. Volvé al producto o al inicio y usá Verificar guardado.");return;}
-        boolean noneFound=data.optString("result").equals("shortage") && data.optInt("physical_b",-1)==0 && data.optInt("physical_u",-1)==0;
-        if(!productVerified() && !noneFound){message("Verificá el código completo del producto antes de registrar cantidades encontradas.");return;}
-        try{data.put("verification_mode","full_sku");if(productVerified())data.put("verified_sku",products.optJSONObject(index).optString("sku"));}catch(Exception e){error(e);return;}
         stopAudio();
         try { data.put("sku",products.getJSONObject(index).getString("sku")); } catch(Exception e) {error(e);return;}
         if(demo) { try { check.getJSONObject("answers").put(data.getString("sku"),data); } catch(Exception e){error(e);} afterAnswer();return; }
@@ -757,7 +741,6 @@ public final class MainActivity extends Activity {
             message("Revisá las cantidades y tocá Registrar faltante.");return;
         }
         if(!currentScreen.equals("product"))return;
-        if(!productVerified() && !ProductCode.parse(text).isEmpty()){verifyProduct(text);return;}
         switch(VoiceCommands.parse(text)){
             case "ok" -> answer(obj("result","ok"));
             case "shortage" -> shortage();
