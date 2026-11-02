@@ -38,6 +38,7 @@ class AuthService:
             'username': user.username,
             'role': user.role.name,
             'exp': expires_at,
+            'session_version': user.session_version or 0,
         }
         return jwt.encode(payload, Config.JWT_SECRET, algorithm='HS256')
 
@@ -59,6 +60,9 @@ def current_user_payload(user: User) -> dict:
         'username': user.username,
         'email': user.email,
         'role': user.role.name,
+        'first_name': user.first_name or '',
+        'last_name': user.last_name or '',
+        'employee_number': user.employee_number or '',
     }
 
 
@@ -85,12 +89,18 @@ def auth_required(view):
         except (jwt.InvalidTokenError, TypeError, ValueError):
             return jsonify({'error': 'Token invalido'}), 401
 
+        if request.method in ('PUT', 'POST', 'PATCH') and '/load-control/users' in request.path and db.engine.dialect.name == 'postgresql':
+            from sqlalchemy import text
+            db.session.execute(text('SELECT pg_advisory_xact_lock(742019)'))
         query = User.query.filter_by(id=user_id, active=True)
         if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             query = query.with_for_update()
         user = query.first()
         if not user:
             return jsonify({'error': 'Usuario inactivo o inexistente'}), 401
+
+        if payload.get('session_version', 0) != user.session_version:
+            return jsonify(error='La cuenta cambió. Iniciá sesión nuevamente.'), 401
 
         if user.role.name not in ('administrador', 'supervisor') and request.blueprint not in ('auth', 'load_control'):
             return jsonify(error='Esta cuenta solo tiene acceso a su trabajo asignado.'), 403

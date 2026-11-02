@@ -16,6 +16,10 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=False)
     active = db.Column(db.Boolean, default=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+    employee_number = db.Column(db.String(50), unique=True, nullable=True)
+    session_version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     logs = db.relationship('LogEntry', backref='user', lazy=True)
 

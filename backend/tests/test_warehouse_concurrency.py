@@ -52,6 +52,14 @@ class ConcurrentWarehouseTest(unittest.TestCase):
                 spec.loader.exec_module(migration)
                 with Operations.context(MigrationContext.configure(connection)):
                     migration.upgrade()
+                from sqlalchemy import text
+                for column in ('first_name', 'last_name', 'employee_number', 'session_version'):
+                    connection.execute(text(f'ALTER TABLE users DROP COLUMN {column}'))
+                spec = importlib.util.spec_from_file_location('personnel_migration', Path(__file__).resolve().parents[1] / 'migrations/versions/20261102_01_personnel.py')
+                migration = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(migration)
+                with Operations.context(MigrationContext.configure(connection)):
+                    migration.upgrade()
             roles = {n: Role(name=n) for n in ('administrador', 'operador')}
             db.session.add_all(roles.values())
             db.session.flush()
@@ -89,6 +97,23 @@ class ConcurrentWarehouseTest(unittest.TestCase):
             return self.request(*call)
         with ThreadPoolExecutor(max_workers=2) as pool:
             return list(pool.map(run, calls))
+
+    def test_personnel_concurrent_admin_changes_leave_an_active_admin(self):
+        with application.app.app_context():
+            role = Role.query.filter_by(name='administrador').one()
+            identities = {}
+            for name in ('admin_a', 'admin_b'):
+                user = User(username=name, email=name+'@test.local', password_hash='unused', active=True, role=role)
+                db.session.add(user); db.session.flush()
+                identities[name] = user.id
+                self.tokens[name] = AuthService.generate_token(user)
+            db.session.commit()
+        results = self.pair([
+            ('admin_a', f'/users/{identities["admin_b"]}', {'active': False}, 'PUT'),
+            ('admin_b', f'/users/{identities["admin_a"]}', {'active': False}, 'PUT')])
+        self.assertEqual(sorted(code for code, _ in results), [200, 401])
+        with application.app.app_context():
+            self.assertEqual(User.query.filter(User.id.in_(identities.values()), User.active.is_(True)).count(), 1)
 
     def test_dispatch_two_supervisors_cannot_overwrite_selection(self):
         from models import Consolidado, ConsolidadoDetalle, ProcessingBatch

@@ -873,6 +873,17 @@ def create_user():
     return jsonify(current_user_payload(user)), 201
 
 
+@load_control_bp.put('/users/<int:user_id>')
+@roles_required('administrador')
+def edit_personnel(user_id):
+    from services.users import update_user
+    try:
+        user = update_user(user_id, body(), g.current_user)
+    except UserCreationError as exc:
+        fail(str(exc), exc.status)
+    return jsonify(dict(**current_user_payload(user), active=user.active, courts=assigned_courts(user.id)))
+
+
 @load_control_bp.get('/trucks/<int:truck_id>/audit')
 @roles_required(*MANAGERS)
 def truck_audit(truck_id):
