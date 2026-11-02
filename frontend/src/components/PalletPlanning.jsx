@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
 import api from '../api/axiosClient'
+import { Link } from 'react-router-dom'
+import { getStoredUser } from '../utils/auth'
 
 export default function PalletPlanning({ truck, onClose }) {
     const [capacity, setCapacity] = useState('')
+    const [configuredCapacity, setConfiguredCapacity] = useState(null)
+    const [defaultMix, setDefaultMix] = useState(false)
+    const [message, setMessage] = useState('')
+    const admin = getStoredUser()?.role === 'administrador'
     const [mix, setMix] = useState(false)
     const [result, setResult] = useState(null)
     const [error, setError] = useState('')
@@ -19,6 +25,8 @@ export default function PalletPlanning({ truck, onClose }) {
                 const [configuration, saved] = await Promise.all([api.get('/load-control/settings'), api.get(`/load-control/trucks/${truck.id}/planning`)])
                 if (!active) return
                 const entry = configuration.data.trucks.find(t => t.branch === truck.branch && t.truck === truck.truck)
+                setConfiguredCapacity(entry?.capacity ?? null)
+                setDefaultMix(configuration.data.depots.find(d => d.branch === truck.branch)?.mix_courts_default || false)
                 setLocked(saved.data.locked)
                 setLoads(saved.data.loads || [])
                 setCompact(saved.data.plan?.compact_load_ids || [])
@@ -29,14 +37,26 @@ export default function PalletPlanning({ truck, onClose }) {
                     setMix(configuration.data.depots.find(d => d.branch === truck.branch)?.mix_courts_default || false)
                     if(!saved.data.locked) await api.post(`/load-control/trucks/${truck.id}/planning/start`)
                 }
-            } catch { if(active) setError('No se pudo cargar la planificación.') }
+            } catch (e) { if(active) setError(e.response?.data?.error || 'No se pudo cargar la planificación.') }
             finally { if(active) setBusy(false) }
         }
         load(); return () => { active = false }
     }, [truck.id])
     const button = 'min-h-12 rounded-xl border border-slate-300 bg-white px-4 py-2 font-medium disabled:opacity-40'
+    async function saveCapacity() {
+        const value = Number(capacity)
+        if (!Number.isInteger(value) || value <= 0) { setError('Ingresá la capacidad real del camión en pallets físicos enteros.'); return }
+        setBusy(true); setError(''); setMessage('')
+        try {
+            await api.put('/load-control/settings', { branch: truck.branch, truck: truck.truck, capacity: value, mix_courts_default: defaultMix })
+            setConfiguredCapacity(value); setResult(null); setReviewed(false); setApproved(false)
+            setMessage('Capacidad guardada. Ahora simulá la carga y revisá el armado para aprobarlo.')
+        } catch (e) { setError(e.response?.data?.error || 'No se pudo guardar la capacidad.') }
+        finally { setBusy(false) }
+    }
+    const capacityMatches = configuredCapacity !== null && result?.capacity === configuredCapacity
     async function simulate(event) {
-        event.preventDefault(); setBusy(true); setError(''); setResult(null); setReviewed(false); setApproved(false)
+        event.preventDefault(); setBusy(true); setError(''); setMessage(''); setResult(null); setReviewed(false); setApproved(false)
         try {
             const response = await api.post(`/load-control/trucks/${truck.id}/planning/simulate`, { capacity: Number(capacity), mix_courts: mix, compact_load_ids: compact })
             setResult(response.data)
@@ -58,14 +78,20 @@ export default function PalletPlanning({ truck, onClose }) {
             <label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={mix} disabled={busy || locked} onChange={e => { setMix(e.target.checked); setResult(null) }} />Combinar canchas dentro de cada reparto normal, aunque entren separadas</label>
             <button className={button} disabled={busy || locked}>{busy ? 'Simulando…' : 'Simular carga'}</button>
         </form>
-        <p className="text-sm text-slate-600">La capacidad se carga desde administración. Podés probar alternativas; para aprobar debe coincidir con la capacidad guardada. La mezcla puede cambiarse para esta carga.</p>
+        {!locked && <div className={`space-y-3 rounded-xl p-4 ${configuredCapacity === null ? 'bg-amber-100' : 'bg-white'}`}>
+            <p className="font-semibold">{configuredCapacity === null ? 'Falta guardar la capacidad de este camión. La simulación por sí sola no la registra.' : `Capacidad registrada: ${configuredCapacity} pallets físicos.`}</p>
+            <p className="text-sm">Depósito {truck.branch} · Camión {truck.truck}. Usá su capacidad física real; no la cantidad de pallets calculada para esta carga.</p>
+            {admin ? <>{Number(capacity) !== configuredCapacity && <button type="button" className={button} disabled={busy || !capacity} onClick={saveCapacity}>Guardar {capacity || 'capacidad'} pallets como capacidad del camión</button>}<Link className="block underline" to="/configuracion">Ver camiones y capacidad</Link></> : <p>Si falta la capacidad o es incorrecta, pedile al administrador que la registre en «Camiones y capacidad».</p>}
+        </div>}
+        {message && <p role="status" className="rounded-xl bg-emerald-100 p-4">{message}</p>}
         {error && <p role="alert" className="text-red-800">{error}</p>}
         {approved && !locked && <p role="status" className="rounded-xl bg-emerald-100 p-4">Carga aprobada. Las tareas ya están disponibles para el equipo asignado.</p>}
         {result && <>
             <div className="grid gap-3 sm:grid-cols-2">{result.load_plans?.map(p => <div className="rounded-xl border bg-white p-3" key={p.load_id}><b>Reparto {p.reparto} · {p.total_pallets} pallets estimados</b><p>{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'}</p><p>{p.full_count} completos + {p.mixed_count} de picking</p><p>Pallets exclusivos: {p.pallet_ids.join(', ') || 'Sin pallets'}</p></div>)}</div>
             <p className="rounded-xl bg-white p-3">{result.automatic_mix ? `Sin combinar canchas normales: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; combinando canchas dentro de cada reparto: ${result.total_pallets} pallets.` : 'Los supermercados combinan canchas dentro de su propio reparto. En los repartos normales, las canchas se mantienen separadas salvo que elijas combinarlas.'}</p>
+            {!locked && !approved && <p role="status" className="rounded-xl bg-amber-100 p-3">{!capacityMatches ? (configuredCapacity === null ? 'Para aprobar: primero guardá la capacidad real del camión y volvé a simular.' : `Simulaste con ${result.capacity} pallets, pero el camión tiene ${configuredCapacity} registrados. Corregí la capacidad y volvé a simular.`) : !result.fits_estimate ? 'No se puede aprobar: el armado supera la capacidad del camión. Revisá la selección y el armado de sus repartos.' : !reviewed ? 'Para habilitar la aprobación, confirmá abajo la revisión de altura, estabilidad y compatibilidad.' : 'La propuesta está lista para aprobar y enviar al equipo.'}</p>}
             <label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />Revisé altura, estabilidad y compatibilidad del armado propuesto.</label>
-            <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>
+            <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate || !capacityMatches} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>
             <div role="status" className={`rounded-xl p-4 ${result.fits_estimate ? 'bg-emerald-100' : 'bg-red-100'}`}>
                 <b>{result.total_pallets} / {result.capacity} posiciones estimadas</b>
                 <p>{result.full_count} pallets completos + {result.mixed_count} pallets mixtos.</p>
