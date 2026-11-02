@@ -1,6 +1,11 @@
 package com.delpalacio.picking;
 
 final class ProductSpeech {
+    static String separation(String reparto, boolean compact, boolean separated) {
+        if (!separated) return "";
+        return "Reparto " + reparto + ". " + (compact ? "Supermercado. Armado compacto para descarga con autoelevador. " : "")
+            + "Armá separado. No mezcles con otros repartos ni con otro camión. ";
+    }
     static String destination(String id, int bultos, int units, boolean shared) {
         java.util.List<String> quantities = new java.util.ArrayList<>();
         if (bultos > 0) quantities.add(bultos == 1 ? "un bulto" : bultos + " bultos");

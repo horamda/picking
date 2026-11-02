@@ -2,6 +2,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { voicePrompt } from './productPrompt.js'
 
+test('informa reparto separado y supermercado también para pallets completos', () => {
+    for (const stage of [0,4]) {
+        const prompt=voicePrompt({descripcion:'Agua',bultos:2,pallets:1,reparto:'60701',separate_reparto:true,assembly_mode:'compact'},0,1,stage)
+        assert.match(prompt,/Reparto 60701/)
+        assert.match(prompt,/Supermercado/)
+        assert.match(prompt,/No mezclar con otros repartos/)
+    }
+})
+
 test('omite cantidades cero, vacías o ausentes y usa singular', () => {
     for (const empty of [0, null, undefined, '']) {
         const units = voicePrompt({ descripcion: 'Agua', bultos: empty, unidades: 4 }, 0, 3, 0)

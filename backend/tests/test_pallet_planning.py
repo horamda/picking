@@ -11,6 +11,25 @@ def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA'):
 
 
 class PlanningTest(unittest.TestCase):
+    def test_different_repartos_never_share_a_pallet_even_to_fit(self):
+        rows=[row(25),dict(row(25),load_id=2,reparto='R2')]
+        for mix in (False,True):
+            result=plan_for_capacity(rows,1,mix)
+            self.assertEqual(result['total_pallets'],2)
+            self.assertFalse(result['fits_estimate'])
+            self.assertTrue(all(len({i['load_id'] for i in p['items']})==1 for p in result['mixed_pallets']))
+
+    def test_supermarket_compacts_only_its_own_courts(self):
+        rows=[row(25,court=1),row(25,court=2),dict(row(25,court=1),load_id=2,reparto='R2'),dict(row(25,court=2),load_id=2,reparto='R2')]
+        result=plan_for_capacity(rows,8,False,[2])
+        self.assertEqual(result['total_pallets'],3)
+        self.assertEqual([p['total_pallets'] for p in result['load_plans']],[2,1])
+        self.assertFalse(result['mix_courts'])
+        self.assertEqual([p['order'] for p in result['picking_tasks']],[1,2,3,4])
+        self.assertEqual(sum(i['bultos'] for p in result['mixed_pallets'] for i in p['items']),100)
+        self.assertEqual(len({p['id'] for p in result['mixed_pallets']}),3)
+        with self.assertRaises(ValueError):plan_for_capacity(rows,8,False,[999])
+
     def test_capacity_drives_combination_without_changing_work(self):
         rows = [row(25, court=i, sku=str(i)) for i in range(1, 10)]
         plan = plan_for_capacity(rows, 8)

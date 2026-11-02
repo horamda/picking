@@ -31,7 +31,7 @@ def totals(rows, catalog):
                 courts=len({r['court'] for r in rows}), loads=len({r['load_id'] for r in rows}))
 
 
-def selection_preview(rows, catalog, capacity=None, mix_courts=False):
+def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_load_ids=None):
     """Read-only packing preview; missing factors never become guessed quantities."""
     result = totals(rows, catalog)
     valid, missing = [], set()
@@ -44,8 +44,10 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False):
             continue
         valid.append(dict(row, bultos_por_pallet=article.bultos_por_pallet, unidades_por_bulto=article.unidades_por_bulto))
     # Capacity affects the fit check, not packing. Never expose the placeholder as a real capacity.
-    plan = plan_for_capacity(valid, capacity, mix_courts) if capacity and not missing else simulate_pallets(valid, capacity or 1, mix_courts)
+    compact = [n for n in (compact_load_ids or []) if n in {r['load_id'] for r in valid}]
+    plan = plan_for_capacity(valid, capacity, mix_courts, compact) if capacity and not missing else simulate_pallets(valid, capacity or 1, mix_courts, compact)
     result.update(pallets=plan['total_pallets'] if not missing else None,
+                  separation_policy=plan['separation_policy'], load_plans=plan['load_plans'],
                   pallets_known=plan['total_pallets'], full_pallets_known=plan['full_count'],
                   picking_pallets_known=plan['mixed_count'], pallet_missing=sorted(missing),
                   capacity=capacity, mix_courts=plan['mix_courts'],
@@ -108,6 +110,8 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None
     summary = totals(original_rows(truck), catalog)
     plan = truck.state.get('planning') if valid else None
     summary.update(pallets=plan['total_pallets'] if plan else None,
+                   separation_policy=plan.get('separation_policy') if plan else None,
+                   load_plans=plan.get('load_plans', []) if plan else [],
                    full_pallets=plan['full_count'] if plan else None,
                    picking_pallets=plan['mixed_count'] if plan else None,
                    capacity=plan['capacity'] if plan else None)

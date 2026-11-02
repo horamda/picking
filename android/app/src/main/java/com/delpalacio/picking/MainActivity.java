@@ -348,6 +348,7 @@ public final class MainActivity extends Activity {
         if(summary.isNull("pallets"))return "Plan de armado pendiente. Consultá al supervisor para conocer tus pallets y cantidades asignadas.";
         String speech="Carga total del camión: "+summary.optInt("loads")+" repartos, "+summary.optInt("courts")+" canchas. "+amount(summary,"pallets")+" pallets físicos previstos. ";
         JSONObject mine=summary.optJSONObject("mine");
+        if(summary.optString("separation_policy").equals("reparto_v1"))speech+="Cada reparto se arma por separado. No mezcles repartos en un pallet. ";
         if(mine!=null){
             speech+="Tu trabajo: "+mine.optInt("loads")+" repartos y "+mine.optInt("courts")+" canchas. "+amount(mine,"bultos")+" bultos y "+amount(mine,"unidades")+" unidades. Participa en "+amount(mine,"pallets")+" pallets. ";
             if(!mine.isNull("hl"))speech+=amount(mine,"hl")+" hectolitros. ";
@@ -356,6 +357,7 @@ public final class MainActivity extends Activity {
         return speech;
     }
     private String destinations(JSONObject product) {
+        if(!demo && stage()==4 && !product.optString("pallet_group").isEmpty())return "Grupo de pallets completos "+product.optString("pallet_group")+". Reparto "+product.optString("reparto")+". ";
         if(demo || stage()!=0 || load==null || court==null)return "";
         JSONObject summary=load.optJSONObject("truck_summary");
         JSONObject mine=summary==null?null:summary.optJSONObject("mine");
@@ -375,6 +377,12 @@ public final class MainActivity extends Activity {
     private void truckSummary(JSONObject summary,boolean waiting) {
         if(summary==null)return;
         content=card(BORDER);text("Este camión · Carga seleccionada",20);
+        if(summary.optString("separation_policy").equals("reparto_v1"))text("Cada reparto tiene sus propios pallets. No mezclar repartos ni camiones.",16);
+        JSONArray groups=summary.optJSONArray("load_plans");
+        if(groups!=null)for(int i=0;i<groups.length();i++){
+            JSONObject group=groups.optJSONObject(i);
+            text("Reparto "+group.optString("reparto")+": "+group.optInt("total_pallets")+" pallets estimados · "+(group.optString("assembly_mode").equals("compact")?"Supermercado / autoelevador":"Normal separado"),15);
+        }
         button("Escuchar resumen del camión",()->speak(summarySpeech(summary)));
         if(summary.isNull("pallets")){
             text("Plan de armado pendiente",20);
@@ -507,7 +515,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.15.0",12);content=body;
+            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.16.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -517,6 +525,9 @@ public final class MainActivity extends Activity {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
+            if(load.optBoolean("separate_reparto"))text(ProductSpeech.separation(load.optString("reparto"),load.optString("assembly_mode").equals("compact"),true),17);
+            JSONObject loadPlan=load.optJSONObject("load_plan");
+            if(loadPlan!=null)text("Este reparto ocupa "+loadPlan.optInt("total_pallets")+" pallets: "+loadPlan.optInt("full_count")+" completos + "+loadPlan.optInt("mixed_count")+" de picking.",16);
             if(load.optString("planning_status").equals("legacy"))text("Carga anterior en control. No permite iniciar un armado nuevo; consultá al supervisor.",16);
             content=disclosure("Ver resumen del camión");truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
@@ -549,13 +560,15 @@ public final class MainActivity extends Activity {
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
-        if(!productVerified())return "Producto "+p.optString("descripcion_voz",p.optString("descripcion"))+". Verificá el código completo, dígito por dígito. Si no encontraste el producto, decí faltante.";
-        return ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
+        String separation=ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),p.optBoolean("separate_reparto"));
+        if(!productVerified())return separation+"Producto "+p.optString("descripcion_voz",p.optString("descripcion"))+". Verificá el código completo, dígito por dígito. Si no encontraste el producto, decí faltante.";
+        return separation+ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
     }
     private void product() {
         currentScreen = "product";
         if(products.length()==0) { message("La cancha no tiene productos."); return; }
         JSONObject p=products.optJSONObject(index); screen((stage() == 4 ? "Pallets completos" : "Picking") + " · Cancha " + court.optInt("numero"));
+        if(p.optBoolean("separate_reparto"))text(ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),true),16);
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);

@@ -247,7 +247,9 @@ def preview_dispatch():
     existing = ControlTruck.query.filter_by(branch=branch, truck=truck, load_date=date).first()
     saved_plan = existing.state.get('planning', {}) if existing else {}
     mix = saved_plan.get('mix_courts', depot.mix_courts_default if depot else False)
-    return jsonify(selection_preview(rows, dispatch_catalog(), capacity.pallet_capacity if capacity else None, mix))
+    compact_sources = [l.source_id for l in selected_loads(existing) if l.id in saved_plan.get('compact_load_ids', [])] if existing else []
+    return jsonify(selection_preview(rows, dispatch_catalog(), capacity.pallet_capacity if capacity else None, mix,
+        [n for n in compact_sources if n in ids]))
 
 
 def require_court(number):
@@ -268,8 +270,9 @@ def require_stage(stage):
         fail('Este proceso no corresponde a tu rol.', 403)
 
 
-def plan_fingerprint(truck, capacity, mix):
+def plan_fingerprint(truck, capacity, mix, compact_load_ids=None):
     value = dict(rows=planning_rows(truck), capacity=capacity, mix=mix,
+                 separation_policy='reparto_v1', compact_load_ids=sorted(set(compact_load_ids or [])),
                  pending=status(truck)['pending_sources'])
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
@@ -287,7 +290,7 @@ def approved(truck):
     # affect future plans, never quantities already being prepared by an operator.
     if any(c.get('checks') for c in truck.state.get('courts', {}).values()):
         return True
-    return plan.get('fingerprint') == plan_fingerprint(truck, plan['capacity'], plan['mix_courts'])
+    return plan.get('fingerprint') == plan_fingerprint(truck, plan['capacity'], plan['mix_courts'], plan.get('compact_load_ids', []))
 
 
 
@@ -316,7 +319,14 @@ def task_products(load, court, stage):
         task = quantities.get(product['sku'])
         if task and (task['bultos'] or task.get('unidades', 0)):
             info = pallet_info.get(product['sku'], {})
+            destinations = [dict(pallet_id=pallet['id'], bultos=item['bultos'], unidades=item['unidades'])
+                for pallet in plan.get('mixed_pallets', []) for item in pallet['items']
+                if stage == 0 and item['load_id'] == load.id and item['court'] == court['numero'] and item['sku'] == product['sku']]
             result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0),
+                               pallet_destinations=destinations,
+                               reparto=load.reparto, assembly_mode=task.get('assembly_mode', 'normal'),
+                               separate_reparto=plan.get('separation_policy') == 'reparto_v1',
+                               pallet_group=task.get('id'),
                                full_pallets_count=info.get('pallets', 0), full_pallets_bultos=info.get('bultos', 0)))
     return result
 
@@ -397,6 +407,10 @@ def get_court(load, number):
 
 def serialize_load(load, summary=False):
     result = dict(id=load.id, source_id=load.source_id, **deepcopy(load.content))
+    plan = load.truck.state.get('planning') or {}
+    result['assembly_mode'] = 'compact' if load.id in plan.get('compact_load_ids', []) else 'normal'
+    result['separate_reparto'] = plan.get('separation_policy') == 'reparto_v1'
+    result['load_plan'] = next((p for p in plan.get('load_plans', []) if p['load_id'] == load.id), None)
     valid_plan = approved(load.truck)
     legacy = legacy_in_progress(load.truck)
     result['planning_status'] = 'approved' if valid_plan else 'legacy' if legacy else 'pending'
@@ -516,10 +530,10 @@ def simulate_truck(truck_id):
     if not rows:
         fail('El camión no tiene productos para simular.')
     try:
-        result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False))
+        result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False), data.get('compact_load_ids', []))
     except ValueError as exc:
         fail(str(exc))
-    return jsonify(dict(result, fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
+    return jsonify(dict(result, fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts'], result['compact_load_ids']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
 
 
 @load_control_bp.get('/loads/<int:load_id>')
@@ -1053,13 +1067,16 @@ def approve_plan(truck_id):
     if not capacity or data.get('capacity') != capacity.pallet_capacity:
         fail('La capacidad debe coincidir con la configurada por administracion.', 409)
     mix = data.get('mix_courts')
-    fingerprint = plan_fingerprint(truck, capacity.pallet_capacity, mix)
+    compact = data.get('compact_load_ids', [])
+    if not isinstance(compact, list) or any(type(n) is not int for n in compact):
+        fail('Indicá repartos válidos para el armado de supermercado.')
+    fingerprint = plan_fingerprint(truck, capacity.pallet_capacity, mix, compact)
     if status(truck)['pending_sources'] or data.get('fingerprint') != fingerprint:
         fail('Los productos o la configuracion cambiaron. Volve a simular.', 409)
     if data.get('physical_review') is not True:
         fail('Confirma la revision fisica de altura, estabilidad y compatibilidad.')
     try:
-        plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix)
+        plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix, compact)
     except ValueError as exc:
         fail(str(exc))
     if not plan['fits_estimate']:
@@ -1177,7 +1194,8 @@ def activity():
 @roles_required(*MANAGERS)
 def saved_plan(truck_id):
     truck = get_truck(truck_id)
-    return jsonify(plan=truck.state.get('planning'), locked=any(c.get('checks') for c in truck.state.get('courts', {}).values()), version=truck.version)
+    return jsonify(plan=truck.state.get('planning'), loads=[dict(id=l.id, reparto=l.reparto) for l in selected_loads(truck)],
+        locked=any(c.get('checks') for c in truck.state.get('courts', {}).values()), version=truck.version)
 
 
 from routes.staffing import register as register_staffing

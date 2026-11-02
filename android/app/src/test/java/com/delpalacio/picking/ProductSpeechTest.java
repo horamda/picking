@@ -2,6 +2,13 @@ package com.delpalacio.picking;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class ProductSpeechTest {
+    @Test public void repartoAndTruckRemainSeparated(){
+        String compact=ProductSpeech.separation("60701",true,true);
+        assertTrue(compact.contains("60701"));assertTrue(compact.contains("Supermercado"));
+        assertTrue(compact.contains("autoelevador"));assertTrue(compact.contains("otro camión"));
+        assertFalse(ProductSpeech.separation("60700",false,true).contains("Supermercado"));
+        assertEquals("",ProductSpeech.separation("60700",false,false));
+    }
     @Test public void palletDestinationsSpeakExactAmounts(){
         String first=ProductSpeech.destination("M001",2,0,true);
         assertTrue(first.contains("M001"));assertTrue(first.contains("2 bultos"));
