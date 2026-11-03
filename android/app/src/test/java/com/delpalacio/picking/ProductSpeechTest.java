@@ -31,4 +31,10 @@ public class ProductSpeechTest {
         assertTrue(empty.contains("supervisor"));assertFalse(empty.contains("Agarrá"));assertFalse(empty.contains("decí correcto"));
         assertTrue(ProductSpeech.prompt("Agua",50,0,1,4,0,3).contains("Prepará un pallet completo"));
     }
+    @Test public void controlsVerifyWithoutVoiceCommands(){
+        String first=ProductSpeech.prompt("Agua",2,3,0,1,0,4);
+        assertTrue(first.contains("Verificá 2 bultos y 3 unidades de Agua"));
+        assertFalse(first.contains("Agarrá"));assertFalse(first.contains("decí correcto"));
+        assertTrue(ProductSpeech.prompt("Agua",1,0,0,2,0,4).contains("Verificá un bulto"));
+    }
 }

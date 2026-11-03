@@ -21,6 +21,7 @@ final class ProductSpeech {
         if(bultos>0)quantities.add(bultos==1?"un bulto":bultos+" bultos");
         if(units>0)quantities.add(units==1?"una unidad":units+" unidades");
         if(quantities.isEmpty())return intro+name+" no tiene cantidades para preparar. Revisá la planilla con el supervisor.";
+        if(stage==1 || stage==2)return intro+"Verificá "+String.join(" y ",quantities)+" de "+name+".";
         return intro+"Agarrá "+String.join(" y ",quantities)+" de "+name+". Cuando termines, decí correcto. Si falta mercadería, decí faltante.";
     }
 }

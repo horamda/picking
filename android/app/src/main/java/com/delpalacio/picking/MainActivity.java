@@ -59,12 +59,12 @@ public final class MainActivity extends Activity {
     }
     private final Runnable clockTick=new Runnable(){public void run(){updateClock();handler.postDelayed(this,1000);}};
     private Api api;
-    private JSONObject user, load, court, check;
+    private JSONObject user, load, court, check, activeTruck;
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
     private String filter = "Todos";
     private String currentScreen = "login";
-    private int index = 0, requestVersion = 0, speechVersion = 0;
+    private int index = 0, requestVersion = 0, speechVersion = 0, currentStage = 0;
     private boolean demo = false, busy = false, voice = false, visible = false, ttsReady = false;
     private TextToSpeech tts;
     private VoiceSessionService voiceSession;
@@ -74,7 +74,9 @@ public final class MainActivity extends Activity {
     private String queueVersion="";
     private boolean refreshing;
     private JSONObject fetchQueue() throws Exception {
-        return obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
+        JSONObject response=obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
+        if(isController())response.put("operators",new JSONArray(api.request("GET","/load-control/operators",null)));
+        return response;
     }
     private String queueVersion(JSONObject response) throws Exception {
         StringBuilder key=new StringBuilder(response.getJSONObject("permissions").toString());
@@ -159,7 +161,7 @@ public final class MainActivity extends Activity {
         if(working){
             LinearLayout top=row();header.addView(top);
             top.addView(label("Camión "+load.optString("camion","Demo")+" · Cancha "+court.optInt("numero"),12,MUTED,false),new LinearLayout.LayoutParams(0,-2,1));
-            TextView badge=label(stage()==4?"Pallets":"Picking",12,0xff047857,true);badge.setPadding(dp(12),dp(5),dp(12),dp(5));badge.setBackground(shape(0xffd1fae5,0xffd1fae5,20));top.addView(badge);
+            TextView badge=label(stageLabel(),12,0xff047857,true);badge.setPadding(dp(12),dp(5),dp(12),dp(5));badge.setBackground(shape(0xffd1fae5,0xffd1fae5,20));top.addView(badge);
             LinearLayout second=row();header.addView(second);
             second.addView(label("Producto "+(index+1)+" de "+products.length(),12,MUTED,false),new LinearLayout.LayoutParams(0,-2,1));
             clockView=label("",12,MUTED,false);second.addView(clockView);updateClock();
@@ -167,7 +169,7 @@ public final class MainActivity extends Activity {
             progress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(BORDER));header.addView(progress,new LinearLayout.LayoutParams(-1,dp(6)));
         }else{
             header.addView(label("DEL PALACIO",12,GREEN,true));header.addView(label(title,26,INK,true));
-            header.addView(label(user==null?"Operación de depósito":"Usuario: "+user.optString("username")+" · "+(stage()==4?"Pallets completos":"Picking"),13,MUTED,false));
+            header.addView(label(user==null?"Operación de depósito":"Usuario: "+user.optString("username")+" · "+roleLabel(),13,MUTED,false));
         }
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();content=body;
         content.setPadding(dp(16),dp(16),dp(16),dp(20));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
@@ -246,7 +248,10 @@ public final class MainActivity extends Activity {
         try { for (int i=0;i<pairs.length;i+=2) o.put((String)pairs[i],pairs[i+1]); } catch (JSONException e) { throw new IllegalArgumentException(e); }
         return o;
     }
-    private int stage() { return !demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
+    private boolean isController(){return !demo && user!=null && user.optString("role").equals("controlador");}
+    private int stage() { return isController()?currentStage:!demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
+    private String stageLabel(){return stage()==4?"Pallets":stage()==2?"Control 2":stage()==1?"Control 1":"Picking";}
+    private String roleLabel(){return isController()?"Control de cargas":stage()==4?"Pallets completos":"Picking";}
     private String path() { return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id"); }
     private String pendingKey(){return "pending_answer:"+api.base+":"+user.optInt("id");}
     private boolean pendingAnswer(){return !demo && api!=null && user!=null && getPreferences(0).contains(pendingKey());}
@@ -300,7 +305,7 @@ public final class MainActivity extends Activity {
             task(() -> {
                 JSONObject auth = json("POST","/auth/login",obj("username",username,"password",secret));
                 JSONObject person = auth.getJSONObject("user");
-                if (!Arrays.asList("operador", "palletizador").contains(person.getString("role"))) throw new Exception("Esta app está destinada a cuentas de operador.");
+                if (!Arrays.asList("operador", "palletizador", "controlador").contains(person.getString("role"))) throw new Exception("Esta app está destinada a cuentas operativas.");
                 api.token = auth.getString("token");
                 // Fail closed: the native app cannot silently show every court.
                 JSONObject permissions = json("GET","/load-control/my-courts",null);
@@ -315,7 +320,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.14.1 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.18.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -326,9 +331,21 @@ public final class MainActivity extends Activity {
     }
     private String processState(JSONObject c) {
         JSONArray checks = c.optJSONObject("status").optJSONArray("checks");
+        if(isController()){
+            JSONObject first=checkAt(checks,1),second=checkAt(checks,2);
+            if(second!=null)return second.optString("status").equals("done")?"Finalizados":second.isNull("timer_started_at")?"Pausados":"En curso";
+            if(first!=null && first.optString("status").equals("done"))return "Sin iniciar";
+            if(first!=null)return first.isNull("timer_started_at")?"Pausados":"En curso";
+            return "Sin iniciar";
+        }
         for (int i=0;i<checks.length();i++) { JSONObject x=checks.optJSONObject(i); if (x.optInt("stage") == stage())
             return x.optString("status").equals("done") ? "Finalizados" : x.isNull("timer_started_at") ? "Pausados" : "En curso"; }
         return "Sin iniciar";
+    }
+    private JSONObject checkAt(JSONArray checks,int wanted){
+        if(checks==null)return null;
+        for(int i=0;i<checks.length();i++){JSONObject value=checks.optJSONObject(i);if(value!=null && value.optInt("stage")==wanted)return value;}
+        return null;
     }
     private boolean canSeeCourt(JSONObject c) { return assigned.contains(c.optInt("numero")) || c.optBoolean("assistance", false); }
     private boolean matches(JSONObject c) { return canSeeCourt(c) && (filter.equals("Todos") || filter.equals(processState(c))); }
@@ -376,7 +393,7 @@ public final class MainActivity extends Activity {
             JSONObject group=groups.optJSONObject(i);
             text("Reparto "+group.optString("reparto")+": "+group.optInt("total_pallets")+" pallets estimados · "+(group.optString("assembly_mode").equals("compact")?"Supermercado / autoelevador":"Normal separado"),15);
         }
-        button("Escuchar resumen del camión",()->speak(summarySpeech(summary)));
+        if(!isController())button("Escuchar resumen del camión",()->speak(summarySpeech(summary)));
         if(summary.isNull("pallets")){
             text("Plan de armado pendiente",20);
             text("No hay un plan aprobado vigente para calcular tus pallets y cantidades asignadas. Consultá al supervisor.",15);
@@ -422,14 +439,17 @@ public final class MainActivity extends Activity {
         pendingControls();
         task(this::fetchQueue, response -> {
             queueVersion=queueVersion(response);
+            operators=response.optJSONArray("operators");if(operators==null)operators=new JSONArray();
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
             List<Integer> refreshed=new ArrayList<>(assigned);Collections.sort(refreshed);assignments.setText("Tus canchas: "+refreshed);
             JSONArray trucks=response.getJSONArray("trucks");
             if(announceQueue){
                 announceQueue=false;
-                if(trucks.length()==0)speak("Cancha finalizada. No tenés más camiones habilitados pendientes.");
-                else {JSONObject next=trucks.getJSONObject(0);speak("Cancha finalizada. Tu camión actual es "+next.optString("truck")+". "+summarySpeech(next.optJSONObject("summary"))+"Elegí el reparto y la cancha para continuar.");}
+                if(!isController()){
+                    if(trucks.length()==0)speak("Cancha finalizada. No tenés más camiones habilitados pendientes.");
+                    else {JSONObject next=trucks.getJSONObject(0);speak("Cancha finalizada. Tu camión actual es "+next.optString("truck")+". "+summarySpeech(next.optJSONObject("summary"))+"Elegí el reparto y la cancha para continuar.");}
+                }
             }
             Set<String> availableTasks=new HashSet<>();
             for(int t=0;t<trucks.length();t++) {
@@ -441,7 +461,7 @@ public final class MainActivity extends Activity {
                     for(int c=0;c<courts.length();c++) {
                         JSONObject candidate=courts.getJSONObject(c);
                         if(canSeeCourt(candidate) && candidate.optInt("cantidad")>0
-                            && candidate.optBoolean("can_prepare",false) && !processState(candidate).equals("Finalizados"))
+                            && (isController() || candidate.optBoolean("can_prepare",false)) && !processState(candidate).equals("Finalizados"))
                             availableTasks.add(item.optInt("id")+":"+candidate.optInt("numero"));
                     }
                 }
@@ -450,7 +470,7 @@ public final class MainActivity extends Activity {
             if(knownTasks!=null)newTasks.removeAll(knownTasks);
             if(knownTasks!=null && !newTasks.isEmpty()) {
                 text("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.",18);
-                speak("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.");
+                if(!isController())speak("Tenés nuevas tareas habilitadas. Revisá tu próximo trabajo.");
             }
             knownTasks=availableTasks;
             text("Actualizaci?n autom?tica cada 15 segundos mientras est?s en esta pantalla.",13);
@@ -465,7 +485,7 @@ public final class MainActivity extends Activity {
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
                     for(int c=0;c<candidates.length();c++){
                         JSONObject taskCourt=candidates.getJSONObject(c);
-                        if(!canSeeCourt(taskCourt) || taskCourt.optInt("cantidad")==0 || !taskCourt.optBoolean("can_prepare",true))continue;
+                        if(!canSeeCourt(taskCourt) || taskCourt.optInt("cantidad")==0 || (!isController() && !taskCourt.optBoolean("can_prepare",true)))continue;
                         String state=processState(taskCourt);int rank=state.equals("En curso")?0:state.equals("Pausados")?1:state.equals("Sin iniciar")?2:99;
                         if(rank<best){best=rank;nextLoad=candidate;nextCourt=taskCourt;}
                     }
@@ -473,7 +493,7 @@ public final class MainActivity extends Activity {
                 if(nextLoad!=null && !truck.optString("planning_status").equals("pending")){
                     final int loadId=nextLoad.optInt("id"),courtNumber=nextCourt.optInt("numero");
                     text("Próxima tarea: reparto "+nextLoad.optString("reparto")+" · Cancha "+courtNumber,16);
-                    styledButton("Continuar picking →",GREEN,Color.WHITE,GREEN,()->{filter="Todos";openLoad(loadId,courtNumber);});
+                    styledButton(isController()?"Continuar control →":"Continuar picking →",GREEN,Color.WHITE,GREEN,()->{filter="Todos";openLoad(loadId,courtNumber);});
                 }else text(truck.optString("planning_status").equals("pending")?"Esperando aprobación del supervisor":"Sin tareas pendientes en este camión",16);
                 content=body;
                 content=disclosure("Ver resumen y pallets del camión");
@@ -504,11 +524,18 @@ public final class MainActivity extends Activity {
                         content=tasksPanel;
                     }
                 }
+                if(isController()){
+                    JSONObject truckStatus=truck.optJSONObject("status");
+                    content=body;
+                    if(truckStatus!=null && truckStatus.optBoolean("complete") && truckStatus.isNull("assets"))
+                        styledButton("Registrar activos de salida",GREEN,Color.WHITE,GREEN,()->startAssets(truck));
+                    else if(truckStatus!=null && !truckStatus.isNull("assets"))text("Activos de salida registrados",14);
+                }
                 content=body;
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.16.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.18.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -533,19 +560,37 @@ public final class MainActivity extends Activity {
                     if(full!=null)for(int n=0;n<full.length();n++){JSONObject item=full.optJSONObject(n);text(item.optInt("pallets")+" pallets · "+item.optString("descripcion")+" ("+item.optInt("bultos")+" bultos)",13);}
                     text("Se registran por separado del picking de bultos y unidades sueltas.",12);
                 }
-                if(!state.equals("Finalizados") && c.optJSONArray("productos").length()>0 && c.optBoolean("can_prepare",true)) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c));
+                if(isController())controlActions(c);
+                else if(!state.equals("Finalizados") && c.optJSONArray("productos").length()>0 && c.optBoolean("can_prepare",true)) styledButton("Iniciar / retomar cancha " + c.optInt("numero"),GREEN,Color.WHITE,GREEN, () -> startCourt(c,stage()));
                 else if(c.optJSONArray("productos").length()==0)text("Esta cancha solo tiene pallets completos; no requiere picking de sueltos.",14);
                 content=body;
             }
             if(count==0) message("No hay canchas asignadas que coincidan con el filtro.");
         });
     }
-    private void startCourt(JSONObject c) {
+    private void controlActions(JSONObject c){
+        JSONArray checks=c.optJSONObject("status").optJSONArray("checks");
+        JSONObject first=checkAt(checks,1),second=checkAt(checks,2);
+        int action=ControlWorkflow.action(first!=null,first!=null && first.optString("status").equals("done"),first==null?0:first.optInt("user_id"),
+            second!=null,second!=null && second.optString("status").equals("done"),second==null?0:second.optInt("user_id"),user.optInt("id"));
+        if(action==ControlWorkflow.FINISHED){text("Control 1 y Control 2 finalizados",14);return;}
+        if(action==ControlWorkflow.START_FIRST){styledButton("Iniciar Control 1",GREEN,Color.WHITE,GREEN,()->startCourt(c,1));return;}
+        if(action==ControlWorkflow.RESUME_FIRST){text("Tu Control 1 está "+(first.isNull("timer_started_at")?"pausado":"en curso"),14);styledButton("Retomar Control 1",GREEN,Color.WHITE,GREEN,()->startCourt(c,1));return;}
+        if(action==ControlWorkflow.WAIT_FIRST){text("Control 1 reservado por "+first.optString("username")+".",14);return;}
+        text("Control 1 finalizado por "+first.optString("username")+". Falta Control 2.",14);
+        if(action==ControlWorkflow.NEED_OTHER_CONTROLLER){text("El Control 2 debe hacerlo otro controlador.",14);return;}
+        if(action==ControlWorkflow.START_SECOND){styledButton("Iniciar Control 2",GREEN,Color.WHITE,GREEN,()->startCourt(c,2));return;}
+        if(action==ControlWorkflow.RESUME_SECOND){styledButton("Retomar Control 2",GREEN,Color.WHITE,GREEN,()->startCourt(c,2));return;}
+        text("Control 2 reservado por "+second.optString("username")+".",14);
+    }
+    private void startCourt(JSONObject c,int requestedStage) {
+        currentStage=requestedStage;
         task(() -> {
             JSONObject started=json("POST","/load-control/loads/"+load.optInt("id")+"/courts/"+c.optInt("numero")+"/start/"+stage(),obj());
             return obj("check",started,"load",json("GET","/load-control/loads/"+load.optInt("id"),null));
         }, result -> {
-            load=result.getJSONObject("load");court=c; check=result.getJSONObject("check"); products=check.getJSONArray("products"); index=0;
+            load=result.getJSONObject("load");court=c;check=result.getJSONObject("check");
+            products=check.optJSONArray("products");if(products==null)products=c.optJSONArray("productos");if(products==null)products=new JSONArray();index=0;
             if(c.optBoolean("assistance",false))speak("Refuerzo en cancha "+c.optInt("numero")+". Tenés "+products.length()+" productos asignados. Prepará solamente los productos que indica la app.");
             JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).getString("sku"))) index++;
             product();
@@ -559,7 +604,7 @@ public final class MainActivity extends Activity {
     private void product() {
         currentScreen = "product";
         if(products.length()==0) { message("La cancha no tiene productos."); return; }
-        JSONObject p=products.optJSONObject(index); screen((stage() == 4 ? "Pallets completos" : "Picking") + " · Cancha " + court.optInt("numero"));
+        JSONObject p=products.optJSONObject(index); screen(stageLabel() + " · Cancha " + court.optInt("numero"));
         if(p.optBoolean("separate_reparto"))text(ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),true),16);
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
@@ -579,26 +624,30 @@ public final class MainActivity extends Activity {
             gap(6);TextView full=text("Pallets completos: "+p.optInt("full_pallets_count")+" · "+p.optInt("full_pallets_bultos")+" bultos",14);full.setTextColor(dark?0xff7dd3fc:0xff0369a1);
             text("Informativo · Se registran por separado del picking indicado arriba.",12);
         }
-        content=body;voicePanel();
+        content=body;if(!isController())voicePanel();
         pendingControls();
         boolean paused=check.isNull("timer_started_at");
-        if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar picking", () -> startCourt(court)); }
-        else { styledButton("Correcto →",GREEN,Color.WHITE,GREEN, () -> answer(obj("result","ok")));styledButton("Faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage); }
+        if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar "+stageLabel(), () -> startCourt(court,stage())); }
+        else {
+            styledButton("Correcto →",GREEN,Color.WHITE,GREEN, () -> answer(obj("result","ok")));
+            if(isController())styledButton("Error corregido",0xfffffbeb,0xff92400e,0xfffcd34d,()->showIncident("corrected"));
+            styledButton("Faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage);
+        }
         LinearLayout navigation=row();content.addView(navigation);content=navigation;
         Button previous=styledButton("← Anterior",Color.WHITE,INK,BORDER,()->{if(index>0){index--;product();}});
         Button next=styledButton("Siguiente →",Color.WHITE,INK,BORDER,()->{if(index<products.length()-1){index++;product();}});
         LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=dp(10);previous.setLayoutParams(left);next.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
         previous.setEnabled(index>0);previous.setAlpha(index>0?1:0.45f);next.setEnabled(index<products.length()-1);next.setAlpha(index<products.length()-1?1:0.45f);
         content=body;gap(10);text("Siguiente permite revisar sin confirmar el producto.",12);
-        button("Escuchar / repetir producto", () -> speak(prompt()));
+        if(!isController())button("Escuchar / repetir producto", () -> speak(prompt()));
         button("Pausar y volver a canchas",this::pauseAndLeave);
         text("Reparto "+load.optString("reparto")+" · "+user.optString("username"),12);
         LinearLayout footer=column();footer.setPadding(dp(16),dp(10),dp(16),dp(4));footer.setBackgroundColor(SURFACE);root.addView(footer);content=footer;
-        button("Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle("Finalizar picking")
+        button(isController()?"Finalizar "+stageLabel():"Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle(isController()?"Finalizar "+stageLabel():"Finalizar picking")
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
             .setNegativeButton("Seguir",(d,w)->product()).setOnCancelListener(d->product()).setPositiveButton("Finalizar",(d,w)->finishPicking()).show(); });
         content=body;
-        if(voice && !paused) speak(prompt());
+        if(voice && !paused && !isController()) speak(prompt());
     }
     private void answer(JSONObject data) {
         if(busy || check==null || check.isNull("timer_started_at")) return;
@@ -625,11 +674,63 @@ public final class MainActivity extends Activity {
     }
     private void afterAnswer() {
         if(index<products.length()-1) {index++;product();}
-        else {voice=false;product();speak("Último producto registrado. Revisá el avance y tocá finalizar picking.");}
+        else {voice=false;product();if(!isController())speak("Último producto registrado. Revisá el avance y tocá finalizar picking.");}
     }
     private void shortage() {
         stopAudio();
+        if(isController()){showIncident("shortage");return;}
         showShortage();
+    }
+    private JSONObject existingShortage(String sku){
+        JSONArray values=court.optJSONObject("status").optJSONArray("shortages");
+        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && sku.equals(value.optString("sku")))return value;}
+        return null;
+    }
+    private void showIncident(String result){
+        stopAudio();currentScreen="shortage";
+        JSONObject p=products.optJSONObject(index),previous=existingShortage(p.optString("sku"));
+        boolean confirmation=stage()==2 && result.equals("shortage") && previous!=null;
+        screen(result.equals("corrected")?"Error corregido":"Registrar faltante");
+        content=card(result.equals("corrected")?0xfffcd34d:0xfffecaca);
+        text(result.equals("corrected")?"Error corregido":"Faltante real",20);
+        text(p.optString("descripcion")+" · planilla: "+p.optInt("bultos")+" bultos + "+p.optInt("unidades")+" unidades",13);gap(8);
+        EditText foundB=null,foundU=null;
+        if(result.equals("shortage")){
+            text(confirmation?"Confirmá las cantidades registradas en el Control 1":"Ingresá la cantidad encontrada, no lo que falta",14);
+            foundB=input("Bultos encontrados",InputType.TYPE_CLASS_NUMBER);foundU=input("Unidades encontradas",InputType.TYPE_CLASS_NUMBER);
+            foundB.setText(String.valueOf(confirmation?previous.optInt("actual_b"):0));foundU.setText(String.valueOf(confirmation?previous.optInt("actual_u"):0));
+            foundB.setEnabled(!confirmation);foundU.setEnabled(!confirmation);
+        }
+        final EditText physicalB=foundB,physicalU=foundU;
+        Spinner origin=new Spinner(this),responsible=new Spinner(this);
+        List<Integer> responsibleIds=new ArrayList<>();List<String> responsibleNames=new ArrayList<>();
+        if(!confirmation){
+            text("Proceso responsable",13);origin.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Picking","Control"}));content.addView(origin);
+            gap(8);text("Responsable del error",13);
+            for(int i=0;i<operators.length();i++){JSONObject person=operators.optJSONObject(i);responsibleIds.add(person.optInt("id"));responsibleNames.add(person.optString("username")+" · "+person.optString("role"));}
+            responsible.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,responsibleNames));content.addView(responsible);
+        }else text("Se conserva el responsable registrado por el primer controlador: "+previous.optJSONObject("incident").optString("responsible_username"),13);
+        gap(8);text("Observación"+(result.equals("corrected")?" obligatoria":" opcional"),13);
+        EditText note=input("Describí qué ocurrió…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
+        TextView feedback=text("",14);
+        styledButton(result.equals("corrected")?"Registrar error corregido":"Registrar faltante",result.equals("corrected")?0xff92400e:RED,Color.WHITE,result.equals("corrected")?0xff92400e:RED,()->{
+            try{
+                if(result.equals("corrected") && note.getText().toString().trim().isEmpty()){feedback.setText("Describí la diferencia que fue corregida.");return;}
+                JSONObject payload=obj("result",result,"note",note.getText().toString());
+                if(result.equals("shortage")){
+                    String validation=ShortageAmounts.error(physicalB.getText().toString(),physicalU.getText().toString(),p.optInt("bultos"),p.optInt("unidades"));
+                    if(!validation.isEmpty()){feedback.setText(validation);return;}
+                    payload.put("physical_b",Integer.parseInt(physicalB.getText().toString()));payload.put("physical_u",Integer.parseInt(physicalU.getText().toString()));
+                }
+                if(!confirmation){
+                    if(responsibleIds.isEmpty()){feedback.setText("No hay personal activo para asignar como responsable.");return;}
+                    payload.put("origin",origin.getSelectedItemPosition()==0?"picking":"control");
+                    payload.put("responsible_user_id",responsibleIds.get(responsible.getSelectedItemPosition()));
+                }
+                answer(payload);
+            }catch(Exception e){error(e);}
+        });
+        button("Cancelar",this::product);content=body;
     }
     private void showShortage() {
         currentScreen = "shortage";
@@ -680,8 +781,34 @@ public final class MainActivity extends Activity {
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
         task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;listLoads();});
     }
+    private void startAssets(JSONObject truck){
+        task(()->obj("types",new JSONArray(api.request("GET","/load-control/asset-types",null)),
+                "check",json("POST","/load-control/trucks/"+truck.optInt("id")+"/assets/start",obj())),result->{
+            activeTruck=truck;showAssets(result.getJSONArray("types"));
+        });
+    }
+    private void showAssets(JSONArray types){
+        currentScreen="assets";screen("Activos de salida · Camión "+activeTruck.optString("truck"));
+        text("Contá los activos físicos y completá todos los campos, incluido cero.",14);
+        Map<String,EditText> fields=new LinkedHashMap<>();
+        for(int i=0;i<types.length();i++){
+            String name=types.optString(i);text(name,13);EditText field=input("Cantidad de "+name,InputType.TYPE_CLASS_NUMBER);fields.put(name,field);
+        }
+        styledButton("Confirmar activos",GREEN,Color.WHITE,GREEN,()->{
+            try{
+                JSONObject quantities=new JSONObject();
+                for(Map.Entry<String,EditText> entry:fields.entrySet()){
+                    String value=entry.getValue().getText().toString().trim();
+                    if(value.isEmpty()){message("Completá todos los activos, incluido cero.");return;}
+                    int amount=Integer.parseInt(value);if(amount<0){message("Las cantidades no pueden ser negativas.");return;}quantities.put(entry.getKey(),amount);
+                }
+                task(()->json("POST","/load-control/trucks/"+activeTruck.optInt("id")+"/assets",obj("quantities",quantities)),result->{activeTruck=null;listLoads();message("Activos registrados. La salida se libera cuando no quedan autorizaciones pendientes.");});
+            }catch(Exception e){error(e);}
+        });
+        button("Cancelar y volver",this::listLoads);
+    }
     private void enableVoice() {
-        if(!visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;
+        if(isController() || !visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},10);return;}
         if(!ttsReady){message("Activá o instalá una voz en español en los ajustes de texto a voz de Android.");return;}
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED && !getPreferences(0).getBoolean("notificationAsked",false)){
@@ -764,6 +891,7 @@ public final class MainActivity extends Activity {
         if(busy){message("Esperá a que termine la operación.");return;}
         if(currentScreen.equals("shortage")){stopAudio();product();return;}
         if(currentScreen.equals("product")){pauseAndLeave();return;}
+        if(currentScreen.equals("assets")){activeTruck=null;listLoads();return;}
         if(currentScreen.equals("courts")){listLoads();return;}
         new AlertDialog.Builder(this).setTitle("Salir de la app")
             .setMessage("¿Querés salir de Del Palacio Picking?")
