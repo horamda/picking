@@ -102,7 +102,7 @@ def auth_required(view):
         if payload.get('session_version', 0) != user.session_version:
             return jsonify(error='La cuenta cambió. Iniciá sesión nuevamente.'), 401
 
-        if user.role.name not in ('administrador', 'supervisor') and request.blueprint not in ('auth', 'load_control'):
+        if user.role.name not in ('administrador', 'supervisor') and request.blueprint not in ('auth', 'load_control', 'voice_templates'):
             return jsonify(error='Esta cuenta solo tiene acceso a su trabajo asignado.'), 403
         g.current_user = user
         g.jwt_payload = payload

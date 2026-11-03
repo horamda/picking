@@ -56,8 +56,12 @@ class ControlFlowTest(unittest.TestCase):
         from services.warehouse import UserCourt
         for name in ['ana', 'ben', 'picker', 'pallet']:
             db.session.add(UserCourt(user_id=User.query.filter_by(username=name).one().id, court_number=1))
+        from services.pallet_rules import PalletCaliberFamily, PalletCaliberAlias
+        db.session.add(PalletCaliberFamily(key='test_general', name='General de prueba', must_be_bottom=False,
+            base_priority=0, allowed_above=['*'], enabled=True))
+        db.session.add(PalletCaliberAlias(caliber='TEST', family_key='test_general'))
         for sku in ['1001', '1002']:
-            db.session.add(Article(sku=sku, descripcion=sku, bultos_por_pallet=100, unidades_por_bulto=12))
+            db.session.add(Article(sku=sku, descripcion=sku, calibre='TEST', bultos_por_pallet=100, unidades_por_bulto=12))
         db.session.commit()
         self.approve_current()
 
@@ -65,6 +69,50 @@ class ControlFlowTest(unittest.TestCase):
         self.call('put', '/settings', data=dict(branch='Central', truck='ABC123', capacity=20, mix_courts_default=False))
         plan = self.call('post', f'/trucks/{self.truck_id}/planning/simulate', data=dict(capacity=20, mix_courts=False))
         self.call('post', f'/trucks/{self.truck_id}/planning/approve', data=dict(plan, physical_review=True))
+
+    def test_voice_template_crud_validates_variables_and_runtime_access(self):
+        defaults = self.client.get('/api/voice-templates/runtime', headers={'Authorization':'Bearer '+self.tokens['picker']})
+        self.assertEqual(defaults.status_code, 200)
+        self.assertIn('{product}', defaults.json['templates']['picking_product'])
+        self.assertEqual(self.client.get('/api/voice-templates', headers={'Authorization':'Bearer '+self.tokens['picker']}).status_code, 403)
+        rows = self.client.get('/api/voice-templates', headers={'Authorization':'Bearer '+self.tokens['admin']}).json
+        self.assertFalse(next(row for row in rows if row['key'] == 'picking_product')['customized'])
+        path = '/api/voice-templates/picking_product'
+        headers = {'Authorization':'Bearer '+self.tokens['admin']}
+        invalid = self.client.put(path, headers=headers, json={'text':'Tomá {unknown}.','enabled':True})
+        self.assertEqual(invalid.status_code, 400)
+        custom = 'Buscá {quantity} de {product}. Producto {position} de {total}.'
+        saved = self.client.put(path, headers=headers, json={'text':custom,'enabled':True})
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json['customized'])
+        runtime = self.client.get('/api/voice-templates/runtime', headers={'Authorization':'Bearer '+self.tokens['picker']}).json
+        self.assertEqual(runtime['templates']['picking_product'], custom)
+        self.client.put(path, headers=headers, json={'text':custom,'enabled':False})
+        runtime = self.client.get('/api/voice-templates/runtime', headers={'Authorization':'Bearer '+self.tokens['picker']}).json
+        self.assertIsNone(runtime['templates']['picking_product'])
+        reset = self.client.delete(path, headers=headers)
+        self.assertEqual(reset.status_code, 200)
+        self.assertFalse(reset.json['customized'])
+
+    def test_pallet_caliber_rule_crud_and_alias_assignment(self):
+        article = Article.query.filter_by(sku='1001').one()
+        article.calibre = '1000 CC VIDRIO'
+        db.session.commit()
+        headers = {'Authorization':'Bearer '+self.tokens['admin']}
+        payload = dict(key='litro_vidrio', name='Litro vidrio', must_be_bottom=True,
+            base_priority=100, allowed_above=['*'], cases_per_layer=None, max_layers=None, enabled=True)
+        created = self.client.post('/api/pallet-rules/families', headers=headers, json=payload)
+        self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.json['must_be_bottom'])
+        assigned = self.client.put('/api/pallet-rules/aliases', headers=headers,
+            json={'caliber':'1000 CC VIDRIO','family_key':'litro_vidrio'})
+        self.assertEqual(assigned.status_code, 200)
+        listing = self.client.get('/api/pallet-rules', headers=headers).json
+        self.assertEqual(listing['calibers'][0]['family_key'], 'litro_vidrio')
+        self.assertEqual(self.client.delete('/api/pallet-rules/families/litro_vidrio', headers=headers).status_code, 409)
+        self.client.put('/api/pallet-rules/aliases', headers=headers,
+            json={'caliber':'1000 CC VIDRIO','family_key':None})
+        self.assertEqual(self.client.delete('/api/pallet-rules/families/litro_vidrio', headers=headers).status_code, 200)
 
     def test_answer_receipt_prevents_duplicate_audit_and_payload_reuse(self):
         from models import LogEntry

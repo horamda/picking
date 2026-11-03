@@ -84,12 +84,12 @@ function SidebarContent({ onClose }) {
     const { pathname } = useLocation()
     const supervision = user?.role === 'supervisor' || pathname.startsWith('/supervision')
     const groups = manager ? [
-        ...(supervision ? [['Supervisión', ['/supervision', '/supervision/cargas', '/supervision/faltantes', '/supervision/equipo', '/tiempos', '/monitor']]] : [['Administración', ['/administracion', '/equipo', '/configuracion', '/articulos', '/exclusiones']], ['Importaciones', ['/importaciones']], ['Operación', ['/supervision', '/monitor', '/tiempos']]]),
+        ...(supervision ? [['Supervisión', ['/supervision', '/supervision/cargas', '/supervision/faltantes', '/supervision/equipo', '/tiempos', '/monitor']]] : [['Administración', ['/administracion', '/equipo', '/configuracion', '/articulos', '/frases-voz', '/reglas-pallets', '/exclusiones']], ['Importaciones', ['/importaciones']], ['Operación', ['/supervision', '/monitor', '/tiempos']]]),
         ['Reportes anteriores', ['/', '/historial', '/operacion']],
         ...(supervision && user?.role === 'administrador' ? [['Cambiar de panel', ['/administracion']]] : []),
         ...(user?.role === 'supervisor' ? [['Datos', ['/articulos', '/importaciones']]] : []),
     ] : [['Mi trabajo', [homeForRole(user?.role)]]]
-    const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Seguimiento en vivo'], ['/supervision/cargas', 'Planificar cargas'], ['/supervision/faltantes', 'Faltantes y autorizaciones'], ['/supervision/equipo', 'Asignar recursos'], ['/monitor', 'Pantalla en vivo'], ['/tiempos', 'Tiempos y actividad'], ['/administracion', 'Panel administrativo'], ['/equipo', 'Usuarios y canchas'], ['/configuracion', 'Camiones y capacidad']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
+    const items = [...navItems, ...[['/picking', 'Picking'], ['/pallets', 'Pallets completos'], ['/controles', 'Controles y activos'], ['/supervision', 'Seguimiento en vivo'], ['/supervision/cargas', 'Planificar cargas'], ['/supervision/faltantes', 'Faltantes y autorizaciones'], ['/supervision/equipo', 'Asignar recursos'], ['/monitor', 'Pantalla en vivo'], ['/tiempos', 'Tiempos y actividad'], ['/administracion', 'Panel administrativo'], ['/equipo', 'Usuarios y canchas'], ['/configuracion', 'Camiones y capacidad'], ['/frases-voz', 'Frases de voz'], ['/reglas-pallets', 'Mezclador de pallets']].map(([path, label]) => ({ ...navItems.find(i => i.path === '/operacion'), path, label }))]
 
 
     const handleLogout = () => {

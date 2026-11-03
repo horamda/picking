@@ -5,9 +5,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.pallet_planning import simulate_pallets, plan_for_capacity
 
 
-def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA'):
+def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL'):
     return dict(load_id=1, reparto='R1', court=court, sku=sku, descripcion=sku,
-                bultos=b, unidades=u, bultos_por_pallet=bpp, unidades_por_bulto=upb)
+                bultos=b, unidades=u, bultos_por_pallet=bpp, unidades_por_bulto=upb,
+                calibre=calibre, stack_family=family, stack_family_name=family,
+                base_priority=priority, must_be_bottom=bottom, allowed_above=['*'] if allowed is None else allowed)
 
 
 class PlanningTest(unittest.TestCase):
@@ -82,6 +84,22 @@ class PlanningTest(unittest.TestCase):
         for invalid in [None, 0, -1]:
             with self.assertRaises(ValueError): simulate_pallets([row(bpp=invalid)], 5)
         with self.assertRaises(ValueError): simulate_pallets([row()], 5, 'false')
+
+    def test_liter_caliber_is_base_and_accepts_other_courts_above(self):
+        rows = [row(25, court=2, sku='LATA', family='lata', allowed=[], calibre='473 CC LATAS'),
+                row(25, court=1, sku='LITRO', family='litro', priority=100, bottom=True, allowed=['*'], calibre='1000 CC VIDRIO')]
+        result = simulate_pallets(rows, 1, True)
+        self.assertEqual(result['total_pallets'], 1)
+        pallet = result['mixed_pallets'][0]
+        self.assertTrue(pallet['shared'])
+        self.assertEqual([i['sku'] for i in pallet['layers']], ['LITRO', 'LATA'])
+        self.assertEqual([i['placement'] for i in pallet['layers']], ['base', 'arriba'])
+
+    def test_unknown_caliber_never_crosses_courts(self):
+        rows = [row(25, court=1, family=None, calibre='SIN REGLA'), row(25, court=2, sku='OTRO', family='general')]
+        result = simulate_pallets(rows, 1, True)
+        self.assertEqual(result['total_pallets'], 2)
+        self.assertEqual(result['missing_caliber_rules'], ['SIN REGLA'])
 
 
 if __name__ == '__main__': unittest.main()

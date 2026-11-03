@@ -16,10 +16,15 @@ export default function VoiceControl({ prompt, onCommand }) {
     const activationRef = useRef(null)
     const stopRef = useRef(null)
     const commandRef = useRef(onCommand)
+    const automaticallySpokenRef = useRef(new Set())
     commandRef.current = onCommand
 
     // Cada vez que cambia el producto, el sistema lee la instrucción en voz alta.
-    useEffect(() => { if (listening && prompt) speak(prompt, setError) }, [prompt, listening])
+    useEffect(() => {
+        if (!listening || !prompt || automaticallySpokenRef.current.has(prompt)) return
+        automaticallySpokenRef.current.add(prompt)
+        speak(prompt, setError)
+    }, [prompt, listening])
 
     useEffect(() => () => { activationRef.current?.abort(); stopRef.current?.(); stopSpeaking() }, [])
 
@@ -69,6 +74,7 @@ export default function VoiceControl({ prompt, onCommand }) {
                     {loading ? status : listening ? (heard ? `Escuché: “${heard}”` : 'Escuchando…') : 'Voz desactivada'}
                 </span>
             </div>
+            <p className="mt-2 text-xs text-slate-500">Comandos: correcto, faltante, anterior, siguiente y repetir.</p>
             {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
         </div>
     )

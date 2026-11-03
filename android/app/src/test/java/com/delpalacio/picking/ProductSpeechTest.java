@@ -25,6 +25,8 @@ public class ProductSpeechTest {
         assertTrue(cases.contains("Agarrá 2 bultos de Agua"));assertFalse(cases.contains("unidades"));
         assertTrue(ProductSpeech.prompt("Agua",1,1,0,0,0,3).contains("un bulto y una unidad"));
         assertTrue(ProductSpeech.prompt("Agua",0,1,0,0,0,3).contains("Agarrá una unidad"));
+        assertFalse(ProductSpeech.prompt("Agua",2,1,0,0,0,3).contains("decí correcto"));
+        assertFalse(ProductSpeech.prompt("Agua",2,1,0,0,0,3).contains("faltante"));
     }
     @Test public void emptyAndPalletInstructions(){
         String empty=ProductSpeech.prompt("Agua",0,0,0,0,0,3);

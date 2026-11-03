@@ -23,6 +23,8 @@ from routes.history import history_bp
 from routes.operations import operations_bp
 from routes.exclusions import exclusions_bp
 from routes.load_control import load_control_bp
+from routes.voice_templates import voice_templates_bp
+from routes.pallet_rules import pallet_rules_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -37,6 +39,8 @@ app.register_blueprint(history_bp, url_prefix='/api/history')
 app.register_blueprint(operations_bp, url_prefix='/api/operations')
 app.register_blueprint(exclusions_bp, url_prefix='/api/exclusions')
 app.register_blueprint(load_control_bp, url_prefix='/api/load-control')
+app.register_blueprint(voice_templates_bp, url_prefix='/api/voice-templates')
+app.register_blueprint(pallet_rules_bp, url_prefix='/api/pallet-rules')
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / 'frontend' / 'dist'
 _db_init_lock = threading.Lock()

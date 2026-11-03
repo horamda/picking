@@ -18,7 +18,7 @@ export default function TruckWorkSummary({ summary: s, waiting = false }) {
             <p className="text-sm">Pallets completos de tus canchas: {mine.full_pallets_info} (se registran en el proceso de pallets completos).</p>
             {!!mine.allocations?.length && <details><summary className="min-h-12 cursor-pointer py-3 font-medium">Cómo distribuir el picking en pallets</summary>
                 <p className="mb-3 text-sm">Cada pallet pertenece al reparto indicado. Puede compartirse entre canchas de ese mismo reparto; nunca entre repartos distintos.</p>
-                {mine.allocations.map(p => <div key={p.id} className="my-2 rounded-lg bg-white p-3"><b>Pallet {p.id}{p.shared ? ' · Compartido con otras canchas' : ''}</b><ul className="mt-2 space-y-1 text-sm">{p.items.map((i, n) => <li key={n}>Reparto {i.reparto} · Cancha {i.court} · {i.descripcion}: {i.bultos} bultos + {i.unidades} unidades</li>)}</ul></div>)}
+                {mine.allocations.map(p => <div key={p.id} className="my-2 rounded-lg bg-white p-3"><b>Pallet {p.id}{p.shared ? ' · Compartido con otras canchas' : ''}</b><ul className="mt-2 space-y-1 text-sm">{p.items.map((i, n) => <li key={n}><b>{i.placement === 'base' ? 'Base' : 'Arriba'}:</b> Reparto {i.reparto} · Cancha {i.court} · {i.calibre || 'Sin calibre'} · {i.descripcion}: {i.bultos} bultos + {i.unidades} unidades</li>)}</ul></div>)}
             </details>}
         </>}
     </section>

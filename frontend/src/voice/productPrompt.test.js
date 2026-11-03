@@ -2,12 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { voicePrompt } from './productPrompt.js'
 
-test('informa reparto separado y supermercado también para pallets completos', () => {
+test('no repite reparto ni comandos en cada producto', () => {
     for (const stage of [0,4]) {
         const prompt=voicePrompt({descripcion:'Agua',bultos:2,pallets:1,reparto:'60701',separate_reparto:true,assembly_mode:'compact'},0,1,stage)
-        assert.match(prompt,/Reparto 60701/)
-        assert.match(prompt,/Supermercado/)
-        assert.match(prompt,/No mezclar con otros repartos/)
+        assert.doesNotMatch(prompt,/Reparto 60701|Supermercado|No mezclar|decí correcto|decí faltante/i)
     }
 })
 
@@ -28,4 +26,11 @@ test('sin cantidades pide revisión y conserva instrucciones por proceso', () =>
     assert.doesNotMatch(empty, /Agarrá|decí correcto/)
     assert.match(voicePrompt({ descripcion: 'Agua', pallets: 1 }, 0, 3, 4), /un pallet completo/)
     assert.match(voicePrompt({ descripcion: 'Original', descripcion_voz: 'Nombre hablado', unidades: 1 }, 0, 3, 1), /Verificá una unidad de Nombre hablado/)
+})
+
+test('aplica la plantilla administrativa con sus variables', () => {
+    const spoken = voicePrompt({ descripcion_voz: 'Brahma litro', bultos: 2, unidades: 4 }, 2, 12, 0,
+        { picking_product: 'Buscá {quantity} de {product}. Vas {position} de {total}.' })
+    assert.match(spoken, /Buscá 2 bultos y 4 unidades de Brahma litro\. Vas 3 de 12\./)
+    assert.equal(voicePrompt({ descripcion: 'Agua', bultos: 2 }, 0, 1, 0, { picking_product: null }), '')
 })

@@ -967,13 +967,14 @@ def asset_timer(truck_id, action):
 
 
 def planning_rows(truck):
+    from services.pallet_rules import rule_catalog, stacking_values
     if has_request_context():
         if not hasattr(request, 'planning_catalog'):
             request.planning_catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
         catalog = request.planning_catalog
     else:
         catalog = {a.sku: a for a in Article.query.filter_by(activo=True).all()}
-    rows = []
+    rows, rules = [], rule_catalog()
     for load in sorted(selected_loads(truck), key=lambda l: (l.source_id or l.id, l.id)):
         for court in load.content['canchas']:
             for product in court['productos']:
@@ -981,7 +982,8 @@ def planning_rows(truck):
                 rows.append(dict(load_id=load.id, reparto=load.reparto, court=court['numero'],
                     sku=product['sku'], descripcion=product['descripcion'], bultos=product['bultos'],
                     unidades=product['unidades'], bultos_por_pallet=article.bultos_por_pallet if article else None,
-                    unidades_por_bulto=article.unidades_por_bulto if article else None))
+                    unidades_por_bulto=article.unidades_por_bulto if article else None,
+                    **stacking_values(article, rules)))
     return rows
 
 

@@ -60,8 +60,10 @@ public final class MainActivity extends Activity {
     private final Runnable clockTick=new Runnable(){public void run(){updateClock();handler.postDelayed(this,1000);}};
     private Api api;
     private JSONObject user, load, court, check, activeTruck;
+    private JSONObject voiceTemplates = new JSONObject();
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
+    private final Set<String> automaticallySpokenProducts = new HashSet<>();
     private String filter = "Todos";
     private String currentScreen = "login";
     private int index = 0, requestVersion = 0, speechVersion = 0, currentStage = 0;
@@ -76,6 +78,7 @@ public final class MainActivity extends Activity {
     private JSONObject fetchQueue() throws Exception {
         JSONObject response=obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
         if(isController())response.put("operators",new JSONArray(api.request("GET","/load-control/operators",null)));
+        try{response.put("voice_templates",json("GET","/voice-templates/runtime",null).getJSONObject("templates"));}catch(Exception ignored){ }
         return response;
     }
     private String queueVersion(JSONObject response) throws Exception {
@@ -211,7 +214,7 @@ public final class MainActivity extends Activity {
         });voiceButton.setLayoutParams(new LinearLayout.LayoutParams(dp(112),-2));
         voiceStatus=label(voice?"Preparando…":"Voz desactivada",13,MUTED,false);voiceStatus.setPadding(dp(12),0,0,0);controls.addView(voiceStatus,new LinearLayout.LayoutParams(0,-2,1));content=panel;
         gap(10);heardView=text(lastHeard.isEmpty()?"Todavía no escuché un comando":"Escuché: “"+lastHeard+"”",14);heardView.setTextColor(dark?0xff6ee7b7:0xff047857);heardView.setPadding(dp(12),dp(10),dp(12),dp(10));heardView.setBackground(shape(0xffecfdf5,0xffa7f3d0,8));
-        text(currentScreen.equals("shortage")?"Decí, por ejemplo: un bulto y luego dos unidades.":"Decí correcto o faltante. La app lee cada producto en voz alta.",12);content=parent;
+        text(currentScreen.equals("shortage")?"Decí, por ejemplo: un bulto y luego dos unidades.":"Comandos: correcto, faltante, anterior, siguiente y repetir.",12);content=parent;
     }
     private void updateVoiceUi(String state){if(voiceButton!=null)voiceButton.setText(voice?"Parar voz":"Activar voz");if(voiceStatus!=null)voiceStatus.setText(state);}
     private interface Work<T> { T run() throws Exception; }
@@ -254,6 +257,17 @@ public final class MainActivity extends Activity {
     private String roleLabel(){return isController()?"Control de cargas":stage()==4?"Pallets completos":"Picking";}
     private String path() { return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id"); }
     private String pendingKey(){return "pending_answer:"+api.base+":"+user.optInt("id");}
+    private String voiceTemplatesKey(String base){return "voice_templates:"+base;}
+    private void loadVoiceTemplates(String base){
+        try{voiceTemplates=new JSONObject(getPreferences(0).getString(voiceTemplatesKey(base),"{}"));}
+        catch(Exception ignored){voiceTemplates=new JSONObject();}
+    }
+    private String voiceText(String key,String fallback,Object... values){
+        if(voiceTemplates.has(key) && voiceTemplates.isNull(key))return "";
+        String result=voiceTemplates.optString(key,fallback);
+        for(int i=0;i+1<values.length;i+=2)result=result.replace("{"+values[i]+"}",String.valueOf(values[i+1]));
+        return result;
+    }
     private boolean pendingAnswer(){return !demo && api!=null && user!=null && getPreferences(0).contains(pendingKey());}
     private void recoverAnswer(boolean retry){
         if(!pendingAnswer())return;
@@ -299,7 +313,7 @@ public final class MainActivity extends Activity {
         text("Contraseña",13);
         EditText password = input("Contraseña", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         styledButton("Ingresar →", GREEN,Color.WHITE,GREEN,() -> {
-            try { api = new Api(host.getText().toString()); } catch (Exception e) { error(e); return; }
+            try { api = new Api(host.getText().toString()); loadVoiceTemplates(api.base); } catch (Exception e) { error(e); return; }
             String username = name.getText().toString().trim(), secret = password.getText().toString();
             if (username.isEmpty() || secret.isEmpty()) { message("Completá usuario y contraseña."); return; }
             task(() -> {
@@ -311,6 +325,11 @@ public final class MainActivity extends Activity {
                 JSONObject permissions = json("GET","/load-control/my-courts",null);
                 JSONArray courts = permissions.getJSONArray("courts");
                 assigned.clear(); for (int i=0;i<courts.length();i++) assigned.add(courts.getInt(i));
+                try{
+                    JSONObject downloaded=json("GET","/voice-templates/runtime",null).getJSONObject("templates");
+                    getPreferences(0).edit().putString(voiceTemplatesKey(api.base),downloaded.toString()).apply();
+                    voiceTemplates=downloaded;
+                }catch(Exception ignored){ }
                 return person;
             }, person -> {
                 user = person; password.setText(""); getPreferences(0).edit().putString("server",api.base).apply(); listLoads();
@@ -379,7 +398,7 @@ public final class MainActivity extends Activity {
             for(int j=0;j<items.length();j++){
                 JSONObject item=items.optJSONObject(j);
                 if(item.optInt("load_id")==load.optInt("id") && item.optInt("court")==court.optInt("numero") && item.optString("sku").equals(product.optString("sku")))
-                    result.append(ProductSpeech.destination(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
+                    result.append(item.optString("placement").equals("base")?"Ubicá como base. ":"Ubicá arriba de la base. ").append(ProductSpeech.destination(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
             }
         }
         return result.length()==0?"Destino de pallet no disponible. Consultá al supervisor. ":result.toString();
@@ -439,6 +458,10 @@ public final class MainActivity extends Activity {
         pendingControls();
         task(this::fetchQueue, response -> {
             queueVersion=queueVersion(response);
+            if(response.has("voice_templates")){
+                voiceTemplates=response.getJSONObject("voice_templates");
+                getPreferences(0).edit().putString(voiceTemplatesKey(api.base),voiceTemplates.toString()).apply();
+            }
             operators=response.optJSONArray("operators");if(operators==null)operators=new JSONArray();
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
@@ -470,7 +493,7 @@ public final class MainActivity extends Activity {
             if(knownTasks!=null)newTasks.removeAll(knownTasks);
             if(knownTasks!=null && !newTasks.isEmpty()) {
                 text("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.",18);
-                if(!isController())speak("Tenés nuevas tareas habilitadas. Revisá tu próximo trabajo.");
+                if(!isController())speak(voiceText("new_tasks","Tenés nuevas tareas habilitadas. Revisá tu próximo trabajo."));
             }
             knownTasks=availableTasks;
             text("Actualizaci?n autom?tica cada 15 segundos mientras est?s en esta pantalla.",13);
@@ -591,15 +614,38 @@ public final class MainActivity extends Activity {
         }, result -> {
             load=result.getJSONObject("load");court=c;check=result.getJSONObject("check");
             products=check.optJSONArray("products");if(products==null)products=c.optJSONArray("productos");if(products==null)products=new JSONArray();index=0;
-            if(c.optBoolean("assistance",false))speak("Refuerzo en cancha "+c.optInt("numero")+". Tenés "+products.length()+" productos asignados. Prepará solamente los productos que indica la app.");
+            automaticallySpokenProducts.clear();
+            if(c.optBoolean("assistance",false))speak(voiceText("assistance_start","Refuerzo en cancha {court}. Tenés {total} productos asignados. Prepará solamente los productos que indica la aplicación.","court",c.optInt("numero"),"total",products.length()));
             JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).getString("sku"))) index++;
             product();
         });
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
-        String separation=ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),p.optBoolean("separate_reparto"));
-        return separation+ProductSpeech.prompt(p.optString("descripcion_voz",p.optString("descripcion")),p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length())+" "+destinations(p);
+        String name=p.optString("descripcion_voz",p.optString("descripcion"));
+        String fallback=ProductSpeech.prompt(name,p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length());
+        String configured=fallback;
+        if(stage()==4 && p.optInt("pallets")>0){
+            String pallets=p.optInt("pallets")==1?"un pallet completo":p.optInt("pallets")+" pallets completos";
+            configured=voiceText("pallet_product",fallback,"position",index+1,"total",products.length(),"pallets",pallets,"product",name);
+        }else if(p.optInt("bultos")==0 && p.optInt("unidades")==0){
+            configured=voiceText("empty_product",fallback,"position",index+1,"total",products.length(),"product",name);
+        }else if(stage()==0){
+            List<String> quantities=new ArrayList<>();
+            if(p.optInt("bultos")>0)quantities.add(p.optInt("bultos")==1?"un bulto":p.optInt("bultos")+" bultos");
+            if(p.optInt("unidades")>0)quantities.add(p.optInt("unidades")==1?"una unidad":p.optInt("unidades")+" unidades");
+            configured=voiceText("picking_product",fallback,"position",index+1,"total",products.length(),"quantity",String.join(" y ",quantities),"product",name);
+        }
+        return configured.isEmpty()?"":configured+" "+destinations(p);
+    }
+    private String productSpeechKey(){
+        JSONObject p=products.optJSONObject(index);
+        return check.optString("id")+":"+p.optString("sku");
+    }
+    private void speakProductOnce(){
+        String key=productSpeechKey();
+        if(automaticallySpokenProducts.add(key) && !prompt().trim().isEmpty())speak(prompt());
+        else startMic();
     }
     private void product() {
         currentScreen = "product";
@@ -647,7 +693,7 @@ public final class MainActivity extends Activity {
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
             .setNegativeButton("Seguir",(d,w)->product()).setOnCancelListener(d->product()).setPositiveButton("Finalizar",(d,w)->finishPicking()).show(); });
         content=body;
-        if(voice && !paused && !isController()) speak(prompt());
+        if(voice && !paused && !isController()) speakProductOnce();
     }
     private void answer(JSONObject data) {
         if(busy || check==null || check.isNull("timer_started_at")) return;
@@ -674,7 +720,7 @@ public final class MainActivity extends Activity {
     }
     private void afterAnswer() {
         if(index<products.length()-1) {index++;product();}
-        else {voice=false;product();if(!isController())speak("Último producto registrado. Revisá el avance y tocá finalizar picking.");}
+        else {voice=false;product();if(!isController())speak(voiceText("last_product","Último producto registrado. Revisá el avance y tocá finalizar picking."));}
     }
     private void shortage() {
         stopAudio();
@@ -767,7 +813,7 @@ public final class MainActivity extends Activity {
         });
         button("Cancelar",()->{stopAudio();product();});content=body;
         text("El faltante se confirma con un toque. La voz solo completa las cantidades; revisalas antes de guardar.",12);
-        if(voice)speak("Decí la cantidad que encontraste, no lo que falta. Si no encontraste nada, tocá No encontré nada. Revisá y tocá Registrar faltante para guardar.");
+        if(voice)speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y confirmá con el botón."));
     }
     private void pauseAndLeave() {
         voice=false;stopAudio();
@@ -825,7 +871,11 @@ public final class MainActivity extends Activity {
             if(!voiceBound)throw new IllegalStateException("No se pudo conectar el servicio de voz.");
         }catch(Exception e){voice=false;stopAudio();error(e);}
     }
-    private void activateVoice(){updateVoiceUi("Leyendo…");speak(currentScreen.equals("shortage")?"Decí los bultos y unidades físicos. Revisá y confirmá con el botón.":"Reparto "+load.optString("reparto")+". Cancha "+court.optInt("numero")+". "+prompt());}
+    private void activateVoice(){
+        updateVoiceUi("Leyendo…");
+        if(currentScreen.equals("shortage"))speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y confirmá con el botón."));
+        else speakProductOnce();
+    }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==11){enableAfterPermission=true;if(grants.length==0 || grants[0]!=PackageManager.PERMISSION_GRANTED)message("Para ver el control de voz fuera de la app, habilitá las notificaciones en Android.");}
@@ -874,7 +924,7 @@ public final class MainActivity extends Activity {
             case "repeat" -> speak(prompt());
             case "next" -> {if(index<products.length()-1){index++;product();}}
             case "prev" -> {if(index>0){index--;product();}}
-            default -> message("No entendí. Decí correcto, faltante o repetir.");
+            default -> message(voiceText("unknown_command","No entendí. Decí correcto, faltante o repetir."));
         }
     }
     private void stopMic(){if(voiceSession!=null)voiceSession.suspendListening();}

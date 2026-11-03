@@ -5,6 +5,8 @@ const areas = [
     ['/equipo', 'Usuarios y canchas', 'Alta de personas, roles y asignación de una o varias canchas.'],
     ['/configuracion', 'Camiones y capacidad', 'Posiciones físicas de pallets y configuración del depósito.'],
     ['/articulos', 'Artículos y voz', 'Maestro activo, datos originales y descripción para voz.'],
+    ['/frases-voz', 'Frases de voz', 'Textos que pronuncian la web y Android durante el trabajo.'],
+    ['/reglas-pallets', 'Mezclador de pallets', 'Familias de calibre, bases y compatibilidades de apilado.'],
     ['/importaciones', 'Importaciones', 'Consolidados PDF y maestro de artículos CSV.'],
     ['/', 'Dashboard', 'Reportes anteriores de la operación.'],
     ['/historial', 'Historial', 'Consulta de archivos y procesos anteriores.'],

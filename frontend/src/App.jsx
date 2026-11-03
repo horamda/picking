@@ -17,6 +17,8 @@ import axiosClient from './api/axiosClient'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
 import ThemeSwitch from './components/ThemeSwitch'
+import VoiceTemplatesPage from './pages/VoiceTemplatesPage'
+import PalletRulesPage from './pages/PalletRulesPage'
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -72,6 +74,8 @@ function App() {
                                             <Route path="/supervision/equipo" element={<WarehousePage section="team" supervision />} />
                                             <Route path="/equipo" element={<WarehousePage section="team" />} />
                                             <Route path="/configuracion" element={<WarehousePage section="settings" />} />
+                                            <Route path="/frases-voz" element={<VoiceTemplatesPage />} />
+                                            <Route path="/reglas-pallets" element={<PalletRulesPage />} />
                                             <Route path="/pallets" element={<LoadControlPage key="pallets" palletsOnly />} />
                                             <Route path="/importaciones" element={<ImportsPage />} />
                                             <Route path="/upload" element={<Navigate to="/importaciones?tipo=pdf" replace />} />

@@ -4,6 +4,7 @@ import unicodedata
 
 from services.load_control import selected_loads, court_state
 from services.pallet_planning import simulate_pallets, plan_for_capacity
+from services.pallet_rules import rule_catalog, stacking_values
 
 
 def totals(rows, catalog):
@@ -35,6 +36,7 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
     """Read-only packing preview; missing factors never become guessed quantities."""
     result = totals(rows, catalog)
     valid, missing = [], set()
+    rules = rule_catalog()
     for row in rows:
         if not row['bultos'] and not row.get('unidades', 0):
             continue
@@ -42,7 +44,8 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
         if not article or not article.activo or not article.unidades_por_bulto or article.unidades_por_bulto <= 0 or not article.bultos_por_pallet or article.bultos_por_pallet <= 0:
             missing.add(row['sku'])
             continue
-        valid.append(dict(row, bultos_por_pallet=article.bultos_por_pallet, unidades_por_bulto=article.unidades_por_bulto))
+        valid.append(dict(row, bultos_por_pallet=article.bultos_por_pallet, unidades_por_bulto=article.unidades_por_bulto,
+            **stacking_values(article, rules)))
     # Capacity affects the fit check, not packing. Never expose the placeholder as a real capacity.
     compact = [n for n in (compact_load_ids or []) if n in {r['load_id'] for r in valid}]
     plan = plan_for_capacity(valid, capacity, mix_courts, compact) if capacity and not missing else simulate_pallets(valid, capacity or 1, mix_courts, compact)
@@ -52,6 +55,7 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
                   picking_pallets_known=plan['mixed_count'], pallet_missing=sorted(missing),
                   capacity=capacity, mix_courts=plan['mix_courts'],
                   automatic_mix=plan.get('automatic_mix', False), separate_pallets=plan.get('separate_pallets'),
+                  missing_caliber_rules=plan.get('missing_caliber_rules', []),
                   fits=None if missing or capacity is None else plan['fits_estimate'])
     descriptions = {row['sku']: row['descripcion'] for row in rows}
     result['missing'] = [dict(sku=sku, descripcion=descriptions[sku], hl=sku in result['hl_missing'],
@@ -84,7 +88,7 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
     result['assembly'] = [dict(id=f'F{index + 1:03}', count=item['pallets'],
         items=[dict(item, **equivalents([item]))]) for index, item in enumerate(plan['full_pallets'])]
     result['assembly'] += [dict(id=pallet['id'], count=1,
-        items=[dict(item, **equivalents([item])) for item in pallet['items']]) for pallet in plan['mixed_pallets']]
+        items=[dict(item, **equivalents([item])) for item in pallet.get('layers', pallet['items'])]) for pallet in plan['mixed_pallets']]
     return result
 
 
@@ -131,9 +135,11 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None
     own_summary = totals(own, catalog)
     allocations = []
     for pallet in ((plan or {}).get('mixed_pallets', []) if stage == 0 else []):
-        items = [i for i in pallet['items'] if (i['load_id'], i['court'], i['sku']) in own_keys]
+        layers = pallet.get('layers', pallet['items'])
+        items = [i for i in layers if (i['load_id'], i['court'], i['sku']) in own_keys]
         if items:
-            allocations.append(dict(id=pallet['id'], shared=len({i['court'] for i in pallet['items']}) > 1, items=items))
+            allocations.append(dict(id=pallet['id'], shared=len({i['court'] for i in pallet['items']}) > 1,
+                items=items, layers=layers))
     own_summary.update(stage=stage, pallets=len(allocations) if plan and stage == 0 else sum(p.get('pallets', 0) for p in own) if plan else None,
                        allocations=allocations,
                        full_pallets_info=sum(p['pallets'] for p in (plan or {}).get('full_pallets', []) if p['court'] in courts))
