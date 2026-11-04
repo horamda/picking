@@ -11,7 +11,7 @@ function ProcessCard({ entries, stage, group }) {
     const process = entries.find(item => !item.assistance) || entries[0]
     const helpers = entries.filter(item => item.assistance)
     const title = ['1 · Armado', '2 · Control 1', '3 · Control 2'][stage]
-    if (!process) return <article className="monitor-process-card border-slate-600 bg-slate-900"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{title}</h3><span className="rounded-md bg-black/20 px-2 py-1 text-xs">Sin iniciar</span></div><p className="mt-3 text-lg font-semibold">Por asignar</p><p className="mt-1 text-sm text-slate-300">Sin productos disponibles</p><progress value="0" max="1" className="mt-auto h-2 w-full" /></article>
+    if (!process) return <article className="monitor-process-card border-slate-600 bg-slate-900"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{title}</h3><span className="rounded-md bg-black/20 px-2 py-1 text-xs">No requerido</span></div><p className="mt-3 text-lg font-semibold">No requiere picking</p><p className="mt-1 text-sm text-slate-300">Esta cancha no tiene bultos ni unidades sueltas.</p><progress value="0" max="1" className="mt-auto h-2 w-full" /></article>
     const displayStatus = process.status === 'pending' && process.available === false ? 'waiting' : process.status
     const candidates = process.responsible_candidates || []
     const responsibility = process.username ? `Responsable: ${process.username}` : candidates.length === 1 ? `Responsable previsto: ${candidates[0]}` : candidates.length ? `Disponibles: ${candidates.join(', ')}` : 'Sin responsable asignado'

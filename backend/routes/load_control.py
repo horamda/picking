@@ -320,6 +320,12 @@ def full_pallets_info(load, court):
             for p in plan.get('full_pallets', []) if p['load_id'] == load.id and p['court'] == court['numero']]
 
 
+def has_full_pallet_work(load, court):
+    plan = load.truck.state.get('planning') or {}
+    return any(p['load_id'] == load.id and p['court'] == court['numero'] and p.get('pallets', 0) > 0
+               for p in plan.get('full_pallets', []))
+
+
 def task_products(load, court, stage):
     plan = load.truck.state.get('planning')
     if not plan:
@@ -644,7 +650,9 @@ def start(load_id, number, stage):
         fail('Primero debe finalizar el picking en curso.', 409)
     if stage == 1 and any(h['status'] == 'active' for h in helpers(cs)):
         fail('Primero deben finalizar los refuerzos de esta cancha.', 409)
-    if stage == 1 and not legacy_in_progress(load.truck) and any(task_products(load, court, n) and cs['checks'].get(str(n), {}).get('status') != 'done' for n in (0, 4)):
+    if stage == 1 and not legacy_in_progress(load.truck) and any(
+            (task_products(load, court, 0) if n == 0 else has_full_pallet_work(load, court))
+            and cs['checks'].get(str(n), {}).get('status') != 'done' for n in (0, 4)):
         fail('Primero deben finalizar picking y pallets completos de esta cancha.', 409)
     previous = cs['checks'].get('1')
     if stage == 2:
@@ -1238,7 +1246,8 @@ def warehouse_monitor():
                         available = load_picking_complete(load)
                         blocked_reason = None if available else 'Espera que finalicen todas las canchas del reparto'
                     elif stage == 1:
-                        pending_stages = [n for n in (0, 4) if task_products(load, court, n)
+                        pending_stages = [n for n in (0, 4)
+                            if (task_products(load, court, 0) if n == 0 else has_full_pallet_work(load, court))
                             and cs['checks'].get(str(n), {}).get('status') != 'done']
                         available = not pending_stages and not any(h.get('status') == 'active' for h in helpers(cs))
                         blocked_reason = None if available else 'Espera armado y pallets completos'

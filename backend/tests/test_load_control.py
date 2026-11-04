@@ -806,6 +806,7 @@ class ControlFlowTest(unittest.TestCase):
         self.call('get', f'/loads/{self.load_id}', 'pallet', expected=403)
         picking_check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
         self.call('post', f'/loads/{self.load_id}/courts/1/checks/0/{picking_check["id"]}/finish', 'picker')
+        self.call('post', f'/loads/{self.load_id}/courts/1/start/1', 'ana', expected=409)
         self.assertEqual(self.call('get', '/my-courts', 'pallet')['courts'], [1])
         self.assertTrue(self.call('get', '/trucks', 'pallet')[0]['loads'])
         pallets = self.call('get', f'/loads/{self.load_id}', 'pallet')['canchas'][0]['productos']
