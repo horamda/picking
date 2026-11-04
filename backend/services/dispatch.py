@@ -136,9 +136,10 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None
     allocations = []
     for pallet in ((plan or {}).get('mixed_pallets', []) if stage == 0 else []):
         layers = pallet.get('layers', pallet['items'])
-        items = [i for i in layers if (i['load_id'], i['court'], i['sku']) in own_keys]
+        items = [i for i in layers if (i['load_id'], i.get('assigned_court', i['court']), i['sku']) in own_keys]
         if items:
-            allocations.append(dict(id=pallet['id'], shared=len({i['court'] for i in pallet['items']}) > 1,
+            allocations.append(dict(id=pallet['id'], owner_court=pallet.get('owner_court'),
+                shared=len({i['court'] for i in pallet['items']}) > 1,
                 items=items, layers=layers))
     own_summary.update(stage=stage, pallets=len(allocations) if plan and stage == 0 else sum(p.get('pallets', 0) for p in own) if plan else None,
                        allocations=allocations,

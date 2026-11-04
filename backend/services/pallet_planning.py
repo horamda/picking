@@ -1,5 +1,6 @@
 """Read-only, deterministic pallet estimate. Never rewrites picking quantities."""
 from fractions import Fraction
+from collections import Counter
 
 
 def cross_court_compatible(pallet, reference):
@@ -65,7 +66,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         reference = {key: row.get(key) for key in ('load_id', 'reparto', 'court', 'sku', 'descripcion',
             'calibre', 'stack_family', 'stack_family_name', 'must_be_bottom', 'base_priority', 'allowed_above',
             'cases_per_layer', 'max_layers', 'business_unit', 'can_be_base', 'stable',
-            'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending')}
+            'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending',
+            'bultos_por_pallet', 'unidades_por_bulto')}
         floor = reference.get('bultos_por_piso')
         reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or
             (floor and remainder >= floor))
@@ -107,6 +109,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         pallet['occupancy'] = round(float(pallet.pop('used')), 6)
         pallet['courts'] = sorted({i['court'] for i in pallet['items']})
         pallet['shared'] = len(pallet['courts']) > 1
+        pallet['owner_court'] = pallet['court']
         pallet['layers'] = [dict(position=n+1, placement='base' if n == 0 else 'arriba', **item)
             for n, item in enumerate(pallet['items'])]
         del pallet['court']
@@ -128,3 +131,89 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
                 excess_positions=max(0, total-capacity), fits_estimate=total <= capacity,
                 missing_caliber_rules=missing_rules, status='simulation', method='caliber_first_fit_per_load',
                 warning='Estimación por equivalencia de bultos y reglas de calibre. Requiere revisión física de altura, peso y estabilidad por el supervisor.')
+
+
+def apply_manual_pallets(plan, submitted):
+    """Validate a supervisor regrouping and assign each result to its destination court."""
+    if not isinstance(submitted, list) or not submitted:
+        raise ValueError('El armado manual no contiene pallets de picking.')
+
+    def signature(item):
+        return (item.get('load_id'), item.get('order'), item.get('court'), str(item.get('sku')),
+                item.get('bultos'), item.get('unidades'))
+
+    originals = [item for pallet in plan['mixed_pallets'] for item in pallet['items']]
+    available = {}
+    for item in originals:
+        available.setdefault(signature(item), []).append(item)
+    expected = Counter(signature(item) for item in originals)
+    received, mixed, seen_ids = Counter(), [], set()
+
+    for index, raw in enumerate(submitted, 1):
+        if not isinstance(raw, dict) or not isinstance(raw.get('items'), list) or not raw['items']:
+            raise ValueError('Cada pallet debe contener al menos un artículo.')
+        pallet_id = str(raw.get('id') or f'M{index:03}')
+        if pallet_id in seen_ids:
+            raise ValueError('Hay identificadores de pallet repetidos.')
+        seen_ids.add(pallet_id)
+        clean_items = []
+        for candidate in raw['items']:
+            key = signature(candidate)
+            received[key] += 1
+            pool = available.get(key, [])
+            if received[key] > len(pool):
+                raise ValueError('El armado manual modifica, duplica o agrega cantidades de productos.')
+            clean_items.append(dict(pool[received[key] - 1]))
+        if len({item['load_id'] for item in clean_items}) != 1:
+            raise ValueError('No se pueden mezclar repartos dentro de un mismo pallet.')
+        owner = raw.get('owner_court')
+        if type(owner) is not int or owner not in {item['court'] for item in clean_items}:
+            raise ValueError('La cancha responsable debe pertenecer al pallet de destino.')
+        clean_items.sort(key=lambda item: (-item.get('size_rank', 0), -item.get('base_priority', 0), item['order']))
+        used = sum(Fraction(item['bultos'], item['bultos_por_pallet']) +
+                   Fraction(item['unidades'], item['bultos_por_pallet'] * item['unidades_por_bulto'])
+                   for item in clean_items)
+        if used > 1:
+            raise ValueError(f'El pallet {pallet_id} supera el 100% de capacidad.')
+        for item in clean_items:
+            item['assigned_court'] = owner
+            item['pallet_id'] = pallet_id
+        mixed.append(dict(id=pallet_id, load_id=clean_items[0]['load_id'], reparto=clean_items[0]['reparto'],
+                          assembly_mode=clean_items[0]['assembly_mode'], owner_court=owner,
+                          occupancy=round(float(used), 6), courts=sorted({i['court'] for i in clean_items}),
+                          shared=len({i['court'] for i in clean_items}) > 1, items=clean_items,
+                          layers=[dict(position=n + 1, placement='base' if n == 0 else 'arriba', **item)
+                                  for n, item in enumerate(clean_items)]))
+    if received != expected:
+        raise ValueError('El armado manual deja productos afuera o altera sus cantidades.')
+
+    tasks = {}
+    for pallet in mixed:
+        for item in pallet['items']:
+            key = (item['load_id'], item['assigned_court'], item['sku'])
+            task = tasks.setdefault(key, dict(item, court=item['assigned_court'], source_courts=[],
+                                              bultos=0, unidades=0, pallet_ids=[]))
+            task['bultos'] += item['bultos']
+            task['unidades'] += item['unidades']
+            if item['court'] not in task['source_courts']:
+                task['source_courts'].append(item['court'])
+            if pallet['id'] not in task['pallet_ids']:
+                task['pallet_ids'].append(pallet['id'])
+
+    original_mixed_count = plan['mixed_count']
+    plan['mixed_pallets'] = mixed
+    plan['picking_tasks'] = sorted(tasks.values(), key=lambda item: (item['load_id'], item['order'], item['sku']))
+    plan['mixed_count'] = len(mixed)
+    plan['total_pallets'] = plan['full_count'] + len(mixed)
+    plan['free_positions'] = max(0, plan['capacity'] - plan['total_pallets'])
+    plan['excess_positions'] = max(0, plan['total_pallets'] - plan['capacity'])
+    plan['fits_estimate'] = plan['total_pallets'] <= plan['capacity']
+    for load_plan in plan['load_plans']:
+        own = [p for p in mixed if p['load_id'] == load_plan['load_id']]
+        load_plan['mixed_count'] = len(own)
+        load_plan['total_pallets'] = load_plan['full_count'] + len(own)
+        load_plan['pallet_ids'] = ([p['id'] for p in plan['full_pallets'] if p['load_id'] == load_plan['load_id']] +
+                                   [p['id'] for p in own])
+    plan['manual_edition'] = True
+    plan['manual_saved_positions'] = original_mixed_count - len(mixed)
+    return plan

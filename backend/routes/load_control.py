@@ -14,7 +14,7 @@ from werkzeug.exceptions import HTTPException
 
 from auth import auth_required, roles_required, current_user_payload
 from models import Consolidado, User, LogEntry, Article
-from services.pallet_planning import plan_for_capacity
+from services.pallet_planning import plan_for_capacity, apply_manual_pallets
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts, truck_capacity, depot_key
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
@@ -315,15 +315,17 @@ def task_products(load, court, stage):
     quantities = {p['sku']: p for p in rows if p['load_id'] == load.id and p['court'] == court['numero']}
     pallet_info = {p['sku']: p for p in full_pallets_info(load, court)} if stage == 0 else {}
     result = []
-    for product in court['productos']:
+    source_products = court['productos'] if stage != 0 or not plan.get('manual_edition') else list(quantities.values())
+    for product in source_products:
         task = quantities.get(product['sku'])
         if task and (task['bultos'] or task.get('unidades', 0)):
             info = pallet_info.get(product['sku'], {})
             destinations = [dict(pallet_id=pallet['id'], bultos=item['bultos'], unidades=item['unidades'])
                 for pallet in plan.get('mixed_pallets', []) for item in pallet['items']
-                if stage == 0 and item['load_id'] == load.id and item['court'] == court['numero'] and item['sku'] == product['sku']]
+                if stage == 0 and item['load_id'] == load.id and item.get('assigned_court', item['court']) == court['numero'] and item['sku'] == product['sku']]
             result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0),
                                pallet_destinations=destinations,
+                               source_courts=task.get('source_courts', [task.get('court')]),
                                reparto=load.reparto, assembly_mode=task.get('assembly_mode', 'normal'),
                                separate_reparto=plan.get('separation_policy') == 'reparto_v1',
                                pallet_group=task.get('id'),
@@ -1093,6 +1095,8 @@ def approve_plan(truck_id):
         fail('Confirma la revision fisica de altura, estabilidad y compatibilidad.')
     try:
         plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix, compact)
+        if data.get('manual_edition'):
+            plan = apply_manual_pallets(plan, data.get('mixed_pallets'))
     except ValueError as exc:
         fail(str(exc))
     if not plan['fits_estimate']:

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api/axiosClient'
 import { Link } from 'react-router-dom'
 import { getStoredUser } from '../utils/auth'
+import PalletCardEditor from './PalletCardEditor'
 
 export default function PalletPlanning({ truck, onClose }) {
     const [capacity, setCapacity] = useState('')
@@ -60,6 +61,20 @@ export default function PalletPlanning({ truck, onClose }) {
         } catch (e) { setError(e.response?.data?.error || e.message || 'No se pudo calcular. Reintentá.') }
         finally { setBusy(false) }
     }
+    function updatePallets(pallets) {
+        setReviewed(false)
+        setResult(current => {
+            const loadPlans = current.load_plans.map(load => {
+                const own = pallets.filter(pallet => pallet.load_id === load.load_id)
+                return { ...load, mixed_count: own.length, total_pallets: load.full_count + own.length,
+                    pallet_ids: [...current.full_pallets.filter(pallet => pallet.load_id === load.load_id).map(pallet => pallet.id), ...own.map(pallet => pallet.id)] }
+            })
+            const total = current.full_count + pallets.length
+            return { ...current, mixed_pallets: pallets, mixed_count: pallets.length, total_pallets: total,
+                free_positions: Math.max(0, current.capacity - total), excess_positions: Math.max(0, total - current.capacity),
+                fits_estimate: total <= current.capacity, load_plans: loadPlans, manual_edition: true }
+        })
+    }
     return <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-5" aria-label="Simulación de pallets">
         <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">Planificar pallets · {truck.truck}</h2><button className={button} onClick={onClose}>Cerrar</button></div>
         <p>Revisá el armado y aprobalo para entregar las tareas a los operarios.</p>
@@ -93,6 +108,7 @@ export default function PalletPlanning({ truck, onClose }) {
             <div className="grid gap-3 sm:grid-cols-2">{result.load_plans?.map(p => <div className="rounded-xl border bg-white p-3" key={p.load_id}><b>Reparto {p.reparto} · {p.total_pallets} pallets estimados</b><p>{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'}</p><p>{p.full_count} completos + {p.mixed_count} de picking</p><p>Pallets exclusivos: {p.pallet_ids.join(', ') || 'Sin pallets'}</p></div>)}</div>
             <p className="rounded-xl bg-white p-3">{result.automatic_mix ? `Sin combinar canchas normales: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; combinando canchas dentro de cada reparto: ${result.total_pallets} pallets.` : 'Los supermercados combinan canchas dentro de su propio reparto. En los repartos normales, las canchas se mantienen separadas salvo que elijas combinarlas.'}</p>
             {!!result.missing_caliber_rules?.length && <p role="alert" className="rounded-xl bg-amber-100 p-3"><b>Criterios físicos pendientes:</b> {result.missing_caliber_rules.join(', ')}. Esos productos no se combinan automáticamente. <Link className="underline" to="/reglas-pallets">Revisar criterios</Link>.</p>}
+            <PalletCardEditor pallets={result.mixed_pallets} fullPallets={result.full_pallets} disabled={locked || approved || busy} onChange={updatePallets} />
             {!locked && !approved && <p role="status" className="rounded-xl bg-amber-100 p-3">{!capacityMatches ? (configuredCapacity === null ? 'Para aprobar: ingresá la capacidad real y pulsá «Guardar capacidad y calcular armado».' : `Simulaste con ${result.capacity} pallets, pero el camión tiene ${configuredCapacity} registrados. Corregí la capacidad y volvé a simular.`) : !result.fits_estimate ? 'No se puede aprobar: el armado supera la capacidad del camión. Revisá la selección y el armado de sus repartos.' : !reviewed ? 'Para habilitar la aprobación, confirmá abajo la revisión de altura, estabilidad y compatibilidad.' : 'La propuesta está lista para aprobar y enviar al equipo.'}</p>}
             <label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />Revisé altura, estabilidad y compatibilidad del armado propuesto.</label>
             <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate || !capacityMatches} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>
@@ -102,10 +118,7 @@ export default function PalletPlanning({ truck, onClose }) {
             {result.full_pallets.map((p, i) => <p key={i}>Reparto {p.reparto} · Cancha {p.court} · {p.sku} {p.descripcion}: <b>{p.pallets} pallets ({p.bultos} bultos)</b></p>)}
             <h3 className="font-semibold">Picking restante, en orden de la carga</h3>
             {result.picking_tasks.map((p, i) => <p key={i}>{p.order}. Reparto {p.reparto} · Cancha {p.court} · {p.sku} {p.descripcion}: <b>{p.bultos} bultos + {p.unidades} unidades</b></p>)}
-            <h3 className="font-semibold">Contenido propuesto de pallets mixtos</h3>
-            {result.mixed_pallets.map(p => <div key={p.id} className="rounded-xl border bg-white p-3"><b>{p.id} · Reparto {p.reparto || p.items[0]?.reparto} · Canchas {p.courts.join(', ')} · Ocupación estimada {(p.occupancy * 100).toFixed(1)}%</b>
-                {(p.layers || p.items).map((item, i) => <p key={i}><b>{item.placement === 'base' || i === 0 ? 'Base' : `Arriba ${i}`}:</b> Cancha {item.court} · {item.calibre || 'Sin calibre'} · {item.sku} {item.descripcion}: {item.bultos} bultos + {item.unidades} unidades</p>)}
-            </div>)}</div></details>
+            </div></details>
         </>}
     </section>
 }

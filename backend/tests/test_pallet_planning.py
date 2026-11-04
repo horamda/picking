@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.pallet_planning import simulate_pallets, plan_for_capacity
+from services.pallet_planning import simulate_pallets, plan_for_capacity, apply_manual_pallets
 
 
 def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False):
@@ -111,6 +111,26 @@ class PlanningTest(unittest.TestCase):
     def test_incomplete_floor_cannot_support_another_product(self):
         rows = [row(5, court=1, sku='BASE', rank=1000, floor=10), row(25, court=2, sku='ARRIBA', rank=473)]
         self.assertEqual(simulate_pallets(rows, 2, True)['total_pallets'], 2)
+
+    def test_supervisor_can_merge_pallets_without_losing_products(self):
+        plan = simulate_pallets([row(10, court=1), row(10, court=2, sku='AGUA')], 2, False)
+        first, second = plan['mixed_pallets']
+        submitted = [dict(first, items=first['items'] + second['items'], owner_court=1)]
+        edited = apply_manual_pallets(plan, submitted)
+        self.assertEqual((edited['mixed_count'], edited['total_pallets']), (1, 1))
+        self.assertEqual(sum(item['bultos'] for item in edited['mixed_pallets'][0]['items']), 20)
+        self.assertEqual({task['court'] for task in edited['picking_tasks']}, {1})
+        self.assertEqual(edited['picking_tasks'][1]['source_courts'], [2])
+
+    def test_manual_merge_rejects_overfill_and_cross_reparto(self):
+        plan = simulate_pallets([row(30), dict(row(10, court=2, sku='AGUA'), load_id=2, reparto='R2')], 3, False)
+        first, second = plan['mixed_pallets']
+        with self.assertRaisesRegex(ValueError, 'repartos'):
+            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)])
+        plan = simulate_pallets([row(30), row(30, court=2, sku='AGUA')], 3, False)
+        first, second = plan['mixed_pallets']
+        with self.assertRaisesRegex(ValueError, '100%'):
+            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)])
 
 
 if __name__ == '__main__': unittest.main()
