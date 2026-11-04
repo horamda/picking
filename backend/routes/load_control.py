@@ -73,6 +73,15 @@ def preparation_worker():
     return g.current_user.role.name in ('operador', 'palletizador')
 
 
+def work_courts(user, trucks=None):
+    """Palletizers serve the whole truck; pickers retain their assigned courts."""
+    if user.role.name != 'palletizador':
+        return assigned_courts(user.id)
+    candidates = trucks if trucks is not None else ControlTruck.query.options(selectinload(ControlTruck.loads)).all()
+    return sorted({court['numero'] for truck in candidates if not truck.state.get('released_at')
+                   for load in selected_loads(truck) for court in load.content['canchas']})
+
+
 def current_dispatch_truck():
     if 'picking.dispatch_current' in request.environ:
         return request.environ['picking.dispatch_current']
@@ -80,7 +89,7 @@ def current_dispatch_truck():
     g.dispatch_configured = db.session.query(ControlTruck.id).filter(
         ControlTruck.state['dispatch']['load_ids'].as_string().isnot(None)).first() is not None
     rows = ControlTruck.query.filter(ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
-    current = (queue_for(rows, assigned_courts(g.current_user.id), stage, g.current_user.id, task_products) or [None])[0]
+    current = (queue_for(rows, work_courts(g.current_user, rows), stage, g.current_user.id, task_products) or [None])[0]
     request.environ['picking.dispatch_current'] = current
     return current
 
@@ -254,7 +263,7 @@ def preview_dispatch():
 
 def require_court(number):
     db.session.query(User).filter_by(id=g.current_user.id).with_for_update().first()
-    if not manager() and number not in assigned_courts(g.current_user.id):
+    if not manager() and number not in work_courts(g.current_user):
         fail('Esta cancha no está asignada a tu usuario.', 403)
 
 
@@ -438,7 +447,8 @@ def serialize_load(load, summary=False):
     legacy = legacy_in_progress(load.truck)
     result['planning_status'] = 'approved' if valid_plan else 'legacy' if legacy else 'pending'
     worker_stage = 4 if g.current_user.role.name == 'palletizador' else 0
-    result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in assigned_courts(g.current_user.id)
+    allowed_courts = work_courts(g.current_user, [load.truck]) if preparation_worker() else assigned_courts(g.current_user.id)
+    result['canchas'] = [c for c in result['canchas'] if manager() or c['numero'] in allowed_courts
         or (preparation_worker() and assistance_access(load, c['numero'], g.current_user.id, worker_stage))]
     for court in result['canchas']:
         pallet_info = full_pallets_info(load, court)
@@ -531,13 +541,13 @@ def trucks():
             continue
         st = status(t)
         if not manager():
-            allowed = assigned_courts(g.current_user.id)
+            allowed = work_courts(g.current_user, [t])
             st['shortages'] = [sh for sh in st['shortages'] if sh['court'] in allowed]
             st['pending_sources'] = []
         result.append(dict(id=t.id, branch=t.branch, load_date=t.load_date, truck=t.truck,
             version=t.version, planning_status='approved' if valid else 'legacy' if legacy_in_progress(t) else 'pending', status=st, loads=loads,
             dispatch=t.state.get('dispatch'), queue_current=queued,
-            summary=truck_summary(t, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
+            summary=truck_summary(t, dispatch_catalog(), work_courts(g.current_user, [t]) if preparation_worker() else None,
                                   4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(valid), user_id=g.current_user.id if preparation_worker() else None)))
     return jsonify(result)
 
@@ -571,7 +581,7 @@ def load_detail(load_id):
     if not manager() and not approved(load.truck) and not legacy_in_progress(load.truck):
         fail('La carga espera aprobacion del supervisor.', 409)
     result = serialize_load(load)
-    result['truck_summary'] = truck_summary(load.truck, dispatch_catalog(), assigned_courts(g.current_user.id) if preparation_worker() else None,
+    result['truck_summary'] = truck_summary(load.truck, dispatch_catalog(), work_courts(g.current_user, [load.truck]) if preparation_worker() else None,
                                            4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(approved(load.truck)), user_id=g.current_user.id if preparation_worker() else None)
     if not manager() and not result['canchas']:
         fail('No tenes canchas asignadas en esta carga.', 403)
@@ -1018,7 +1028,7 @@ def planning_rows(truck):
 @load_control_bp.get('/my-courts')
 @auth_required
 def my_courts():
-    return jsonify(courts=assigned_courts(g.current_user.id))
+    return jsonify(courts=work_courts(g.current_user))
 
 
 @load_control_bp.put('/users/<int:user_id>/courts')

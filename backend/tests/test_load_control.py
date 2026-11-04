@@ -794,10 +794,16 @@ class ControlFlowTest(unittest.TestCase):
         self.assertEqual(self.call('get', '/trucks', 'picker'), [])
         self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
         self.approve_current()
+        from services.warehouse import UserCourt
+        palletizer = User.query.filter_by(username='pallet').one()
+        UserCourt.query.filter_by(user_id=palletizer.id).delete()
+        db.session.commit()
         picking = self.call('get', f'/loads/{self.load_id}', 'picker')['canchas'][0]['productos']
         self.call('get', f'/loads/{self.load_id}', 'pallet', expected=403)
         picking_check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
         self.call('post', f'/loads/{self.load_id}/courts/1/checks/0/{picking_check["id"]}/finish', 'picker')
+        self.assertEqual(self.call('get', '/my-courts', 'pallet')['courts'], [1])
+        self.assertTrue(self.call('get', '/trucks', 'pallet')[0]['loads'])
         pallets = self.call('get', f'/loads/{self.load_id}', 'pallet')['canchas'][0]['productos']
         self.assertEqual(picking[0]['bultos'], 44)
         self.assertEqual((pallets[0]['pallets'], pallets[0]['bultos']), (4, 200))
