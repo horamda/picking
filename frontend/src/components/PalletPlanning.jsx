@@ -44,6 +44,7 @@ export default function PalletPlanning({ truck, onClose }) {
     }, [truck.id])
     const button = 'min-h-12 rounded-xl border border-slate-300 bg-white px-4 py-2 font-medium disabled:opacity-40'
     const capacityMatches = configuredCapacity !== null && result?.capacity === configuredCapacity
+    const loadPlanTotal = result?.load_plans?.reduce((sum, plan) => sum + plan.total_pallets, 0) || 0
     async function simulate(event) {
         event.preventDefault(); setBusy(true); setError(''); setMessage(''); setResult(null); setReviewed(false); setApproved(false)
         try {
@@ -83,19 +84,20 @@ export default function PalletPlanning({ truck, onClose }) {
         {error && <p role="alert" className="text-red-800">{error}</p>}
         {approved && !locked && <p role="status" className="rounded-xl bg-emerald-100 p-4">Carga aprobada. Cada operario la verá cuando le corresponda en la cola de camiones; primero debe terminar sus tareas anteriores.</p>}
         {result && <>
+            <div role="status" className={`rounded-2xl border-2 p-5 ${result.fits_estimate ? 'border-emerald-400 bg-emerald-50' : 'border-red-400 bg-red-50'}`}>
+                <p className="text-sm font-semibold uppercase tracking-wide">Resultado del camión</p><b className="mt-1 block text-4xl">{result.total_pallets} pallets físicos finales</b>
+                <p className="mt-2">{result.full_count} completos + {result.mixed_count} armados con picking = <b>{result.total_pallets}</b>.</p>
+                <p>Capacidad: <b>{result.capacity}</b>. {result.excess_positions ? `Faltan ${result.excess_positions} posiciones.` : `Quedan ${result.free_positions} posiciones libres.`}</p>
+                {loadPlanTotal !== result.total_pallets && <p className="mt-2 font-bold text-red-700">Inconsistencia interna: la suma por reparto da {loadPlanTotal}. No apruebes este cálculo.</p>}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">{result.load_plans?.map(p => <div className="rounded-xl border bg-white p-3" key={p.load_id}><b>Reparto {p.reparto} · {p.total_pallets} pallets estimados</b><p>{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'}</p><p>{p.full_count} completos + {p.mixed_count} de picking</p><p>Pallets exclusivos: {p.pallet_ids.join(', ') || 'Sin pallets'}</p></div>)}</div>
             <p className="rounded-xl bg-white p-3">{result.automatic_mix ? `Sin combinar canchas normales: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; combinando canchas dentro de cada reparto: ${result.total_pallets} pallets.` : 'Los supermercados combinan canchas dentro de su propio reparto. En los repartos normales, las canchas se mantienen separadas salvo que elijas combinarlas.'}</p>
-            {!!result.missing_caliber_rules?.length && <p role="alert" className="rounded-xl bg-amber-100 p-3"><b>Calibres sin regla:</b> {result.missing_caliber_rules.join(', ')}. Permanecen separados de otras canchas. <Link className="underline" to="/reglas-pallets">Configurar mezclador</Link>.</p>}
+            {!!result.missing_caliber_rules?.length && <p role="alert" className="rounded-xl bg-amber-100 p-3"><b>Criterios físicos pendientes:</b> {result.missing_caliber_rules.join(', ')}. Esos productos no se combinan automáticamente. <Link className="underline" to="/reglas-pallets">Revisar criterios</Link>.</p>}
             {!locked && !approved && <p role="status" className="rounded-xl bg-amber-100 p-3">{!capacityMatches ? (configuredCapacity === null ? 'Para aprobar: ingresá la capacidad real y pulsá «Guardar capacidad y calcular armado».' : `Simulaste con ${result.capacity} pallets, pero el camión tiene ${configuredCapacity} registrados. Corregí la capacidad y volvé a simular.`) : !result.fits_estimate ? 'No se puede aprobar: el armado supera la capacidad del camión. Revisá la selección y el armado de sus repartos.' : !reviewed ? 'Para habilitar la aprobación, confirmá abajo la revisión de altura, estabilidad y compatibilidad.' : 'La propuesta está lista para aprobar y enviar al equipo.'}</p>}
             <label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />Revisé altura, estabilidad y compatibilidad del armado propuesto.</label>
             <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate || !capacityMatches} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>
-            <div role="status" className={`rounded-xl p-4 ${result.fits_estimate ? 'bg-emerald-100' : 'bg-red-100'}`}>
-                <b>{result.total_pallets} / {result.capacity} posiciones estimadas</b>
-                <p>{result.full_count} pallets completos + {result.mixed_count} pallets mixtos.</p>
-                <p>{result.excess_positions ? `Excede la capacidad en ${result.excess_positions} pallets.` : `${result.free_positions} posiciones libres.`}</p>
-            </div>
             <p className="rounded-xl bg-amber-100 p-3 text-sm">{result.warning}</p>
-            <h3 className="font-semibold">Trabajo de pallets completos</h3>
+            <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Ver detalle de productos y armado</summary><div className="mt-4 space-y-3"><h3 className="font-semibold">Trabajo de pallets completos</h3>
             {!result.full_pallets.length && <p>Sin pallets completos.</p>}
             {result.full_pallets.map((p, i) => <p key={i}>Reparto {p.reparto} · Cancha {p.court} · {p.sku} {p.descripcion}: <b>{p.pallets} pallets ({p.bultos} bultos)</b></p>)}
             <h3 className="font-semibold">Picking restante, en orden de la carga</h3>
@@ -103,7 +105,7 @@ export default function PalletPlanning({ truck, onClose }) {
             <h3 className="font-semibold">Contenido propuesto de pallets mixtos</h3>
             {result.mixed_pallets.map(p => <div key={p.id} className="rounded-xl border bg-white p-3"><b>{p.id} · Reparto {p.reparto || p.items[0]?.reparto} · Canchas {p.courts.join(', ')} · Ocupación estimada {(p.occupancy * 100).toFixed(1)}%</b>
                 {(p.layers || p.items).map((item, i) => <p key={i}><b>{item.placement === 'base' || i === 0 ? 'Base' : `Arriba ${i}`}:</b> Cancha {item.court} · {item.calibre || 'Sin calibre'} · {item.sku} {item.descripcion}: {item.bultos} bultos + {item.unidades} unidades</p>)}
-            </div>)}
+            </div>)}</div></details>
         </>}
     </section>
 }

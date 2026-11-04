@@ -34,16 +34,28 @@ def list_rules():
     stacking = PalletStackingRule.query.order_by(PalletStackingRule.business_unit, PalletStackingRule.size_rank.desc()).all()
     configured = {(r.business_unit, r.caliber) for r in stacking}
     active_articles = Article.query.filter_by(activo=True).all()
-    pending = sorted({(source_value(a, 'UNIDAD DE NEGOCIO') or 'SIN UNIDAD', (a.calibre or '').strip() or 'SIN CALIBRE')
-                      for a in active_articles
-                      if (source_value(a, 'UNIDAD DE NEGOCIO'), (a.calibre or '').strip()) not in configured
-                      or not a.bultos_por_piso})
+    coverage = {}
+    for article in active_articles:
+        key = (source_value(article, 'UNIDAD DE NEGOCIO') or 'SIN UNIDAD',
+               (article.calibre or '').strip() or 'SIN CALIBRE')
+        item = coverage.setdefault(key, dict(articles=0, with_floor=0))
+        item['articles'] += 1
+        item['with_floor'] += bool(article.bultos_por_piso)
+    pending = []
+    for key, counts in sorted(coverage.items()):
+        lookup = ('' if key[0] == 'SIN UNIDAD' else key[0], '' if key[1] == 'SIN CALIBRE' else key[1])
+        missing_rule = lookup not in configured
+        missing_floor = counts['articles'] - counts['with_floor']
+        if missing_rule or missing_floor:
+            pending.append(dict(business_unit=key[0], caliber=key[1], **counts,
+                                missing_rule=missing_rule, missing_floor=missing_floor))
     return jsonify(families=[family_json(f) for f in PalletCaliberFamily.query.order_by(PalletCaliberFamily.base_priority.desc(), PalletCaliberFamily.name).all()],
         calibers=[dict(caliber=value, family_key=assigned.get(value)) for value in calibers],
         stacking_rules=[dict(business_unit=r.business_unit, caliber=r.caliber, can_be_base=r.can_be_base,
             stable=r.stable, allow_incomplete_floor=r.allow_incomplete_floor, size_rank=r.size_rank,
-            enabled=r.enabled) for r in stacking],
-        pending_rules=[dict(business_unit=u, caliber=c) for u, c in pending])
+            enabled=r.enabled, articles=coverage.get((r.business_unit, r.caliber), {}).get('articles', 0),
+            with_floor=coverage.get((r.business_unit, r.caliber), {}).get('with_floor', 0)) for r in stacking],
+        pending_rules=pending)
 
 
 @pallet_rules_bp.put('/stacking')

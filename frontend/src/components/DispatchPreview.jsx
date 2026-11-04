@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import api from '../api/axiosClient'
 import { getStoredUser } from '../utils/auth'
 const number = value => value == null ? 'Pendiente' : Number(value).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const integer = value => value == null ? 'Pendiente' : Number(value).toLocaleString('es-AR', { maximumFractionDigits: 0 })
 
 export default function DispatchPreview({ sourceIds }) {
     const [data, setData] = useState(null), [error, setError] = useState('')
@@ -26,7 +27,7 @@ export default function DispatchPreview({ sourceIds }) {
         {data.load_plans?.map(p => <p key={p.load_id} className="text-sm">Reparto {p.reparto}: {p.total_pallets} pallets{partial ? ' calculables (parcial)' : ' estimados'} · {p.assembly_mode === 'compact' ? 'Supermercado / autoelevador' : 'Normal'}</p>)}
         <div className="grid gap-3 sm:grid-cols-3">
             <div><p className="text-sm">Volumen</p><b className="text-xl">{number(data.hl ?? data.hl_known)} HL{data.hl == null ? ' parciales' : ''}</b></div>
-            <div><p className="text-sm">Pallets físicos estimados{partial ? ' (parcial)' : ''}</p><b className="text-xl">{number(data.pallets ?? data.pallets_known)}</b><p className="text-sm">{data.full_pallets_known} completos + {data.picking_pallets_known} de picking</p></div>
+            <div><p className="text-sm">Pallets físicos finales{partial ? ' (cálculo parcial)' : ''}</p><b className="text-3xl">{integer(data.pallets ?? data.pallets_known)}</b><p className="text-sm">{data.full_pallets_known} completos + {data.picking_pallets_known} de picking</p></div>
             <div><p className="text-sm">Capacidad del camión</p><b>{data.capacity == null ? 'Sin configurar' : `${data.capacity} pallets`}</b>{data.fits != null && <p className={`text-sm ${data.fits ? 'text-emerald-800' : 'font-bold text-red-700'}`}>{data.fits ? 'Dentro de la capacidad estimada' : 'Supera la capacidad del camión'}</p>}</div>
         </div>
         <p className="text-xs text-slate-600">Mezcla de canchas en repartos normales: {data.mix_courts ? 'permitida dentro de cada reparto' : 'no permitida'}. Los supermercados pueden combinar sus propias canchas. Estimación por equivalencia de bultos; requiere revisión y aprobación del supervisor.</p>
