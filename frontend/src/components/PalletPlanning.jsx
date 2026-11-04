@@ -18,6 +18,7 @@ export default function PalletPlanning({ truck, onClose }) {
     const [locked, setLocked] = useState(false)
     const [busy, setBusy] = useState(false)
     const [loads, setLoads] = useState([]), [compact, setCompact] = useState([])
+    const [mergeAllowed, setMergeAllowed] = useState([])
     useEffect(() => {
         let active = true
         async function load() {
@@ -31,6 +32,7 @@ export default function PalletPlanning({ truck, onClose }) {
                 setLocked(saved.data.locked)
                 setLoads(saved.data.loads || [])
                 setCompact(saved.data.plan?.compact_load_ids || [])
+                setMergeAllowed(saved.data.plan?.merge_allowed_load_ids || saved.data.plan?.compact_load_ids || [])
                 if (saved.data.locked && saved.data.plan) {
                     setResult(saved.data.plan); setApproved(true); setCapacity(String(saved.data.plan.capacity)); setMix(saved.data.plan.mix_courts)
                 } else {
@@ -56,7 +58,7 @@ export default function PalletPlanning({ truck, onClose }) {
                 await api.put('/load-control/settings', { branch: truck.branch, truck: truck.truck, capacity: value, mix_courts_default: defaultMix }, { timeout: 15000 })
                 setConfiguredCapacity(value)
             }
-            const response = await api.post(`/load-control/trucks/${truck.id}/planning/simulate`, { capacity: Number(capacity), mix_courts: mix, compact_load_ids: compact }, { timeout: 15000 })
+            const response = await api.post(`/load-control/trucks/${truck.id}/planning/simulate`, { capacity: Number(capacity), mix_courts: mix, compact_load_ids: compact, merge_allowed_load_ids: mergeAllowed }, { timeout: 15000 })
             setResult(response.data)
         } catch (e) { setError(e.response?.data?.error || e.message || 'No se pudo calcular. Reintentá.') }
         finally { setBusy(false) }
@@ -83,7 +85,7 @@ export default function PalletPlanning({ truck, onClose }) {
         {locked && <p className="rounded-xl bg-amber-100 p-3">El trabajo ya comenzó. Se conserva el plan aprobado y no se pueden cambiar sus cantidades.</p>}
         <form className="flex flex-wrap items-end gap-4" onSubmit={simulate}>
             <fieldset disabled={busy || locked} className="min-w-0 w-full space-y-3"><legend className="mb-2 font-semibold">Tipo de armado de cada reparto</legend>
-                {loads.map(l => <label key={l.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3"><span>Reparto {l.reparto}</span><select aria-label={`Armado del reparto ${l.reparto}`} className="min-h-12 min-w-0 w-full max-w-full rounded-xl border p-2 text-sm sm:w-auto" value={compact.includes(l.id) ? 'compact' : 'normal'} onChange={e => { setCompact(current => e.target.value === 'compact' ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setResult(null); setReviewed(false); setApproved(false) }}><option value="normal">Normal · por canchas</option><option value="compact">Supermercado / autoelevador · reducir pallets</option></select></label>)}
+                {loads.map(l => <div key={l.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3"><b>Reparto {l.reparto}</b><div className="flex flex-wrap items-center gap-4"><select aria-label={`Armado del reparto ${l.reparto}`} className="min-h-12 min-w-0 rounded-xl border p-2 text-sm" value={compact.includes(l.id) ? 'compact' : 'normal'} onChange={e => { const enabled = e.target.value === 'compact'; setCompact(current => enabled ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setMergeAllowed(current => enabled ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setResult(null); setReviewed(false); setApproved(false) }}><option value="normal">Normal · por canchas</option><option value="compact">Supermercado / autoelevador · reducir pallets</option></select><label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={mergeAllowed.includes(l.id)} onChange={e => { setMergeAllowed(current => e.target.checked ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setResult(null); setReviewed(false) }} />Permitir unir pallets</label></div></div>)}
                 <p className="text-sm">Supermercado: combina canchas y productos compatibles dentro de ese reparto para reducir la cantidad estimada de pallets.</p>
             </fieldset>
             <label className="text-sm">Capacidad del camión en pallets físicos<input className="mt-1 block min-h-12 rounded-xl border p-3" type="number" min="1" step="1" required value={capacity} disabled={busy || locked} onChange={e => { setCapacity(e.target.value); setResult(null) }} /></label>
@@ -108,7 +110,7 @@ export default function PalletPlanning({ truck, onClose }) {
             <div className="grid gap-3 sm:grid-cols-2">{result.load_plans?.map(p => <div className="rounded-xl border bg-white p-3" key={p.load_id}><b>Reparto {p.reparto} · {p.total_pallets} pallets estimados</b><p>{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'}</p><p>{p.full_count} completos + {p.mixed_count} de picking</p><p>Pallets exclusivos: {p.pallet_ids.join(', ') || 'Sin pallets'}</p></div>)}</div>
             <p className="rounded-xl bg-white p-3">{result.automatic_mix ? `Sin combinar canchas normales: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; combinando canchas dentro de cada reparto: ${result.total_pallets} pallets.` : 'Los supermercados combinan canchas dentro de su propio reparto. En los repartos normales, las canchas se mantienen separadas salvo que elijas combinarlas.'}</p>
             {!!result.missing_caliber_rules?.length && <p role="alert" className="rounded-xl bg-amber-100 p-3"><b>Criterios físicos pendientes:</b> {result.missing_caliber_rules.join(', ')}. Esos productos no se combinan automáticamente. <Link className="underline" to="/reglas-pallets">Revisar criterios</Link>.</p>}
-            <PalletCardEditor pallets={result.mixed_pallets} fullPallets={result.full_pallets} disabled={locked || approved || busy} onChange={updatePallets} />
+            <PalletCardEditor pallets={result.mixed_pallets} fullPallets={result.full_pallets} mergeAllowedLoadIds={result.merge_allowed_load_ids || mergeAllowed} disabled={locked || approved || busy} onChange={updatePallets} />
             {!locked && !approved && <p role="status" className="rounded-xl bg-amber-100 p-3">{!capacityMatches ? (configuredCapacity === null ? 'Para aprobar: ingresá la capacidad real y pulsá «Guardar capacidad y calcular armado».' : `Simulaste con ${result.capacity} pallets, pero el camión tiene ${configuredCapacity} registrados. Corregí la capacidad y volvé a simular.`) : !result.fits_estimate ? 'No se puede aprobar: el armado supera la capacidad del camión. Revisá la selección y el armado de sus repartos.' : !reviewed ? 'Para habilitar la aprobación, confirmá abajo la revisión de altura, estabilidad y compatibilidad.' : 'La propuesta está lista para aprobar y enviar al equipo.'}</p>}
             <label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} />Revisé altura, estabilidad y compatibilidad del armado propuesto.</label>
             <button className={button} disabled={busy || locked || approved || !reviewed || !result.fits_estimate || !capacityMatches} onClick={async () => { setBusy(true); setError(''); try { await api.post(`/load-control/trucks/${truck.id}/planning/approve`, { ...result, physical_review: reviewed }); setApproved(true) } catch(e) { setError(e.response?.data?.error || 'No se pudo aprobar.') } finally { setBusy(false) } }}>Aprobar y enviar al equipo</button>

@@ -531,11 +531,14 @@ def simulate_truck(truck_id):
     rows = planning_rows(truck)
     if not rows:
         fail('El camión no tiene productos para simular.')
+    merge_allowed = data.get('merge_allowed_load_ids', [])
+    if not isinstance(merge_allowed, list) or any(type(n) is not int for n in merge_allowed) or not set(merge_allowed) <= {r['load_id'] for r in rows}:
+        fail('Indicá repartos válidos para permitir la unión manual de pallets.')
     try:
         result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False), data.get('compact_load_ids', []))
     except ValueError as exc:
         fail(str(exc))
-    return jsonify(dict(result, fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts'], result['compact_load_ids']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
+    return jsonify(dict(result, merge_allowed_load_ids=sorted(set(merge_allowed)), fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts'], result['compact_load_ids']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
 
 
 @load_control_bp.get('/loads/<int:load_id>')
@@ -1086,6 +1089,9 @@ def approve_plan(truck_id):
         fail('La capacidad debe coincidir con la configurada por administracion.', 409)
     mix = data.get('mix_courts')
     compact = data.get('compact_load_ids', [])
+    merge_allowed = data.get('merge_allowed_load_ids', [])
+    if not isinstance(merge_allowed, list) or any(type(n) is not int for n in merge_allowed) or not set(merge_allowed) <= {load.id for load in selected_loads(truck)}:
+        fail('Indicá repartos válidos para permitir la unión manual de pallets.')
     if not isinstance(compact, list) or any(type(n) is not int for n in compact):
         fail('Indicá repartos válidos para el armado de supermercado.')
     fingerprint = plan_fingerprint(truck, capacity.pallet_capacity, mix, compact)
@@ -1096,7 +1102,9 @@ def approve_plan(truck_id):
     try:
         plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix, compact)
         if data.get('manual_edition'):
-            plan = apply_manual_pallets(plan, data.get('mixed_pallets'))
+            plan = apply_manual_pallets(plan, data.get('mixed_pallets'), merge_allowed)
+        else:
+            plan['merge_allowed_load_ids'] = sorted(set(merge_allowed))
     except ValueError as exc:
         fail(str(exc))
     if not plan['fits_estimate']:

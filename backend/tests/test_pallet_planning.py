@@ -116,7 +116,7 @@ class PlanningTest(unittest.TestCase):
         plan = simulate_pallets([row(10, court=1), row(10, court=2, sku='AGUA')], 2, False)
         first, second = plan['mixed_pallets']
         submitted = [dict(first, items=first['items'] + second['items'], owner_court=1)]
-        edited = apply_manual_pallets(plan, submitted)
+        edited = apply_manual_pallets(plan, submitted, [1])
         self.assertEqual((edited['mixed_count'], edited['total_pallets']), (1, 1))
         self.assertEqual(sum(item['bultos'] for item in edited['mixed_pallets'][0]['items']), 20)
         self.assertEqual({task['court'] for task in edited['picking_tasks']}, {1})
@@ -126,11 +126,17 @@ class PlanningTest(unittest.TestCase):
         plan = simulate_pallets([row(30), dict(row(10, court=2, sku='AGUA'), load_id=2, reparto='R2')], 3, False)
         first, second = plan['mixed_pallets']
         with self.assertRaisesRegex(ValueError, 'repartos'):
-            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)])
+            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)], [1])
         plan = simulate_pallets([row(30), row(30, court=2, sku='AGUA')], 3, False)
         first, second = plan['mixed_pallets']
         with self.assertRaisesRegex(ValueError, '100%'):
-            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)])
+            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)], [1])
+
+    def test_manual_merge_requires_reparto_permission(self):
+        plan = simulate_pallets([row(10), row(10, court=2, sku='AGUA')], 2, False)
+        first, second = plan['mixed_pallets']
+        with self.assertRaisesRegex(ValueError, 'no permite'):
+            apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)], [])
 
 
 if __name__ == '__main__': unittest.main()

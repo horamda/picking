@@ -133,7 +133,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
                 warning='Estimación por equivalencia de bultos y reglas de calibre. Requiere revisión física de altura, peso y estabilidad por el supervisor.')
 
 
-def apply_manual_pallets(plan, submitted):
+def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
     """Validate a supervisor regrouping and assign each result to its destination court."""
     if not isinstance(submitted, list) or not submitted:
         raise ValueError('El armado manual no contiene pallets de picking.')
@@ -142,10 +142,12 @@ def apply_manual_pallets(plan, submitted):
         return (item.get('load_id'), item.get('order'), item.get('court'), str(item.get('sku')),
                 item.get('bultos'), item.get('unidades'))
 
+    allowed = set(merge_allowed_load_ids or [])
     originals = [item for pallet in plan['mixed_pallets'] for item in pallet['items']]
     available = {}
-    for item in originals:
-        available.setdefault(signature(item), []).append(item)
+    for pallet in plan['mixed_pallets']:
+        for item in pallet['items']:
+            available.setdefault(signature(item), []).append((item, pallet['id']))
     expected = Counter(signature(item) for item in originals)
     received, mixed, seen_ids = Counter(), [], set()
 
@@ -156,16 +158,20 @@ def apply_manual_pallets(plan, submitted):
         if pallet_id in seen_ids:
             raise ValueError('Hay identificadores de pallet repetidos.')
         seen_ids.add(pallet_id)
-        clean_items = []
+        clean_items, source_pallet_ids = [], set()
         for candidate in raw['items']:
             key = signature(candidate)
             received[key] += 1
             pool = available.get(key, [])
             if received[key] > len(pool):
                 raise ValueError('El armado manual modifica, duplica o agrega cantidades de productos.')
-            clean_items.append(dict(pool[received[key] - 1]))
+            original, source_pallet_id = pool[received[key] - 1]
+            clean_items.append(dict(original))
+            source_pallet_ids.add(source_pallet_id)
         if len({item['load_id'] for item in clean_items}) != 1:
             raise ValueError('No se pueden mezclar repartos dentro de un mismo pallet.')
+        if len(source_pallet_ids) > 1 and clean_items[0]['load_id'] not in allowed:
+            raise ValueError(f'El reparto {clean_items[0]["reparto"]} no permite unir pallets.')
         owner = raw.get('owner_court')
         if type(owner) is not int or owner not in {item['court'] for item in clean_items}:
             raise ValueError('La cancha responsable debe pertenecer al pallet de destino.')
@@ -215,5 +221,6 @@ def apply_manual_pallets(plan, submitted):
         load_plan['pallet_ids'] = ([p['id'] for p in plan['full_pallets'] if p['load_id'] == load_plan['load_id']] +
                                    [p['id'] for p in own])
     plan['manual_edition'] = True
+    plan['merge_allowed_load_ids'] = sorted(allowed)
     plan['manual_saved_positions'] = original_mixed_count - len(mixed)
     return plan
