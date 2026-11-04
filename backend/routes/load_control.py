@@ -1189,12 +1189,30 @@ def warehouse_monitor():
                         products = products_for(load, court, stage, check.get('user_id'), products)
                     answers = check.get('answers', {})
                     answered = sum(p['sku'] in answers for p in products)
+                    if stage == 0:
+                        available = bool(plan or legacy_in_progress(truck))
+                        blocked_reason = None if available else 'Espera aprobaciÃ³n del supervisor'
+                    elif stage == 4:
+                        available = load_picking_complete(load)
+                        blocked_reason = None if available else 'Espera que finalicen todas las canchas del reparto'
+                    elif stage == 1:
+                        pending_stages = [n for n in (0, 4) if task_products(load, court, n)
+                            and cs['checks'].get(str(n), {}).get('status') != 'done']
+                        available = not pending_stages and not any(h.get('status') == 'active' for h in helpers(cs))
+                        blocked_reason = None if available else 'Espera armado y pallets completos'
+                    else:
+                        previous = cs['checks'].get('1')
+                        available = bool(previous and previous.get('status') == 'done')
+                        blocked_reason = None if available else 'Espera Control 1'
+                    if check:
+                        available, blocked_reason = True, None
                     rows.append(dict(id=f'{load.id}:{court["numero"]}:{stage}', load_id=load.id,
                         truck=truck.truck, reparto=load.reparto, branch=truck.branch, court=court['numero'],
                         stage=stage, user_id=check.get('user_id'), username=check.get('username'),
                         status='pending' if not check else 'done' if check['status']=='done' else 'running' if check.get('timer_started_at') else 'paused',
                         answered=answered, personal_answered=sum(a.get('user_id') == check.get('user_id') for a in answers.values() if check.get('user_id')), total=len(products), elapsed_seconds=elapsed(check), timing=timing(check),
                         shortages=sum(a['result']=='shortage' for a in answers.values()),
+                        available=available, blocked_reason=blocked_reason,
                         planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending'))
     from datetime import datetime, timedelta
     # The warehouse day is Argentina (UTC-3); stored audit timestamps are UTC.

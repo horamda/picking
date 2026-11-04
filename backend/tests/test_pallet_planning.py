@@ -5,12 +5,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.pallet_planning import simulate_pallets, plan_for_capacity, apply_manual_pallets
 
 
-def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False):
+def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False, business_unit='TEST'):
     return dict(load_id=1, reparto='R1', court=court, sku=sku, descripcion=sku,
                 bultos=b, unidades=u, bultos_por_pallet=bpp, unidades_por_bulto=upb,
                 calibre=calibre, stack_family=family, stack_family_name=family,
                 base_priority=priority, must_be_bottom=bottom, allowed_above=['*'] if allowed is None else allowed,
-                business_unit='TEST', can_be_base=can_base, stable=stable, allow_incomplete_floor=False,
+                business_unit=business_unit, can_be_base=can_base, stable=stable, allow_incomplete_floor=False,
                 size_rank=rank, bultos_por_piso=floor, stacking_rule_pending=pending)
 
 
@@ -111,6 +111,22 @@ class PlanningTest(unittest.TestCase):
     def test_incomplete_floor_cannot_support_another_product(self):
         rows = [row(5, court=1, sku='BASE', rank=1000, floor=10), row(25, court=2, sku='ARRIBA', rank=473)]
         self.assertEqual(simulate_pallets(rows, 2, True)['total_pallets'], 2)
+
+    def test_returnable_beer_keeps_complete_floors_and_isolates_remainder(self):
+        liter = row(44, sku='RET', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')
+        other = row(6, sku='LATA', calibre='473 CC LATAS', rank=473)
+        plan = simulate_pallets([liter, other], 3)
+        self.assertEqual(plan['mixed_count'], 2)
+        returnable = next(p for p in plan['mixed_pallets'] if any(i['sku'] == 'RET' for i in p['items']))
+        self.assertEqual([(i['sku'], i['bultos']) for i in returnable['items']], [('RET', 44)])
+
+    def test_complete_returnable_floor_can_carry_another_article(self):
+        liter = row(40, sku='RET', calibre='975 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')
+        other = row(10, sku='LATA', calibre='473 CC LATAS', rank=473)
+        pallet = simulate_pallets([liter, other], 2)['mixed_pallets'][0]
+        self.assertEqual([i['sku'] for i in pallet['items']], ['RET', 'LATA'])
 
     def test_supervisor_can_merge_pallets_without_losing_products(self):
         plan = simulate_pallets([row(10, court=1), row(10, court=2, sku='AGUA')], 2, False)

@@ -3,6 +3,30 @@ from fractions import Fraction
 from collections import Counter
 
 
+def prefers_complete_floors(reference):
+    unit = str(reference.get('business_unit') or '').upper()
+    caliber = str(reference.get('calibre') or '').upper()
+    return 'CERVEZA' in unit and any(size in caliber for size in ('975', '1000'))
+
+
+def pallet_compatible(pallet, reference, mix_courts, compact):
+    if not pallet['items']:
+        return True
+    same_item = any(item.get('order') == reference.get('order') for item in pallet['items'])
+    if same_item:
+        return True
+    base = pallet['items'][0]
+    # Retornables de litro se arman desde la base por pisos. Un resto de piso
+    # queda concentrado y no se utiliza como apoyo para otro artÃ­culo.
+    if prefers_complete_floors(reference):
+        return False
+    if prefers_complete_floors(base) and not base.get('floor_complete'):
+        return False
+    if pallet['court'] == reference['court']:
+        return True
+    return (mix_courts or reference['load_id'] in compact) and cross_court_compatible(pallet, reference)
+
+
 def cross_court_compatible(pallet, reference):
     if not pallet['items']:
         return True
@@ -69,8 +93,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending',
             'bultos_por_pallet', 'unidades_por_bulto')}
         floor = reference.get('bultos_por_piso')
-        reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or
-            (floor and remainder >= floor))
+        reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or (floor and remainder >= floor
+            and (not prefers_complete_floors(reference) or remainder % floor == 0)))
         reference['order'] = order
         reference['assembly_mode'] = 'compact' if row['load_id'] in compact else 'normal'
         if count:
@@ -89,15 +113,22 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         while amount:
             pallet = next((p for p in mixed
                 if p['load_id'] == reference['load_id']
-                # Same court mixes freely (as before); stacking rules only gate mixing between courts.
-                and (p['court'] == reference['court'] or ((mix_courts or reference['load_id'] in compact)
-                     and cross_court_compatible(p, reference)))
+                and pallet_compatible(p, reference, mix_courts, compact)
                 and 1-p['used'] >= size), None)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
                     assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
                 mixed.append(pallet)
             quantity = min(amount, int((1-pallet['used']) // size))
+            floor = reference.get('bultos_por_piso')
+            if field == 'bultos' and prefers_complete_floors(reference) and floor and amount >= floor:
+                quantity = quantity - quantity % floor
+                if not quantity:
+                    pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
+                        assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
+                    mixed.append(pallet)
+                    quantity = min(amount, int(Fraction(1, 1) // size))
+                    quantity -= quantity % floor
             item = next((i for i in pallet['items'] if i['order'] == order), None)
             if item is None:
                 item = dict(reference, bultos=0, unidades=0)
