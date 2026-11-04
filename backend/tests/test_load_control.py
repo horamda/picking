@@ -226,6 +226,7 @@ class ControlFlowTest(unittest.TestCase):
         self.assertEqual(len(waiting), 1)
         self.assertEqual(waiting[0]['planning_status'], 'pending')
         self.assertEqual(waiting[0]['loads'], [])
+        self.assertEqual(self.call('get', '/trucks', 'pallet'), [])
         self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
         self.approve_dispatch()
         current = self.call('get', '/trucks', 'picker')[0]

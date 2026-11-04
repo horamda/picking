@@ -89,6 +89,10 @@ def current_dispatch_truck():
     g.dispatch_configured = db.session.query(ControlTruck.id).filter(
         ControlTruck.state['dispatch']['load_ids'].as_string().isnot(None)).first() is not None
     rows = ControlTruck.query.filter(ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
+    # Pallets completos only exist in an approved simulation. An unapproved
+    # dispatch must not become the palletizer's current truck or hide ready work.
+    if stage == 4:
+        rows = [truck for truck in rows if approved(truck)]
     current = (queue_for(rows, work_courts(g.current_user, rows), stage, g.current_user.id, task_products) or [None])[0]
     request.environ['picking.dispatch_current'] = current
     return current
