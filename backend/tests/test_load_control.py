@@ -235,11 +235,8 @@ class ControlFlowTest(unittest.TestCase):
             self.call('post', f'/loads/{load["id"]}/courts/1/checks/0/{check["id"]}/finish', 'picker')
             visible = self.call('get', '/trucks', 'picker')
             self.assertEqual(visible[0]['id'], current['id'] if i == 0 else next_truck['id'])
-        # Neither court 2, controls nor full pallets have finished. Only this worker advances.
-        pallet_truck = self.call('get', '/trucks', 'pallet')[0]
-        self.assertEqual(pallet_truck['id'], current['id'])
-        self.assertEqual(pallet_truck['summary']['mine']['pallets'], 1)
-        self.assertEqual(pallet_truck['summary']['mine']['allocations'], [])
+        # Court 2 is still pending, so the palletizer receives nothing from that reparto yet.
+        self.assertEqual(self.call('get', '/trucks', 'pallet'), [])
         self.assertFalse(self.call('get', '/trucks')[0]['status']['complete'])
 
     def test_dispatch_conflicts_permissions_and_atomic_selection(self):
@@ -779,6 +776,9 @@ class ControlFlowTest(unittest.TestCase):
         self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
         self.approve_current()
         picking = self.call('get', f'/loads/{self.load_id}', 'picker')['canchas'][0]['productos']
+        self.call('get', f'/loads/{self.load_id}', 'pallet', expected=403)
+        picking_check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
+        self.call('post', f'/loads/{self.load_id}/courts/1/checks/0/{picking_check["id"]}/finish', 'picker')
         pallets = self.call('get', f'/loads/{self.load_id}', 'pallet')['canchas'][0]['productos']
         self.assertEqual(picking[0]['bultos'], 44)
         self.assertEqual((pallets[0]['pallets'], pallets[0]['bultos']), (4, 200))

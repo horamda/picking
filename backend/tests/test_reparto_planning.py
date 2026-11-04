@@ -36,9 +36,13 @@ class RepartoPlanningTest(Fixture):
 
     def test_compact_selection_is_signed_persisted_and_sent_to_workers(self):
         second, other_truck, _ = self.dispatch_sources()
-        self.select_dispatch([self.source.id, second.id, other_truck.id])
+        self.select_dispatch([self.source.id, second.id])
         second_load = ControlLoad.query.filter_by(source_id=second.id).one()
-        foreign_load = ControlLoad.query.filter_by(source_id=other_truck.id).one()
+        from models import User
+        from services.warehouse import UserCourt
+        for username in ('picker','pallet'):
+            db.session.add(UserCourt(user_id=User.query.filter_by(username=username).one().id,court_number=2))
+        db.session.commit()
         path=f'/trucks/{self.truck_id}/planning'
         plan=self.call('post',path+'/simulate',data=dict(capacity=20,mix_courts=False,compact_load_ids=[second_load.id]))
         self.assertEqual(plan['compact_load_ids'],[second_load.id])
@@ -46,7 +50,7 @@ class RepartoPlanningTest(Fixture):
         self.assertEqual([p['total_pallets'] for p in plan['load_plans']],[1,3])
         self.assertTrue(all(len({i['load_id'] for i in p['items']})==1 for p in plan['mixed_pallets']))
         self.call('post',path+'/approve',data=dict(plan,compact_load_ids=[],physical_review=True),expected=409)
-        self.call('post',path+'/simulate',data=dict(capacity=20,mix_courts=True,compact_load_ids=[foreign_load.id]),expected=400)
+        self.call('post',path+'/simulate',data=dict(capacity=20,mix_courts=True,compact_load_ids=[999999]),expected=400)
         self.call('post',path+'/approve',data=dict(plan,physical_review=True))
         saved=self.call('get',path)
         self.assertEqual(saved['plan']['compact_load_ids'],[second_load.id])
@@ -57,8 +61,17 @@ class RepartoPlanningTest(Fixture):
         check=self.call('post',f'/loads/{second_load.id}/courts/1/start/0','picker')
         self.assertTrue(all(p['assembly_mode']=='compact' and p['reparto']==second.reparto for p in check['products']))
         self.assertTrue(all(p['pallet_destinations'] for p in check['products']))
-        full=self.call('post',f'/loads/{second_load.id}/courts/1/start/4','pallet')
-        self.assertTrue(all(p['pallet_group'] and p['separate_reparto'] for p in full['products']))
+        from routes.load_control import load_picking_complete, task_products
+        self.assertFalse(load_picking_complete(second_load))
+        self.assertEqual(task_products(second_load,second_load.content['canchas'][0],4),[])
+        self.call('post',f'/loads/{second_load.id}/courts/1/checks/0/{check["id"]}/finish','picker')
+        second_check=self.call('post',f'/loads/{second_load.id}/courts/2/start/0','picker')
+        self.call('post',f'/loads/{second_load.id}/courts/2/checks/0/{second_check["id"]}/finish','picker')
+        db.session.refresh(second_load)
+        db.session.refresh(second_load.truck)
+        self.assertTrue(load_picking_complete(second_load))
+        full=task_products(second_load,second_load.content['canchas'][0],4)
+        self.assertTrue(all(p['pallet_group'] and p['separate_reparto'] for p in full))
         self.call('post',path+'/approve',data=dict(plan,physical_review=True),expected=409)
 
     def test_capacity_cannot_be_met_by_merging_repartos(self):

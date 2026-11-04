@@ -311,6 +311,8 @@ def task_products(load, court, stage):
     plan = load.truck.state.get('planning')
     if not plan:
         return deepcopy(court['productos']) if stage == 0 and (manager() or legacy_in_progress(load.truck)) else []
+    if stage == 4 and not load_picking_complete(load):
+        return []
     rows = plan['picking_tasks' if stage == 0 else 'full_pallets']
     quantities = {p['sku']: p for p in rows if p['load_id'] == load.id and p['court'] == court['numero']}
     pallet_info = {p['sku']: p for p in full_pallets_info(load, court)} if stage == 0 else {}
@@ -331,6 +333,25 @@ def task_products(load, court, stage):
                                pallet_group=task.get('id'),
                                full_pallets_count=info.get('pallets', 0), full_pallets_bultos=info.get('bultos', 0)))
     return result
+
+
+def load_picking_complete(load):
+    """Full pallets become work only after every picking assignment in this reparto is closed."""
+    for court in load.content['canchas']:
+        tasks = task_products(load, court, 0)
+        if not tasks:
+            continue
+        cs = court_state(load.truck.state, load.id, court['numero'])
+        stage_helpers = [helper for helper in helpers(cs, 0) if helper.get('status') in ('active', 'done')]
+        if any(helper.get('status') != 'done' for helper in stage_helpers):
+            return False
+        delegated = {sku for helper in stage_helpers for sku in helper.get('skus', [])}
+        primary = cs.get('checks', {}).get('0')
+        if primary and primary.get('status') != 'done':
+            return False
+        if any(product['sku'] not in delegated for product in tasks) and (not primary or primary.get('status') != 'done'):
+            return False
+    return True
 
 
 def fail(message, code=400):
@@ -597,6 +618,8 @@ def start(load_id, number, stage):
         fail('La carga espera aprobacion del supervisor.', 409)
     if legacy_in_progress(load.truck) and stage in (0, 4) and str(stage) not in court_state(load.truck.state, load.id, number)['checks']:
         fail('Carga anterior en control: no se puede iniciar un armado nuevo.', 409)
+    if stage == 4 and not load_picking_complete(load):
+        fail('Primero debe finalizar el picking de todas las canchas de este reparto.', 409)
     if stage in (0, 4) and not task_products(load, court, stage):
         fail('No hay productos para este proceso.', 409)
     state = deepcopy(load.truck.state)
