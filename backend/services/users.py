@@ -13,6 +13,15 @@ class UserCreationError(ValueError):
         self.status = status
 
 
+def configured_role(role_name):
+    role = Role.query.filter_by(name=role_name).first()
+    if not role and role_name == 'palletizador':
+        role = Role(name=role_name, description='Armador de pallets completos')
+        db.session.add(role)
+        db.session.flush()
+    return role
+
+
 def create_user(data, actor, default_role='operador'):
     if not isinstance(data, dict):
         raise UserCreationError('Se requiere un objeto JSON.')
@@ -32,10 +41,7 @@ def create_user(data, actor, default_role='operador'):
         courts = validate_courts(data.get('courts', []))
     except ValueError as exc:
         raise UserCreationError(str(exc))
-    role = Role.query.filter_by(name=role_name).first()
-    if not role and role_name == 'palletizador':
-        role = Role(name=role_name, description='Armador de pallets completos')
-        db.session.add(role)
+    role = configured_role(role_name)
     if not role:
         raise UserCreationError('Rol inválido.')
     if User.query.filter((User.username == username) | (User.email == email)).first():
@@ -111,7 +117,7 @@ def update_user(user_id, data, actor):
     role_name = data.get('role', values['role'])
     if not isinstance(role_name, str) or role_name not in ('administrador','supervisor','operador','controlador','palletizador'):
         raise UserCreationError('Rol inválido.')
-    role = Role.query.filter_by(name=role_name).first()
+    role = configured_role(role_name)
     if not role:
         raise UserCreationError('Rol no configurado.')
     values['role'] = role_name

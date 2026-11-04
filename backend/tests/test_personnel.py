@@ -1,7 +1,7 @@
 """Account lifecycle preserves warehouse ownership and revokes prior sessions."""
 import unittest
 from test_load_control import ControlFlowTest, User, db, tearDownModule
-from models import LogEntry
+from models import LogEntry, Role
 from services.load_control import ControlTruck
 
 class Fixture(ControlFlowTest):
@@ -64,6 +64,14 @@ class PersonnelTest(Fixture):
         self.assertEqual(person['employee_number'],'77')
         self.call('put',f'/users/{self.uid()}',data={'role':'controlador'})
         self.call('get',f'/loads/{self.load_id}','picker',expected=401)
+
+    def test_missing_pallet_role_is_created_when_editing_personnel(self):
+        legacy=Role.query.filter_by(name='palletizador').one()
+        legacy.name='palletizador_anterior'
+        db.session.commit()
+        person=self.call('put',f'/users/{self.uid()}',data={'role':'palletizador'})
+        self.assertEqual(person['role'],'palletizador')
+        self.assertEqual(Role.query.filter_by(name='palletizador').one().description,'Armador de pallets completos')
 
 def load_tests(loader, tests, pattern):
     return loader.loadTestsFromTestCase(PersonnelTest)
