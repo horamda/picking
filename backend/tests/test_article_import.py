@@ -23,7 +23,7 @@ from routes.load_control import voice_products
 
 def csv_bytes(*changes):
     template = {'Articulo': '001', 'Descripcion articulo': 'BRAHMA X12', 'Unidades por bulto': '12',
-                'Bultos por pallet': '50', 'TIPO DE PRODUCTO': 'MERCADERIA', 'Activo': 'SI',
+                'Bultos por pallet': '50', 'Bultos por piso': '10', 'TIPO DE PRODUCTO': 'MERCADERIA', 'Activo': 'SI',
                 'Usado en dispositivo movil': 'SI', 'Anulado': 'NO', 'Codigo de barras': '001234', 'Extra futuro': '  original  '}
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=list(template), delimiter=';')
@@ -112,6 +112,7 @@ class ArticleImportTest(unittest.TestCase):
         self.assertEqual(len(parsed['excluded']), 5)
         self.assertEqual(parsed['articles'][0]['datos_origen']['Codigo de barras'], '001234')
         self.assertEqual(parsed['articles'][0]['datos_origen']['Extra futuro'], '  original  ')
+        self.assertEqual(parsed['articles'][0]['bultos_por_piso'], 10)
 
     def test_reimport_and_sync_preserve_ids_voice_and_history(self):
         self.assertTrue(import_articles_from_csv(csv_bytes())['applied'])
@@ -178,7 +179,7 @@ class ArticleImportTest(unittest.TestCase):
         self.assertEqual(self.client.put(path, json=payload, headers=self.tokens['administrador']).status_code, 200)
         self.assertEqual(self.client.put(path, json=payload, headers=self.tokens['administrador']).status_code, 409)
         detail = self.client.get(f'/api/articles/{article_id}', headers=self.tokens['administrador']).json
-        self.assertEqual(len(detail['datos_origen']), 10)
+        self.assertEqual(len(detail['datos_origen']), 11)
         self.assertEqual(LogEntry.query.filter_by(action='editar_descripcion_voz').count(), 1)
         products = voice_products([{'sku': '001', 'descripcion': 'PDF original'}, {'sku': 'missing', 'descripcion': 'Otra'}])
         self.assertEqual(products[0]['descripcion_voz'], payload['descripcion_voz'])

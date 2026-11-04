@@ -5,7 +5,17 @@ from fractions import Fraction
 def cross_court_compatible(pallet, reference):
     if not pallet['items']:
         return True
+    if any(item.get('order') == reference.get('order') for item in pallet['items']):
+        return True
     base = pallet['items'][0]
+    if (base.get('stacking_rule_pending') or not base.get('can_be_base') or not base.get('stable')
+            or not base.get('floor_complete')):
+        return False
+    if reference.get('stacking_rule_pending') or reference.get('size_rank', 0) > base.get('size_rank', 0):
+        return False
+    # The approved rule is physical: stable complete base, then equal or smaller calibers.
+    if base.get('business_unit') and reference.get('business_unit'):
+        return True
     base_family, family = base.get('stack_family'), reference.get('stack_family')
     if not base_family or not family:
         return False
@@ -54,7 +64,11 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         count, remainder = divmod(row['bultos'], bpp)
         reference = {key: row.get(key) for key in ('load_id', 'reparto', 'court', 'sku', 'descripcion',
             'calibre', 'stack_family', 'stack_family_name', 'must_be_bottom', 'base_priority', 'allowed_above',
-            'cases_per_layer', 'max_layers')}
+            'cases_per_layer', 'max_layers', 'business_unit', 'can_be_base', 'stable',
+            'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending')}
+        floor = reference.get('bultos_por_piso')
+        reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or
+            (floor and remainder >= floor))
         reference['order'] = order
         reference['assembly_mode'] = 'compact' if row['load_id'] in compact else 'normal'
         if count:
@@ -66,14 +80,15 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
                                     ('unidades', row['unidades'], Fraction(1, bpp*upb))]:
             pieces.append((reference, field, amount, size))
     # Stable/heavy configured bases are allocated first. Picking tasks retain source order.
-    pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('base_priority', 0),
+    pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('size_rank', 0), -p[0].get('base_priority', 0),
         -p[3] if p[0]['load_id'] in compact else 0, p[0]['order']))
     for reference, field, amount, size in pieces:
         order = reference['order']
         while amount:
             pallet = next((p for p in mixed
                 if p['load_id'] == reference['load_id']
-                and (p['court'] == reference['court'] or ((mix_courts or reference['load_id'] in compact) and cross_court_compatible(p, reference)))
+                and (p['court'] == reference['court'] or mix_courts or reference['load_id'] in compact)
+                and cross_court_compatible(p, reference)
                 and 1-p['used'] >= size), None)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
@@ -103,8 +118,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             assembly_mode='compact' if load_id in compact else 'normal', full_count=sum(p['pallets'] for p in own_full),
             mixed_count=len(own_mixed), total_pallets=sum(p['pallets'] for p in own_full)+len(own_mixed),
             pallet_ids=[p['id'] for p in own_full+own_mixed]))
-    missing_rules = sorted({(r.get('calibre') or 'SIN CALIBRE') for r in rows
-        if (r.get('bultos') or r.get('unidades')) and not r.get('stack_family')})
+    missing_rules = sorted({f"{r.get('business_unit') or 'SIN UNIDAD'} / {r.get('calibre') or 'SIN CALIBRE'}"
+        for r in rows if (r.get('bultos') or r.get('unidades')) and r.get('stacking_rule_pending')})
     return dict(capacity=capacity, mix_courts=mix_courts, full_pallets=full,
                 separation_policy='reparto_v1', compact_load_ids=sorted(compact), load_plans=load_plans,
                 picking_tasks=tasks, mixed_pallets=mixed, full_count=full_count,

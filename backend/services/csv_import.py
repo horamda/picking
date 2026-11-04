@@ -17,7 +17,7 @@ FALSE_VALUES = {'0', 'false', 'no', 'n', 'inactivo'}
 # imported source. Keep this allowlist explicit even if the parser gains fields.
 CSV_MANAGED_FIELDS = frozenset({
     'sku', 'descripcion', 'division', 'calibre', 'unidades_por_bulto',
-    'bultos_por_pallet', 'activo', 'datos_origen',
+    'bultos_por_pallet', 'bultos_por_piso', 'activo', 'datos_origen',
 })
 
 
@@ -163,6 +163,10 @@ def parse_article_csv(file_bytes: bytes) -> dict:
                     'bultos_por_pallet',
                     min_value=0,
                 ),
+                'bultos_por_piso': parse_int_field(
+                    get_value(row, 'bultos_por_piso', 'bultos por piso', 'bultos por capa', default=''),
+                    'bultos_por_piso', min_value=1,
+                ) if get_value(row, 'bultos_por_piso', 'bultos por piso', 'bultos por capa') not in (None, '') else None,
                 'activo': True,
                 'datos_origen': dict(raw_row),
             }

@@ -32,6 +32,7 @@ class Article(db.Model):
     calibre = db.Column(db.String(120), nullable=True)
     unidades_por_bulto = db.Column(db.Integer, nullable=False, default=1)
     bultos_por_pallet = db.Column(db.Integer, nullable=False, default=1)
+    bultos_por_piso = db.Column(db.Integer, nullable=True)
     activo = db.Column(db.Boolean, default=True)
     descripcion_voz = db.Column(db.String(255), nullable=True)
     datos_origen = db.Column(db.JSON, nullable=True)

@@ -4,7 +4,8 @@ from flask import Blueprint, g, jsonify, request
 
 from auth import roles_required
 from models import Article, LogEntry
-from services.pallet_rules import PalletCaliberFamily, PalletCaliberAlias, validate_family
+from services.pallet_rules import (PalletCaliberFamily, PalletCaliberAlias, PalletStackingRule,
+                                   source_value, validate_family)
 from utils.db import db
 
 
@@ -30,8 +31,45 @@ def validate_references(values):
 def list_rules():
     assigned = {a.caliber: a.family_key for a in PalletCaliberAlias.query.all()}
     calibers = [value for (value,) in db.session.query(Article.calibre).distinct().order_by(Article.calibre).all() if value and value.strip()]
+    stacking = PalletStackingRule.query.order_by(PalletStackingRule.business_unit, PalletStackingRule.size_rank.desc()).all()
+    configured = {(r.business_unit, r.caliber) for r in stacking}
+    active_articles = Article.query.filter_by(activo=True).all()
+    pending = sorted({(source_value(a, 'UNIDAD DE NEGOCIO') or 'SIN UNIDAD', (a.calibre or '').strip() or 'SIN CALIBRE')
+                      for a in active_articles
+                      if (source_value(a, 'UNIDAD DE NEGOCIO'), (a.calibre or '').strip()) not in configured
+                      or not a.bultos_por_piso})
     return jsonify(families=[family_json(f) for f in PalletCaliberFamily.query.order_by(PalletCaliberFamily.base_priority.desc(), PalletCaliberFamily.name).all()],
-        calibers=[dict(caliber=value, family_key=assigned.get(value)) for value in calibers])
+        calibers=[dict(caliber=value, family_key=assigned.get(value)) for value in calibers],
+        stacking_rules=[dict(business_unit=r.business_unit, caliber=r.caliber, can_be_base=r.can_be_base,
+            stable=r.stable, allow_incomplete_floor=r.allow_incomplete_floor, size_rank=r.size_rank,
+            enabled=r.enabled) for r in stacking],
+        pending_rules=[dict(business_unit=u, caliber=c) for u, c in pending])
+
+
+@pallet_rules_bp.put('/stacking')
+@roles_required('administrador')
+def update_stacking_rule():
+    data = request.get_json(silent=True) or {}
+    business_unit = str(data.get('business_unit') or '').strip()
+    caliber = str(data.get('caliber') or '').strip()
+    flags = ('can_be_base', 'stable', 'allow_incomplete_floor', 'enabled')
+    if not business_unit or not caliber or any(type(data.get(k)) is not bool for k in flags):
+        return jsonify(error='Completá unidad de negocio, calibre y todas las opciones.'), 400
+    if type(data.get('size_rank')) is not int or data['size_rank'] < 0:
+        return jsonify(error='El orden de calibre debe ser un entero positivo o cero.'), 400
+    row = db.session.get(PalletStackingRule, (business_unit, caliber))
+    before = None if not row else {k: getattr(row, k) for k in flags + ('size_rank',)}
+    if not row:
+        row = PalletStackingRule(business_unit=business_unit, caliber=caliber)
+        db.session.add(row)
+    for key in flags + ('size_rank',):
+        setattr(row, key, data[key])
+    row.updated_by = g.current_user.id
+    db.session.add(LogEntry(user_id=g.current_user.id, entity='pallet_stacking_rule',
+        action='editar_regla_apilado', details=json.dumps(dict(business_unit=business_unit,
+        caliber=caliber, before=before, after={k: data[k] for k in flags + ('size_rank',)}))))
+    db.session.commit()
+    return jsonify(ok=True)
 
 
 @pallet_rules_bp.post('/families')

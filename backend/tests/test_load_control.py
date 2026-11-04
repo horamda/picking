@@ -114,6 +114,16 @@ class ControlFlowTest(unittest.TestCase):
             json={'caliber':'1000 CC VIDRIO','family_key':None})
         self.assertEqual(self.client.delete('/api/pallet-rules/families/litro_vidrio', headers=headers).status_code, 200)
 
+    def test_physical_stacking_rule_crud(self):
+        headers = {'Authorization':'Bearer '+self.tokens['admin']}
+        payload = dict(business_unit='CERVEZAS CMQ', caliber='1000 CC VIDRIO',
+            can_be_base=True, stable=True, allow_incomplete_floor=False,
+            size_rank=1000, enabled=True)
+        self.assertEqual(self.client.put('/api/pallet-rules/stacking', headers=headers, json=payload).status_code, 200)
+        listing = self.client.get('/api/pallet-rules', headers=headers).json
+        self.assertEqual(listing['stacking_rules'][0]['size_rank'], 1000)
+        self.assertTrue(listing['stacking_rules'][0]['can_be_base'])
+
     def test_answer_receipt_prevents_duplicate_audit_and_payload_reuse(self):
         from models import LogEntry
         check=self.call('post',f'/loads/{self.load_id}/courts/1/start/0','picker')

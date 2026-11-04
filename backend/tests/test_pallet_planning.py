@@ -5,11 +5,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.pallet_planning import simulate_pallets, plan_for_capacity
 
 
-def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL'):
+def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False):
     return dict(load_id=1, reparto='R1', court=court, sku=sku, descripcion=sku,
                 bultos=b, unidades=u, bultos_por_pallet=bpp, unidades_por_bulto=upb,
                 calibre=calibre, stack_family=family, stack_family_name=family,
-                base_priority=priority, must_be_bottom=bottom, allowed_above=['*'] if allowed is None else allowed)
+                base_priority=priority, must_be_bottom=bottom, allowed_above=['*'] if allowed is None else allowed,
+                business_unit='TEST', can_be_base=can_base, stable=stable, allow_incomplete_floor=False,
+                size_rank=rank, bultos_por_piso=floor, stacking_rule_pending=pending)
 
 
 class PlanningTest(unittest.TestCase):
@@ -96,10 +98,19 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual([i['placement'] for i in pallet['layers']], ['base', 'arriba'])
 
     def test_unknown_caliber_never_crosses_courts(self):
-        rows = [row(25, court=1, family=None, calibre='SIN REGLA'), row(25, court=2, sku='OTRO', family='general')]
+        rows = [row(25, court=1, family=None, calibre='SIN REGLA', pending=True), row(25, court=2, sku='OTRO', family='general')]
         result = simulate_pallets(rows, 1, True)
         self.assertEqual(result['total_pallets'], 2)
-        self.assertEqual(result['missing_caliber_rules'], ['SIN REGLA'])
+        self.assertEqual(result['missing_caliber_rules'], ['TEST / SIN REGLA'])
+
+    def test_larger_caliber_never_stacks_on_smaller(self):
+        rows = [row(25, court=1, sku='CHICO', rank=473), row(25, court=2, sku='GRANDE', rank=1000)]
+        pallet = simulate_pallets(rows, 1, True)['mixed_pallets'][0]
+        self.assertEqual([item['sku'] for item in pallet['layers']], ['GRANDE', 'CHICO'])
+
+    def test_incomplete_floor_cannot_support_another_product(self):
+        rows = [row(5, court=1, sku='BASE', rank=1000, floor=10), row(25, court=2, sku='ARRIBA', rank=473)]
+        self.assertEqual(simulate_pallets(rows, 2, True)['total_pallets'], 2)
 
 
 if __name__ == '__main__': unittest.main()

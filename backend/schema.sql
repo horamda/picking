@@ -23,6 +23,7 @@ CREATE TABLE articulos (
   calibre VARCHAR(120),
   unidades_por_bulto INT NOT NULL DEFAULT 1,
   bultos_por_pallet INT NOT NULL DEFAULT 1,
+  bultos_por_piso INT,
   activo BOOL DEFAULT TRUE,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

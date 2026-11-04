@@ -26,6 +26,27 @@ class PalletCaliberAlias(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PalletStackingRule(db.Model):
+    __tablename__ = 'pallet_stacking_rules'
+    business_unit = db.Column(db.String(120), primary_key=True)
+    caliber = db.Column(db.String(120), primary_key=True)
+    can_be_base = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    stable = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    allow_incomplete_floor = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    size_rank = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    enabled = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+def source_value(article, name):
+    wanted = name.casefold()
+    for key, value in (article.datos_origen or {}).items() if article else []:
+        if str(key).strip().casefold() == wanted:
+            return str(value or '').strip()
+    return ''
+
+
 def normalize_key(value):
     import re
     key = re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower()).strip('_')
@@ -57,6 +78,7 @@ def validate_family(data, current_key=None):
 
 
 def rule_catalog():
+    stacking = {(r.business_unit, r.caliber): r for r in PalletStackingRule.query.filter_by(enabled=True).all()}
     families = {f.key: f for f in PalletCaliberFamily.query.all()}
     result = {}
     for alias in PalletCaliberAlias.query.all():
@@ -66,16 +88,27 @@ def rule_catalog():
                 must_be_bottom=family.must_be_bottom, base_priority=family.base_priority,
                 allowed_above=list(family.allowed_above or []), cases_per_layer=family.cases_per_layer,
                 max_layers=family.max_layers)
-    return result
+    return result, stacking
 
 
 def stacking_values(article, rules):
+    legacy, stacking = rules if isinstance(rules, tuple) else (rules, {})
+    legacy_mode = not stacking
     caliber = (article.calibre or '').strip() if article else ''
-    rule = rules.get(caliber)
+    business_unit = source_value(article, 'UNIDAD DE NEGOCIO')
+    stack_rule = stacking.get((business_unit, caliber))
+    rule = legacy.get(caliber)
     return dict(calibre=caliber or None, stack_family=rule['family'] if rule else None,
         stack_family_name=rule['family_name'] if rule else None,
         must_be_bottom=rule['must_be_bottom'] if rule else False,
         base_priority=rule['base_priority'] if rule else 0,
         allowed_above=rule['allowed_above'] if rule else [],
         cases_per_layer=rule['cases_per_layer'] if rule else None,
-        max_layers=rule['max_layers'] if rule else None)
+        max_layers=rule['max_layers'] if rule else None,
+        business_unit=business_unit or None,
+        can_be_base=stack_rule.can_be_base if stack_rule else bool(rule) and legacy_mode,
+        stable=stack_rule.stable if stack_rule else bool(rule) and legacy_mode,
+        allow_incomplete_floor=stack_rule.allow_incomplete_floor if stack_rule else False,
+        size_rank=stack_rule.size_rank if stack_rule else (rule['base_priority'] if rule and legacy_mode else 0),
+        bultos_por_piso=(article.bultos_por_piso if article else None) or (1 if legacy_mode and rule else None),
+        stacking_rule_pending=not legacy_mode and (stack_rule is None or article is None or not article.bultos_por_piso))

@@ -119,6 +119,7 @@ def list_articles():
         'calibre': a.calibre,
         'unidades_por_bulto': a.unidades_por_bulto,
         'bultos_por_pallet': a.bultos_por_pallet,
+        'bultos_por_piso': a.bultos_por_piso,
         'activo': a.activo,
     } for a in pagination.items]
 
@@ -189,6 +190,7 @@ def create_article():
         calibre=data.get('calibre'),
         unidades_por_bulto=data.get('unidades_por_bulto', 1),
         bultos_por_pallet=data.get('bultos_por_pallet', 1),
+        bultos_por_piso=data.get('bultos_por_piso'),
         activo=data.get('activo', True)
     )
     db.session.add(article)
