@@ -1,6 +1,9 @@
 import json
+import csv
+from io import StringIO
+from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 
 from auth import roles_required
 from models import Article, LogEntry
@@ -26,13 +29,34 @@ def validate_references(values):
         raise ValueError('Familias permitidas inexistentes: ' + ', '.join(sorted(unknown)) + '.')
 
 
+def missing_article_data(article, configured):
+    business_unit = source_value(article, 'UNIDAD DE NEGOCIO') or ''
+    caliber = (article.calibre or '').strip()
+    missing = []
+    if not article.unidades_por_bulto or article.unidades_por_bulto <= 0: missing.append('unidades_por_bulto')
+    if not article.bultos_por_pallet or article.bultos_por_pallet <= 0: missing.append('bultos_por_pallet')
+    if not article.bultos_por_piso or article.bultos_por_piso <= 0: missing.append('bultos_por_piso')
+    if not business_unit: missing.append('unidad_de_negocio')
+    if not caliber: missing.append('calibre')
+    if business_unit and caliber and (business_unit, caliber) not in configured: missing.append('regla_apilado')
+    raw = article.datos_origen or {}
+    factor = next((value for key, value in raw.items() if str(key).strip().lower() == 'valor unidad de medida'), None)
+    unit = next((value for key, value in raw.items() if str(key).strip().lower() == 'descripcion unidad de medida'), '')
+    try:
+        has_hl = (article.hl_por_bulto is not None and Decimal(article.hl_por_bulto) > 0) or (str(unit).strip().upper() == 'HECTOLITROS' and Decimal(str(factor).replace(',', '.')) > 0)
+    except (InvalidOperation, TypeError, ValueError):
+        has_hl = False
+    if not has_hl: missing.append('factor_hl')
+    return business_unit, caliber, missing
+
+
 @pallet_rules_bp.get('')
 @roles_required('administrador')
 def list_rules():
     assigned = {a.caliber: a.family_key for a in PalletCaliberAlias.query.all()}
     calibers = [value for (value,) in db.session.query(Article.calibre).distinct().order_by(Article.calibre).all() if value and value.strip()]
     stacking = PalletStackingRule.query.order_by(PalletStackingRule.business_unit, PalletStackingRule.size_rank.desc()).all()
-    configured = {(r.business_unit, r.caliber) for r in stacking}
+    configured = {(r.business_unit, r.caliber) for r in stacking if r.enabled}
     active_articles = Article.query.filter_by(activo=True).all()
     coverage = {}
     for article in active_articles:
@@ -49,13 +73,32 @@ def list_rules():
         if missing_rule or missing_floor:
             pending.append(dict(business_unit=key[0], caliber=key[1], **counts,
                                 missing_rule=missing_rule, missing_floor=missing_floor))
+    incomplete_count = sum(bool(missing_article_data(article, configured)[2]) for article in active_articles)
     return jsonify(families=[family_json(f) for f in PalletCaliberFamily.query.order_by(PalletCaliberFamily.base_priority.desc(), PalletCaliberFamily.name).all()],
         calibers=[dict(caliber=value, family_key=assigned.get(value)) for value in calibers],
         stacking_rules=[dict(business_unit=r.business_unit, caliber=r.caliber, can_be_base=r.can_be_base,
             stable=r.stable, allow_incomplete_floor=r.allow_incomplete_floor, size_rank=r.size_rank,
             enabled=r.enabled, articles=coverage.get((r.business_unit, r.caliber), {}).get('articles', 0),
             with_floor=coverage.get((r.business_unit, r.caliber), {}).get('with_floor', 0)) for r in stacking],
-        pending_rules=pending)
+        pending_rules=pending, incomplete_articles=incomplete_count)
+
+
+@pallet_rules_bp.get('/incomplete-articles.csv')
+@roles_required('administrador')
+def export_incomplete_articles():
+    configured = {(r.business_unit, r.caliber) for r in PalletStackingRule.query.filter_by(enabled=True).all()}
+    output = StringIO()
+    writer = csv.writer(output, delimiter=';', lineterminator='\n')
+    writer.writerow(['SKU', 'DESCRIPCION', 'UNIDAD_DE_NEGOCIO', 'CALIBRE', 'UNIDADES_POR_BULTO',
+                     'BULTOS_POR_PALLET', 'BULTOS_POR_PISO', 'PISOS_POR_PALLET', 'HL_POR_BULTO', 'DATOS_FALTANTES'])
+    for article in Article.query.filter_by(activo=True).order_by(Article.sku).all():
+        business_unit, caliber, missing = missing_article_data(article, configured)
+        if missing:
+            writer.writerow([article.sku, article.descripcion, business_unit, caliber, article.unidades_por_bulto,
+                             article.bultos_por_pallet, article.bultos_por_piso or '', article.pisos_por_pallet or '',
+                             article.hl_por_bulto or '', ','.join(missing)])
+    return Response('\ufeff' + output.getvalue(), mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition': 'attachment; filename=articulos-incompletos-mezclador.csv'})
 
 
 @pallet_rules_bp.put('/stacking')

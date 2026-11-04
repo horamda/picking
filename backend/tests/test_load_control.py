@@ -124,6 +124,18 @@ class ControlFlowTest(unittest.TestCase):
         self.assertEqual(listing['stacking_rules'][0]['size_rank'], 1000)
         self.assertTrue(listing['stacking_rules'][0]['can_be_base'])
 
+    def test_incomplete_pallet_articles_can_be_exported(self):
+        headers={'Authorization':'Bearer '+self.tokens['admin']}
+        listing=self.client.get('/api/pallet-rules',headers=headers).json
+        self.assertGreater(listing['incomplete_articles'],0)
+        exported=self.client.get('/api/pallet-rules/incomplete-articles.csv',headers=headers)
+        self.assertEqual(exported.status_code,200)
+        self.assertIn('articulos-incompletos-mezclador.csv',exported.headers['Content-Disposition'])
+        content=exported.get_data(as_text=True)
+        self.assertIn('DATOS_FALTANTES',content)
+        self.assertIn('1001',content)
+        self.assertEqual(self.client.get('/api/pallet-rules/incomplete-articles.csv',headers={'Authorization':'Bearer '+self.tokens['super']}).status_code,403)
+
     def test_answer_receipt_prevents_duplicate_audit_and_payload_reuse(self):
         from models import LogEntry
         check=self.call('post',f'/loads/{self.load_id}/courts/1/start/0','picker')
