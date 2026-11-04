@@ -1171,6 +1171,33 @@ def warehouse_monitor():
         fail('Fecha invalida.')
     rows = []
     summaries = []
+    active_workers = [user for user in User.query.filter_by(active=True).all()
+                      if user.role.name in ('operador', 'palletizador', 'controlador')]
+    worker_courts = {user.id: assigned_courts(user.id) for user in active_workers}
+
+    def process_amounts(products):
+        bultos = sum(product.get('bultos', 0) for product in products)
+        unidades = sum(product.get('unidades', 0) for product in products)
+        equivalent = 0.0
+        complete = True
+        catalog = dispatch_catalog()
+        for product in products:
+            amount = float(product.get('bultos', 0))
+            units = product.get('unidades', 0)
+            article = catalog.get(product.get('sku'))
+            units_per_case = product.get('unidades_por_bulto') or (article.unidades_por_bulto if article else None)
+            if units and not units_per_case:
+                complete = False
+            elif units:
+                amount += units / units_per_case
+            equivalent += amount
+        return bultos, unidades, round(equivalent, 2) if complete else None
+
+    def responsible_candidates(stage, court_number):
+        role = 'operador' if stage == 0 else 'palletizador' if stage == 4 else 'controlador'
+        return [user.username for user in active_workers if user.role.name == role
+                and (role == 'palletizador' or court_number in worker_courts[user.id])]
+
     trucks = ControlTruck.query.filter_by(load_date=date).options(selectinload(ControlTruck.loads)).all()
     for truck in trucks:
         if truck.state.get('dispatch') is not None and not selected_loads(truck):
@@ -1203,6 +1230,7 @@ def warehouse_monitor():
                         products = products_for(load, court, stage, check.get('user_id'), products)
                     answers = check.get('answers', {})
                     answered = sum(p['sku'] in answers for p in products)
+                    bultos, unidades, bultos_equiv = process_amounts(products)
                     if stage == 0:
                         available = bool(plan or legacy_in_progress(truck))
                         blocked_reason = None if available else 'Espera aprobaciÃ³n del supervisor'
@@ -1226,6 +1254,8 @@ def warehouse_monitor():
                         status='pending' if not check else 'done' if check['status']=='done' else 'running' if check.get('timer_started_at') else 'paused',
                         answered=answered, personal_answered=sum(a.get('user_id') == check.get('user_id') for a in answers.values() if check.get('user_id')), total=len(products), elapsed_seconds=elapsed(check), timing=timing(check),
                         shortages=sum(a['result']=='shortage' for a in answers.values()),
+                        bultos=bultos, unidades=unidades, bultos_equiv=bultos_equiv,
+                        responsible_candidates=responsible_candidates(stage, court['numero']),
                         available=available, blocked_reason=blocked_reason,
                         planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending'))
     from datetime import datetime, timedelta
@@ -1236,8 +1266,8 @@ def warehouse_monitor():
         LogEntry.entity != 'api_activity').order_by(LogEntry.id.desc()).limit(12).all()
     return jsonify(date=date, updated_at=now(), processes=rows, trucks=summaries,
         events=[dict(id=event.id, action=event.action, username=username, at=event.timestamp.isoformat()+'Z') for event, username in latest],
-        operators=[dict(id=u.id, username=u.username, role=u.role.name, courts=assigned_courts(u.id))
-            for u in User.query.filter_by(active=True).all() if u.role.name in ('operador','palletizador','controlador')])
+        operators=[dict(id=u.id, username=u.username, role=u.role.name, courts=worker_courts[u.id])
+            for u in active_workers])
 
 
 @load_control_bp.post('/trucks/<int:truck_id>/planning/start')

@@ -361,7 +361,10 @@ class ControlFlowTest(unittest.TestCase):
         stages = {process['stage']: process for process in data['processes']
                   if process['load_id'] == self.load_id and process['court'] == 1}
         self.assertTrue(stages[0]['available'])
+        self.assertEqual((stages[0]['bultos'], stages[0]['unidades'], stages[0]['bultos_equiv']), (9, 0, 9.0))
+        self.assertEqual(stages[0]['responsible_candidates'], ['picker'])
         self.assertFalse(stages[1]['available'])
+        self.assertEqual(stages[1]['responsible_candidates'], ['ana', 'ben'])
         self.assertEqual(stages[1]['blocked_reason'], 'Espera armado y pallets completos')
         self.assertFalse(stages[2]['available'])
         self.assertEqual(stages[2]['blocked_reason'], 'Espera Control 1')
