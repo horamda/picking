@@ -87,8 +87,9 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         while amount:
             pallet = next((p for p in mixed
                 if p['load_id'] == reference['load_id']
-                and (p['court'] == reference['court'] or mix_courts or reference['load_id'] in compact)
-                and cross_court_compatible(p, reference)
+                # Same court mixes freely (as before); stacking rules only gate mixing between courts.
+                and (p['court'] == reference['court'] or ((mix_courts or reference['load_id'] in compact)
+                     and cross_court_compatible(p, reference)))
                 and 1-p['used'] >= size), None)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],

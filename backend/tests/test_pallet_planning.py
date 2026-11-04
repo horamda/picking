@@ -114,3 +114,15 @@ class PlanningTest(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class SameCourtWithoutRulesTest(unittest.TestCase):
+    def test_skus_without_stacking_rule_share_pallet_in_same_court(self):
+        rows = [row(5, sku=f'S{i}', calibre=f'C{i}', pending=True, can_base=False, stable=False) for i in range(40)]
+        result = simulate_pallets(rows, 9)
+        self.assertEqual(result['total_pallets'], 4)
+        self.assertTrue(result['fits_estimate'])
+
+    def test_cross_court_mixing_still_requires_rules(self):
+        rows = [row(5, court=c, sku=f'S{c}', pending=True) for c in (1, 2)]
+        self.assertEqual(simulate_pallets(rows, 9, True)['total_pallets'], 2)
