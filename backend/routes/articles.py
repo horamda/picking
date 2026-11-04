@@ -7,6 +7,7 @@ from auth import auth_required, roles_required
 from models import Article, UploadedFile, LogEntry
 import json
 from services.csv_import import import_articles_from_csv
+from services.logistics_xlsx import import_logistics_xlsx
 from services.file_storage import create_uploaded_file_record, mark_uploaded_file, uploaded_file_to_dict
 from utils.db import db
 from services.article_voice import fill_missing_voice, proposed_voice
@@ -120,6 +121,9 @@ def list_articles():
         'unidades_por_bulto': a.unidades_por_bulto,
         'bultos_por_pallet': a.bultos_por_pallet,
         'bultos_por_piso': a.bultos_por_piso,
+        'pisos_por_pallet': a.pisos_por_pallet,
+        'apilabilidad': float(a.apilabilidad) if a.apilabilidad is not None else None,
+        'hl_por_bulto': float(a.hl_por_bulto) if a.hl_por_bulto is not None else None,
         'activo': a.activo,
     } for a in pagination.items]
 
@@ -152,7 +156,34 @@ def article_detail(article_id):
     if not article:
         return jsonify(error='Artículo no encontrado'), 404
     return jsonify(id=article.id, sku=article.sku, descripcion=article.descripcion,
-                   descripcion_voz=article.descripcion_voz, datos_origen=article.datos_origen or {})
+                   descripcion_voz=article.descripcion_voz, datos_origen=article.datos_origen or {},
+                   datos_logisticos=article.datos_logisticos or {})
+
+
+@articles_bp.route('/import-logistics-xlsx', methods=['POST'])
+@roles_required('administrador', 'supervisor')
+def import_logistics():
+    ensure_article_import_schema()
+    file = request.files.get('file')
+    if not file or not (file.filename or '').lower().endswith('.xlsx'):
+        return jsonify(error='Seleccioná la plantilla de artículos en formato XLSX.'), 400
+    raw = file.read(30 * 1024 * 1024 + 1)
+    if len(raw) > 30 * 1024 * 1024:
+        return jsonify(error='El archivo supera los 30 MB.'), 400
+    apply = request.form.get('apply') == '1'
+    try:
+        result = import_logistics_xlsx(raw, apply=apply, user_id=g.current_user.id)
+    except ValueError as exc:
+        return jsonify(error=str(exc), applied=False), 422
+    if apply and result.get('applied'):
+        stored = create_uploaded_file_record(file_bytes=raw,
+            filename=secure_filename(file.filename or 'datos-logisticos.xlsx'),
+            original_filename=file.filename or 'datos-logisticos.xlsx',
+            category='xlsx_articulos_logistica', content_type=file.mimetype)
+        mark_uploaded_file(stored, 'procesado')
+        db.session.add(stored); db.session.commit()
+        result['uploaded_file_id'] = stored.id
+    return jsonify(result), 200 if not result.get('errors') else 422
 
 
 @articles_bp.route('/<int:article_id>/voice', methods=['PUT'])

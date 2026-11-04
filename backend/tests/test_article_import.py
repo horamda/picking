@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+from openpyxl import Workbook
 
 TEMP = tempfile.TemporaryDirectory()
 os.environ.update(DATABASE_URL='sqlite:///' + str(Path(TEMP.name) / 'articles.db'),
@@ -31,6 +32,25 @@ def csv_bytes(*changes):
     for change in changes or ({},):
         writer.writerow(dict(template, **change))
     return output.getvalue().encode('utf-8-sig')
+
+
+def logistics_xlsx_bytes(*rows):
+    workbook = Workbook(); sheet = workbook.active; sheet.title = 'Artículos'
+    headers = [f'Columna {n}' for n in range(1, 64)]
+    headers[0] = 'Código'; headers[2] = 'Unidad x Bulto'; headers[5] = 'Anulado'
+    headers[6] = 'Usado en Disp. Móvil'; headers[14] = 'Cód. Barra Bulto'; headers[15] = 'Cód. Barra Unidad'
+    headers[22] = 'Valor'; headers[46] = 'Bultos x Pallet'; headers[47] = 'Pisos'; headers[48] = 'Apilabilidad'
+    sheet.append(['GENERAL']); sheet.append(headers); sheet.append(['TIPO'] * len(headers))
+    for values in rows:
+        row = [None] * len(headers)
+        defaults = dict(sku='001', upb=12, anulado='NO', mobile='SI', bpp=50, pisos=5,
+                        apilabilidad=3, hl=0.12, barcode_case='B1', barcode_unit='U1')
+        defaults.update(values)
+        for index, key in [(0,'sku'),(2,'upb'),(5,'anulado'),(6,'mobile'),(14,'barcode_case'),
+                           (15,'barcode_unit'),(22,'hl'),(46,'bpp'),(47,'pisos'),(48,'apilabilidad')]:
+            row[index] = defaults[key]
+        sheet.append(row)
+    stream = io.BytesIO(); workbook.save(stream); return stream.getvalue()
 
 
 class ArticleImportTest(unittest.TestCase):
@@ -196,6 +216,29 @@ class ArticleImportTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.json)
         from models import UploadedFile
         self.assertEqual(db.session.get(UploadedFile, response.json['uploaded_file_id']).data, raw)
+
+    def test_logistics_xlsx_previews_then_updates_existing_only(self):
+        article = Article(sku='1001', descripcion='Producto', descripcion_voz='Voz manual',
+                          calibre='1000 CC VIDRIO', unidades_por_bulto=1, bultos_por_pallet=1)
+        db.session.add(article); db.session.commit(); original_caliber = article.calibre
+        raw = logistics_xlsx_bytes(dict(sku='1001'), dict(sku='nuevo', bpp=1, pisos=1))
+        headers = self.tokens['administrador']; path = '/api/articles/import-logistics-xlsx'
+        preview = self.client.post(path, headers=headers,
+            data={'file': (io.BytesIO(raw), 'logistica.xlsx'), 'apply': '0'})
+        self.assertEqual(preview.status_code, 200, preview.json)
+        self.assertEqual((preview.json['matched'], preview.json['updated'], len(preview.json['unknown'])), (1, 1, 1))
+        self.assertIsNone(article.bultos_por_piso)
+        applied = self.client.post(path, headers=headers,
+            data={'file': (io.BytesIO(raw), 'logistica.xlsx'), 'apply': '1'})
+        self.assertEqual(applied.status_code, 200, applied.json)
+        db.session.refresh(article)
+        self.assertEqual((article.pisos_por_pallet, article.bultos_por_piso), (5, 10))
+        self.assertEqual(article.descripcion_voz, 'Voz manual')
+        self.assertEqual(article.calibre, original_caliber)
+        self.assertIsNone(Article.query.filter_by(sku='nuevo').first())
+        from models import UploadedFile
+        stored = db.session.get(UploadedFile, applied.json['uploaded_file_id'])
+        self.assertEqual((stored.category, stored.data), ('xlsx_articulos_logistica', raw))
 
     def test_voice_csv_preview_apply_conflict_and_atomic_validation(self):
         import_articles_from_csv(csv_bytes({}, {'Articulo': '002'}))

@@ -4,12 +4,12 @@ import { speak, stopSpeaking } from '../voice/speech'
 
 export default function ArticleVoiceEditor({ article, onClose, onSaved }) {
     const [value, setValue] = useState(article.descripcion_voz || '')
-    const [source, setSource] = useState(null)
+    const [source, setSource] = useState(null), [logistics, setLogistics] = useState(null)
     const [error, setError] = useState('')
     const [saving, setSaving] = useState(false)
     useEffect(() => {
         let active = true
-        api.get(`/articles/${article.id}`).then(r => { if (active) setSource(r.data.datos_origen) }).catch(() => { if (active) setError('No se pudieron cargar los datos originales.') })
+        api.get(`/articles/${article.id}`).then(r => { if (active) { setSource(r.data.datos_origen); setLogistics(r.data.datos_logisticos) } }).catch(() => { if (active) setError('No se pudieron cargar los datos originales.') })
         return () => { active = false; stopSpeaking() }
     }, [article.id])
     async function save(event) {
@@ -27,5 +27,6 @@ export default function ArticleVoiceEditor({ article, onClose, onSaved }) {
             <div className="flex flex-wrap gap-3"><button disabled={saving} className="min-h-12 rounded-xl bg-brand-500 px-4 text-white">{saving ? 'Guardando…' : 'Guardar'}</button><button type="button" className="min-h-12 rounded-xl border px-4" onClick={() => speak(value.trim() || article.descripcion, setError)}>Escuchar</button><button disabled={saving} type="button" className="min-h-12 px-4" onClick={onClose}>Cerrar</button></div>
         </form>
         <details className="mt-4"><summary className="min-h-12 cursor-pointer py-3">Datos originales del CSV</summary>{source === null ? <p>Cargando…</p> : <dl className="grid gap-2 sm:grid-cols-2">{Object.entries(source).map(([key, item]) => <div className="min-w-0 rounded-lg bg-slate-50 p-2" key={key}><dt className="text-xs text-slate-500">{key}</dt><dd className="break-words">{item || '—'}</dd></div>)}</dl>}</details>
+        <details className="mt-2"><summary className="min-h-12 cursor-pointer py-3">Datos de la plantilla logística</summary>{logistics === null ? <p>Sin importación logística.</p> : <dl className="grid gap-2 sm:grid-cols-2">{Object.entries(logistics).map(([key, item]) => <div className="min-w-0 rounded-lg bg-slate-50 p-2" key={key}><dt className="text-xs text-slate-500">{key}</dt><dd className="break-words">{item || '—'}</dd></div>)}</dl>}</details>
     </section>
 }

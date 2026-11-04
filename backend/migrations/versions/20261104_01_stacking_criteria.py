@@ -67,6 +67,12 @@ def size_rank(caliber):
 
 def upgrade():
     op.add_column('articulos', sa.Column('bultos_por_piso', sa.Integer(), nullable=True))
+    op.add_column('articulos', sa.Column('pisos_por_pallet', sa.Integer(), nullable=True))
+    op.add_column('articulos', sa.Column('apilabilidad', sa.Numeric(10, 3), nullable=True))
+    op.add_column('articulos', sa.Column('hl_por_bulto', sa.Numeric(12, 6), nullable=True))
+    op.add_column('articulos', sa.Column('codigo_barras_bulto', sa.String(120), nullable=True))
+    op.add_column('articulos', sa.Column('codigo_barras_unidad', sa.String(120), nullable=True))
+    op.add_column('articulos', sa.Column('datos_logisticos', sa.JSON(), nullable=True))
     op.create_check_constraint('ck_articulos_bultos_piso', 'articulos',
                                'bultos_por_piso IS NULL OR bultos_por_piso > 0')
     op.create_table('pallet_stacking_rules',
@@ -92,4 +98,7 @@ def upgrade():
 def downgrade():
     op.drop_table('pallet_stacking_rules')
     op.drop_constraint('ck_articulos_bultos_piso', 'articulos', type_='check')
+    for column in ('datos_logisticos', 'codigo_barras_unidad', 'codigo_barras_bulto', 'hl_por_bulto',
+                   'apilabilidad', 'pisos_por_pallet'):
+        op.drop_column('articulos', column)
     op.drop_column('articulos', 'bultos_por_piso')

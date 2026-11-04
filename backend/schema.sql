@@ -24,6 +24,12 @@ CREATE TABLE articulos (
   unidades_por_bulto INT NOT NULL DEFAULT 1,
   bultos_por_pallet INT NOT NULL DEFAULT 1,
   bultos_por_piso INT,
+  pisos_por_pallet INT,
+  apilabilidad NUMERIC(10,3),
+  hl_por_bulto NUMERIC(12,6),
+  codigo_barras_bulto VARCHAR(120),
+  codigo_barras_unidad VARCHAR(120),
+  datos_logisticos JSON,
   activo BOOL DEFAULT TRUE,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
