@@ -342,7 +342,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.19.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.19.1 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -507,8 +507,8 @@ public final class MainActivity extends Activity {
                 JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
                 if(mine!=null && !summary.isNull("pallets"))text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
                 if(isController()){
-                    text("ElegÃ­ este camiÃ³n para ver sus pallets y el avance de ambos controles.",14);
-                    styledButton("Ver pallets del camiÃ³n â†’",GREEN,Color.WHITE,GREEN,()->openControlTruck(truck));
+                    text("Elegí este camión para ver sus pallets y el avance de ambos controles.",14);
+                    styledButton("Ver pallets del camión →",GREEN,Color.WHITE,GREEN,()->openControlTruck(truck));
                     content=body;
                     continue;
                 }
@@ -567,7 +567,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.19.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.19.1",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -584,7 +584,7 @@ public final class MainActivity extends Activity {
     }
     private void showControlPallets(JSONObject board){
         currentScreen="pallet_board";pallet=null;check=null;
-        screen("CamiÃ³n "+board.optString("truck"));button("Volver a camiones",this::listLoads);
+        screen("Camión "+board.optString("truck"));button("Volver a camiones",this::listLoads);
         JSONObject assignments=board.optJSONObject("assignments");if(assignments==null)assignments=new JSONObject();
         JSONObject firstOwner=assignments.optJSONObject("1"),secondOwner=assignments.optJSONObject("2");
         int userId=user.optInt("id"),myStage=0;
@@ -595,8 +595,8 @@ public final class MainActivity extends Activity {
         final int controlStage=myStage;
         text("Control 1: "+(firstOwner==null?"sin asignar":firstOwner.optString("username")),16);
         text("Control 2: "+(secondOwner==null?"sin asignar":secondOwner.optString("username")),16);
-        if(board.optBoolean("control2_complete"))text("CamiÃ³n finalizado en ambos controles",18);
-        else if(board.optBoolean("control1_complete"))text("Control 1 del camiÃ³n finalizado",18);
+        if(board.optBoolean("control2_complete"))text("Camión finalizado en ambos controles",18);
+        else if(board.optBoolean("control1_complete"))text("Control 1 del camión finalizado",18);
         else text("Los pallets se habilitan individualmente al finalizar la etapa anterior.",14);
         JSONObject truckStatus=board.optJSONObject("status");
         if(truckStatus!=null && truckStatus.optBoolean("complete") && truckStatus.isNull("assets"))
@@ -607,18 +607,18 @@ public final class MainActivity extends Activity {
             JSONObject item=pallets.optJSONObject(i),controls=item.optJSONObject("controls");
             JSONObject first=controls==null?null:controls.optJSONObject("1"),second=controls==null?null:controls.optJSONObject("2");
             content=card(item.optBoolean("assembly_done")?BORDER:0xff64748b);
-            text("Pallet "+item.optString("id")+" Â· Reparto "+item.optString("reparto"),20);
-            text("Cancha responsable "+item.optInt("owner_court")+" Â· "+item.optJSONArray("items").length()+" productos",14);
-            text("Control 1: "+palletControlStatus(first)+(first!=null&&!first.optString("username").isEmpty()?" Â· "+first.optString("username"):""),14);
-            text("Control 2: "+palletControlStatus(second)+(second!=null&&!second.optString("username").isEmpty()?" Â· "+second.optString("username"):""),14);
-            if(!item.optBoolean("assembly_done"))text("TodavÃ­a en armado",14);
-            else if(controlStage==1 && item.optBoolean("control1_available"))styledButton("Controlar pallet â†’",GREEN,Color.WHITE,GREEN,()->startPallet(item,1));
-            else if(controlStage==2 && item.optBoolean("control2_available"))styledButton("Controlar pallet â†’",GREEN,Color.WHITE,GREEN,()->startPallet(item,2));
-            else if(controlStage==0)text("Este camiÃ³n ya estÃ¡ reservado por otros controladores.",13);
+            text("Pallet "+item.optString("id")+" · Reparto "+item.optString("reparto"),20);
+            text("Cancha responsable "+item.optInt("owner_court")+" · "+item.optJSONArray("items").length()+" productos",14);
+            text("Control 1: "+palletControlStatus(first)+(first!=null&&!first.optString("username").isEmpty()?" · "+first.optString("username"):""),14);
+            text("Control 2: "+palletControlStatus(second)+(second!=null&&!second.optString("username").isEmpty()?" · "+second.optString("username"):""),14);
+            if(!item.optBoolean("assembly_done"))text("Todavía en armado",14);
+            else if(controlStage==1 && item.optBoolean("control1_available"))styledButton("Controlar pallet →",GREEN,Color.WHITE,GREEN,()->startPallet(item,1));
+            else if(controlStage==2 && item.optBoolean("control2_available"))styledButton("Controlar pallet →",GREEN,Color.WHITE,GREEN,()->startPallet(item,2));
+            else if(controlStage==0)text("Este camión ya está reservado por otros controladores.",13);
             else text(controlStage==2?"Esperando Control 1":"Sin trabajo pendiente en este pallet",13);
             content=body;
         }
-        if(pallets.length()==0)message("Este camiÃ³n no tiene pallets fÃ­sicos en el plan aprobado.");
+        if(pallets.length()==0)message("Este camión no tiene pallets físicos en el plan aprobado.");
     }
     private void startPallet(JSONObject selected,int requestedStage){
         currentStage=requestedStage;pallet=selected;
