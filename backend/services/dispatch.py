@@ -113,15 +113,19 @@ def worker_queue(trucks, courts, stage, products):
 def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None):
     summary = totals(original_rows(truck), catalog)
     plan = truck.state.get('planning') if valid else None
-    summary.update(pallets=plan['total_pallets'] if plan else None,
+    selected_ids = {load.id for load in selected_loads(truck)}
+    full = [item for item in (plan or {}).get('full_pallets', []) if item.get('load_id') in selected_ids]
+    mixed = [item for item in (plan or {}).get('mixed_pallets', []) if item.get('load_id') in selected_ids]
+    summary.update(pallets=sum(item.get('pallets', 0) for item in full) + len(mixed) if plan else None,
                    separation_policy=plan.get('separation_policy') if plan else None,
-                   load_plans=plan.get('load_plans', []) if plan else [],
-                   full_pallets=plan['full_count'] if plan else None,
-                   picking_pallets=plan['mixed_count'] if plan else None,
+                   load_plans=[item for item in plan.get('load_plans', []) if item.get('load_id') in selected_ids] if plan else [],
+                   full_pallets=sum(item.get('pallets', 0) for item in full) if plan else None,
+                   picking_pallets=len(mixed) if plan else None,
                    capacity=plan['capacity'] if plan else None)
     if courts is None:
         return summary
-    tasks = (plan or {}).get('picking_tasks' if stage == 0 else 'full_pallets', [])
+    tasks = [item for item in (plan or {}).get('picking_tasks' if stage == 0 else 'full_pallets', [])
+             if item.get('load_id') in selected_ids]
     own = [p for p in tasks if p['court'] in courts and (p['bultos'] or p.get('unidades', 0))]
     if user_id is not None:
         from services.assistance import products_for, can_access, personal_check

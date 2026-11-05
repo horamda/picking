@@ -4,6 +4,7 @@ import json
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy import text
 
 from flask import Blueprint, g, jsonify, request, has_request_context
@@ -589,6 +590,91 @@ def add_load(payload, source_id=None):
     db.session.flush()
     audit(g.current_user, 'importar_planilla_control', truck, dict(load_id=load.id, source_id=source_id))
     return load
+
+
+def load_assembly_progress(load):
+    cancelled = load.truck.state.get('cancelled_loads', {}).get(str(load.id))
+    if cancelled and cancelled.get('assembly'):
+        return cancelled['assembly']
+    pallets = [item for item in physical_pallets(load.truck) if item['load_id'] == load.id]
+    if pallets:
+        done = sum(1 for pallet in pallets if assembly_done(load.truck, pallet))
+        return dict(done=done, total=len(pallets), complete=done == len(pallets), unit='pallets')
+    plan = load.truck.state.get('planning') or {}
+    required = set()
+    for item in plan.get('picking_tasks', []):
+        if item.get('load_id') == load.id and (item.get('bultos', 0) or item.get('unidades', 0)):
+            required.add((item.get('court'), 0))
+    for item in plan.get('full_pallets', []):
+        if item.get('load_id') == load.id and item.get('pallets', 0):
+            required.add((item.get('court'), 4))
+    if not required:
+        required = {(court['numero'], 0) for court in load.content.get('canchas', []) if court.get('productos')}
+    done = sum(1 for court, stage in required
+               if court_state(load.truck.state, load.id, court)['checks'].get(str(stage), {}).get('status') == 'done')
+    return dict(done=done, total=len(required), complete=bool(required) and done == len(required), unit='tareas')
+
+
+@load_control_bp.get('/admin/previous-loads')
+@roles_required('administrador')
+def previous_loads():
+    today = datetime.now(ZoneInfo('America/Argentina/Buenos_Aires')).date().isoformat()
+    trucks = (ControlTruck.query.filter(ControlTruck.load_date < today)
+              .options(selectinload(ControlTruck.loads))
+              .order_by(ControlTruck.load_date.desc(), ControlTruck.truck, ControlTruck.id.desc()).all())
+    result = []
+    for truck in trucks:
+        cancelled = truck.state.get('cancelled_loads', {})
+        for load in sorted(truck.loads, key=lambda item: item.reparto):
+            assembly = load_assembly_progress(load)
+            cancellation = cancelled.get(str(load.id))
+            started = any(court_state(truck.state, load.id, court['numero']).get('checks')
+                          for court in load.content.get('canchas', []))
+            state = ('cancelled' if cancellation else 'completed' if assembly['complete']
+                     else 'in_progress' if started or assembly['done'] else 'pending')
+            result.append(dict(id=load.id, truck_id=truck.id, date=truck.load_date, truck=truck.truck,
+                branch=truck.branch, reparto=load.reparto, state=state, assembly=assembly,
+                can_cancel=not cancellation and not assembly['complete'], cancellation=cancellation))
+    return jsonify(result)
+
+
+@load_control_bp.post('/admin/loads/<int:load_id>/cancel')
+@roles_required('administrador')
+def cancel_previous_load(load_id):
+    load = get_load(load_id)
+    today = datetime.now(ZoneInfo('America/Argentina/Buenos_Aires')).date().isoformat()
+    if load.load_date >= today:
+        fail('Solo se pueden anular cargas anteriores al día de hoy.', 409)
+    reason = str(body().get('reason') or '').strip()
+    if len(reason) < 5 or len(reason) > 500:
+        fail('Indicá un motivo de entre 5 y 500 caracteres.')
+    state = deepcopy(load.truck.state)
+    if str(load.id) in state.get('cancelled_loads', {}):
+        fail('La carga ya está anulada.', 409)
+    assembly = load_assembly_progress(load)
+    if assembly['complete']:
+        fail('La carga tiene el armado completo y no puede anularse.', 409)
+    for court in load.content.get('canchas', []):
+        for check in state.get('courts', {}).get(f"{load.id}:{court['numero']}", {}).get('checks', {}).values():
+            if check.get('status') == 'active':
+                release_timer(check)
+    prefix = f'{load.id}:'
+    for key, pallet in state.get('pallet_controls', {}).items():
+        if key.startswith(prefix):
+            for check in pallet.get('checks', {}).values():
+                if check.get('status') == 'active':
+                    release_timer(check)
+    state['pallet_control_keys'] = [key for key in state.get('pallet_control_keys', []) if not key.startswith(prefix)]
+    state.setdefault('cancelled_loads', {})[str(load.id)] = dict(cancelled_at=now(),
+        cancelled_by=g.current_user.id, cancelled_by_username=g.current_user.username,
+        reason=reason, assembly=assembly)
+    load.truck.state = deepcopy(state)
+    plan = state.get('planning') or {}
+    if plan.get('approved_at'):
+        plan['fingerprint'] = plan_fingerprint(load.truck, plan['capacity'], plan['mix_courts'], plan.get('compact_load_ids', []))
+    save_state(load.truck, state, g.current_user, 'anular_carga', dict(load_id=load.id,
+        reparto=load.reparto, reason=reason, assembly=assembly))
+    return jsonify(ok=True, cancellation=state['cancelled_loads'][str(load.id)])
 
 
 @load_control_bp.get('/trucks')

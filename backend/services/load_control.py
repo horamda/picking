@@ -99,7 +99,9 @@ def court_done(court):
 
 def selected_loads(truck):
     selection = truck.state.get('dispatch')
-    return [load for load in truck.loads if selection is None or load.id in selection.get('load_ids', [])]
+    cancelled = {str(key) for key in truck.state.get('cancelled_loads', {})}
+    return [load for load in truck.loads if str(load.id) not in cancelled
+            and (selection is None or load.id in selection.get('load_ids', []))]
 
 
 def status(truck, state=None):

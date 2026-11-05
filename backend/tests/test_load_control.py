@@ -190,6 +190,22 @@ class ControlFlowTest(unittest.TestCase):
         self.assertFalse(detail['canchas'][0]['can_prepare'])
         self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker', expected=409)
 
+    def test_admin_can_cancel_old_incomplete_load_without_deleting_audit(self):
+        self.call('get', '/admin/previous-loads', 'super', expected=403)
+        before = self.call('get', '/admin/previous-loads')
+        row = next(item for item in before if item['id'] == self.load_id)
+        self.assertTrue(row['can_cancel'])
+        check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
+        self.call('post', f'/admin/loads/{self.load_id}/cancel', data={'reason':'Carga antigua fuera de programación.'})
+        after = self.call('get', '/admin/previous-loads')
+        cancelled = next(item for item in after if item['id'] == self.load_id)
+        self.assertEqual(cancelled['state'], 'cancelled')
+        self.assertEqual(cancelled['cancellation']['cancelled_by_username'], 'admin')
+        self.assertFalse(cancelled['can_cancel'])
+        self.assertEqual(self.call('get', '/trucks', 'picker'), [])
+        self.assertIsNotNone(db.session.get(ControlTruck, self.truck_id).state['courts'][f'{self.load_id}:1']['checks']['0']['id'])
+        self.assertEqual(db.session.get(ControlTruck, self.truck_id).state['courts'][f'{self.load_id}:1']['checks']['0']['id'], check['id'])
+
     def tearDown(self):
         db.session.remove()
 

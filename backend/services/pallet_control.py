@@ -1,7 +1,7 @@
 """Physical-pallet control workflow stored inside the versioned truck state."""
 from copy import deepcopy
 
-from services.load_control import court_state
+from services.load_control import court_state, selected_loads
 
 
 def _group_items(items):
@@ -20,7 +20,7 @@ def _group_items(items):
 
 def physical_pallets(truck):
     plan = truck.state.get('planning') or {}
-    loads = {load.id: load for load in truck.loads}
+    loads = {load.id: load for load in selected_loads(truck)}
     result = []
     for pallet in plan.get('mixed_pallets', []):
         load = loads.get(pallet.get('load_id'))

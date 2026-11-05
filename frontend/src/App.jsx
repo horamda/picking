@@ -19,6 +19,7 @@ import Sidebar from './components/Sidebar'
 import ThemeSwitch from './components/ThemeSwitch'
 import VoiceTemplatesPage from './pages/VoiceTemplatesPage'
 import PalletRulesPage from './pages/PalletRulesPage'
+import PreviousLoadsPage from './pages/PreviousLoadsPage'
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -69,6 +70,7 @@ function App() {
                                             <Route path="/monitor" element={<DepotMonitorPage />} />
                                             <Route path="/supervision" element={<WarehousePage />} />
                                             <Route path="/administracion" element={<AdminPage />} />
+                                            <Route path="/administracion/cargas-anteriores" element={<PreviousLoadsPage />} />
                                             <Route path="/supervision/cargas" element={<LoadControlPage key="supervision-cargas" supervisorOnly />} />
                                             <Route path="/supervision/faltantes" element={<LoadControlPage key="supervision-faltantes" supervisorOnly initialView="shortages" />} />
                                             <Route path="/supervision/equipo" element={<WarehousePage section="team" supervision />} />

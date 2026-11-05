@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 const areas = [
+    ['/administracion/cargas-anteriores', 'Cargas anteriores', 'Estado de cargas anteriores a hoy y anulación auditada de armados incompletos.'],
     ['/operacion?tab=picking-by-cancha', 'Reporte diario de picking por cancha', 'Bultos de picking, bultos de pallets y total por cancha. Elegí Hoy o un rango de fechas en el informe.'],
     ['/equipo', 'Usuarios y canchas', 'Alta de personas, roles y asignación de una o varias canchas.'],
     ['/configuracion', 'Camiones y capacidad', 'Posiciones físicas de pallets y configuración del depósito.'],
