@@ -61,6 +61,7 @@ public final class MainActivity extends Activity {
     private Api api;
     private JSONObject user, load, court, check, activeTruck, controlTruck, pallet;
     private JSONObject voiceTemplates = new JSONObject();
+    private JSONObject voiceSettings = new JSONObject();
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
     private final Set<String> automaticallySpokenProducts = new HashSet<>();
@@ -78,7 +79,7 @@ public final class MainActivity extends Activity {
     private JSONObject fetchQueue() throws Exception {
         JSONObject response=obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
         if(isController())response.put("operators",new JSONArray(api.request("GET","/load-control/operators",null)));
-        try{response.put("voice_templates",json("GET","/voice-templates/runtime",null).getJSONObject("templates"));}catch(Exception ignored){ }
+        try{JSONObject runtime=json("GET","/voice-templates/runtime",null);response.put("voice_templates",runtime.getJSONObject("templates"));response.put("voice_settings",runtime.optJSONObject("settings"));}catch(Exception ignored){ }
         return response;
     }
     private String queueVersion(JSONObject response) throws Exception {
@@ -348,9 +349,9 @@ public final class MainActivity extends Activity {
                 JSONArray courts = permissions.getJSONArray("courts");
                 assigned.clear(); for (int i=0;i<courts.length();i++) assigned.add(courts.getInt(i));
                 try{
-                    JSONObject downloaded=json("GET","/voice-templates/runtime",null).getJSONObject("templates");
+                    JSONObject runtime=json("GET","/voice-templates/runtime",null);JSONObject downloaded=runtime.getJSONObject("templates");
                     getPreferences(0).edit().putString(voiceTemplatesKey(api.base),downloaded.toString()).apply();
-                    voiceTemplates=downloaded;
+                    voiceTemplates=downloaded;voiceSettings=runtime.optJSONObject("settings");if(voiceSettings==null)voiceSettings=new JSONObject();
                 }catch(Exception ignored){ }
                 return person;
             }, person -> {
@@ -496,6 +497,7 @@ public final class MainActivity extends Activity {
                 voiceTemplates=response.getJSONObject("voice_templates");
                 getPreferences(0).edit().putString(voiceTemplatesKey(api.base),voiceTemplates.toString()).apply();
             }
+            if(response.has("voice_settings") && !response.isNull("voice_settings"))voiceSettings=response.getJSONObject("voice_settings");
             operators=response.optJSONArray("operators");if(operators==null)operators=new JSONArray();
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
@@ -732,7 +734,9 @@ public final class MainActivity extends Activity {
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
         String name=p.optString("descripcion_voz",p.optString("descripcion"));
-        String fallback=ProductSpeech.prompt(name,p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length(),freshnessText(p.optString("fecha_frescura")));
+        boolean readFreshness=stage()==4?voiceSettings.optBoolean("speak_freshness_full_pallets",true):voiceSettings.optBoolean("speak_freshness_picking",true);
+        String spokenFreshness=readFreshness?freshnessText(p.optString("fecha_frescura")):"";
+        String fallback=ProductSpeech.prompt(name,p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length(),"");
         String configured=fallback;
         if(stage()==4 && p.optInt("pallets")>0){
             String pallets=p.optInt("pallets")==1?"un pallet completo":p.optInt("pallets")+" pallets completos";
@@ -745,6 +749,7 @@ public final class MainActivity extends Activity {
             if(p.optInt("unidades")>0)quantities.add(p.optInt("unidades")==1?"una unidad":p.optInt("unidades")+" unidades");
             configured=voiceText("picking_product",fallback,"position",index+1,"total",products.length(),"quantity",String.join(" y ",quantities),"product",name);
         }
+        if(!configured.isEmpty() && !spokenFreshness.isEmpty())configured+=" Frescura exacta "+spokenFreshness+".";
         return configured.isEmpty()?"":configured+" "+destinations(p);
     }
     private String freshnessText(String value){
@@ -780,6 +785,15 @@ public final class MainActivity extends Activity {
             TextView caption=label(i==0?"BULTOS DE LA\nPLANILLA":"UNIDADES DE LA\nPLANILLA",10,MUTED,false);caption.setGravity(Gravity.CENTER);box.addView(caption);
             TextView amount=label(String.valueOf(p.optInt(i==0?"bultos":"unidades")),40,INK,true);amount.setGravity(Gravity.CENTER);box.addView(amount);
         }
+        gap(8);LinearLayout palletData=row();content.addView(palletData);
+        String[] metricLabels={"Bultos por piso","Pisos","Bultos por pallet"};String[] metricKeys={"bultos_por_piso","pisos_por_pallet","bultos_por_pallet"};
+        for(int i=0;i<metricKeys.length;i++){
+            LinearLayout box=column();box.setGravity(Gravity.CENTER);box.setPadding(dp(4),dp(8),dp(4),dp(8));box.setBackground(shape(SURFACE,BORDER,10));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);if(i>0)lp.leftMargin=dp(6);palletData.addView(box,lp);
+            String value=p.isNull(metricKeys[i])?"—":String.valueOf(p.optInt(metricKeys[i]));TextView number=label(value,18,INK,true);number.setGravity(Gravity.CENTER);box.addView(number);
+            TextView caption=label(metricLabels[i],10,MUTED,false);caption.setGravity(Gravity.CENTER);box.addView(caption);
+        }
+        if(!p.optBoolean("configuracion_pallet_completa"))text("Configuración logística incompleta o inconsistente.",12);
         if(check.optJSONObject("answers").has(p.optString("product_key",p.optString("sku")))) text("Este producto ya tiene una respuesta guardada.",16);
         if(isController()){
             JSONObject alert=existingAlert(p.optString("product_key",p.optString("sku")));

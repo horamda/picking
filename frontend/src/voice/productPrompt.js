@@ -4,10 +4,14 @@ const freshnessPrompt = product => product.fecha_frescura
     ? ` Frescura exacta ${new Date(`${product.fecha_frescura}T00:00:00`).toLocaleDateString('es-AR')}.`
     : ' Frescura no informada.'
 
-export function voicePrompt(p, index, total, stage, templates = {}) {
+export function voicePrompt(p, index, total, stage, templates = {}, settings = {}) {
+    settings = Object.keys(settings).length ? settings : (templates.__settings || {})
     const name = p.descripcion_voz || p.descripcion
     const intro = `Producto ${index + 1} de ${total}. `
-    const freshness = freshnessPrompt(p)
+    const speakFreshness = stage === 4
+        ? settings.speak_freshness_full_pallets !== false
+        : settings.speak_freshness_picking !== false
+    const freshness = speakFreshness ? freshnessPrompt(p) : ''
     const destination = (p.pallet_destinations || []).map(d => `Pallet ${d.pallet_id}: ${[Number(d.bultos) > 0 && `${d.bultos} bultos`, Number(d.unidades) > 0 && `${d.unidades} unidades`].filter(Boolean).join(' y ')}. `).join('')
     if (stage === 4 && Number(p.pallets) > 0) {
         const pallets = Number(p.pallets) === 1 ? 'un pallet completo' : `${p.pallets} pallets completos`

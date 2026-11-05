@@ -75,8 +75,15 @@ class ControlFlowTest(unittest.TestCase):
         self.assertEqual(defaults.status_code, 200)
         self.assertIn('{product}', defaults.json['templates']['picking_product'])
         self.assertEqual(self.client.get('/api/voice-templates', headers={'Authorization':'Bearer '+self.tokens['picker']}).status_code, 403)
-        rows = self.client.get('/api/voice-templates', headers={'Authorization':'Bearer '+self.tokens['admin']}).json
+        catalog = self.client.get('/api/voice-templates', headers={'Authorization':'Bearer '+self.tokens['admin']}).json
+        rows = catalog['templates']
         self.assertFalse(next(row for row in rows if row['key'] == 'picking_product')['customized'])
+        self.assertTrue(catalog['settings'][0]['enabled'])
+        setting = self.client.put('/api/voice-templates/settings/speak_freshness_picking', headers={
+            'Authorization':'Bearer '+self.tokens['admin']}, json={'enabled':False})
+        self.assertEqual(setting.status_code, 200)
+        self.assertFalse(self.client.get('/api/voice-templates/runtime', headers={
+            'Authorization':'Bearer '+self.tokens['picker']}).json['settings']['speak_freshness_picking'])
         path = '/api/voice-templates/picking_product'
         headers = {'Authorization':'Bearer '+self.tokens['admin']}
         invalid = self.client.put(path, headers=headers, json={'text':'Tomá {unknown}.','enabled':True})

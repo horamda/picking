@@ -37,6 +37,21 @@ DEFINITIONS = {
         text='No entendí. Decí correcto, faltante o repetir.', variables=()),
 }
 
+SETTING_DEFINITIONS = {
+    'speak_freshness_picking': dict(name='Leer frescura en picking', default=True),
+    'speak_freshness_full_pallets': dict(name='Leer frescura en pallets completos', default=True),
+}
+
+
+def settings_catalog():
+    overrides = {row.key: row for row in VoiceTemplate.query.filter(VoiceTemplate.key.in_(SETTING_DEFINITIONS)).all()}
+    return [dict(key=key, name=value['name'], enabled=overrides[key].enabled if key in overrides else value['default'])
+            for key, value in SETTING_DEFINITIONS.items()]
+
+
+def runtime_settings():
+    return {item['key']: item['enabled'] for item in settings_catalog()}
+
 
 def validate_text(key, text):
     definition = DEFINITIONS.get(key)

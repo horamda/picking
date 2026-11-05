@@ -311,9 +311,21 @@ def approved(truck):
 
 def voice_products(products):
     skus = {p['sku'] for p in products}
-    descriptions = dict(db.session.query(Article.sku, Article.descripcion_voz)
-                        .filter(Article.sku.in_(skus)).all()) if skus else {}
-    return [dict(p, descripcion_voz=descriptions.get(p['sku']) or p['descripcion']) for p in products]
+    articles = {article.sku: article for article in Article.query.filter(Article.sku.in_(skus)).all()} if skus else {}
+    result = []
+    for product in products:
+        article = articles.get(product['sku'])
+        per_floor = article.bultos_por_piso if article else None
+        per_pallet = article.bultos_por_pallet if article else None
+        configured_floors = article.pisos_por_pallet if article else None
+        calculated_floors = (per_pallet // per_floor if per_floor and per_pallet and per_pallet % per_floor == 0 else None)
+        floors = configured_floors or calculated_floors
+        consistent = bool(per_floor and per_pallet and floors and per_floor * floors == per_pallet)
+        result.append(dict(product,
+            descripcion_voz=(article.descripcion_voz if article else None) or product['descripcion'],
+            bultos_por_piso=per_floor, pisos_por_pallet=floors, bultos_por_pallet=per_pallet,
+            configuracion_pallet_completa=consistent))
+    return result
 
 
 def full_pallets_info(load, court):

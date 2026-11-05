@@ -138,6 +138,7 @@ function ArticlesPage() {
                                     <th className={headerNumberCellClass}>Uds/Bulto</th>
                                     <th className={headerNumberCellClass}>Bultos/Pallet</th>
                                     <th className={headerNumberCellClass}>Bultos/Piso</th>
+                                    <th className={headerNumberCellClass}>Pisos/Pallet</th>
                                     <th className={headerCellClass}>Estado</th><th className={headerCellClass}>Voz y datos</th>
                                 </tr>
                             </thead>
@@ -151,12 +152,13 @@ function ArticlesPage() {
                                         <td className={numberCellClass}>{formatNumber(article.unidades_por_bulto)}</td>
                                         <td className={numberCellClass}>{formatNumber(article.bultos_por_pallet)}</td>
                                         <td className={numberCellClass}>{article.bultos_por_piso ? formatNumber(article.bultos_por_piso) : 'Pendiente'}</td>
+                                        <td className={numberCellClass}>{article.pisos_por_pallet ? formatNumber(article.pisos_por_pallet) : 'Pendiente'}</td>
                                         <td className={cellClass}><ActiveBadge activo={article.activo} /></td><td className={cellClass}>{canImport && <button className="min-h-12 text-brand-600 underline" onClick={() => setEditing(article)}>Editar voz / ver datos</button>}</td>
                                     </tr>
                                 ))}
                                 {!loadingArticles && articles.length === 0 && !articlesError && (
                                     <tr>
-                                        <td colSpan={9} className="border border-slate-200 py-8 text-center text-sm text-slate-500">
+                                        <td colSpan={10} className="border border-slate-200 py-8 text-center text-sm text-slate-500">
                                             No hay articulos para mostrar.
                                         </td>
                                     </tr>

@@ -40,3 +40,12 @@ test('lee la frescura exacta sin mezclarla con la descripción editable', () => 
     assert.match(prompt, /Brahma litro/)
     assert.match(prompt, /Frescura exacta 3\/6\/2027/)
 })
+
+test('permite apagar la frescura por proceso sin ocultar el producto', () => {
+    const product = { descripcion: 'Brahma', bultos: 2, fecha_frescura: '2027-06-03' }
+    const picking = voicePrompt(product, 0, 1, 0, {}, { speak_freshness_picking: false })
+    assert.match(picking, /Brahma/)
+    assert.doesNotMatch(picking, /Frescura/)
+    const pallets = voicePrompt({ ...product, pallets: 1 }, 0, 1, 4, {}, { speak_freshness_full_pallets: false })
+    assert.doesNotMatch(pallets, /Frescura/)
+})

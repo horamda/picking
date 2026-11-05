@@ -2,6 +2,10 @@ package com.delpalacio.picking;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class ProductSpeechTest {
+    @org.junit.Test public void emptyFreshnessIsNotSpoken(){
+        assertFalse(ProductSpeech.prompt("Agua",2,0,0,0,0,1,"").contains("Frescura"));
+        assertTrue(ProductSpeech.prompt("Agua",2,0,0,0,0,1,"03/06/2027").contains("Frescura"));
+    }
     @Test public void repartoAndTruckRemainSeparated(){
         String compact=ProductSpeech.separation("60701",true,true);
         assertTrue(compact.contains("60701"));assertTrue(compact.contains("Supermercado"));

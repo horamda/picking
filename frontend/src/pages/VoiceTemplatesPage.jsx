@@ -36,15 +36,20 @@ function TemplateCard({ item, onSaved }) {
 }
 
 export default function VoiceTemplatesPage() {
-    const [items, setItems] = useState([]), [error, setError] = useState(''), [loading, setLoading] = useState(true)
+    const [items, setItems] = useState([]), [settings, setSettings] = useState([]), [error, setError] = useState(''), [loading, setLoading] = useState(true)
     async function load() {
         setLoading(true); setError('')
-        try { setItems((await api.get('/voice-templates')).data) }
+        try { const { data } = await api.get('/voice-templates'); setItems(data.templates || []); setSettings(data.settings || []) }
         catch { setError('No se pudieron cargar las frases de voz.') }
         finally { setLoading(false) }
     }
+    async function toggleSetting(item) {
+        setError('')
+        try { await api.put(`/voice-templates/settings/${item.key}`, { enabled: !item.enabled }); await load() }
+        catch (e) { setError(e.response?.data?.error || 'No se pudo guardar la configuración.') }
+    }
     useEffect(() => { load(); return stopSpeaking }, [])
     return <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-8"><header><Link className="text-brand-600 underline" to="/administracion">Volver a administración</Link><h1 className="mt-3 text-2xl font-bold">Frases de voz</h1><p className="mt-2 text-slate-600">Editá lo que dicen la web y Android. Las variables entre llaves se completan automáticamente y no deben eliminarse.</p></header>
-        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-700">{error}</p>}{loading ? <p>Cargando…</p> : <div className="grid gap-4">{items.map(item => <TemplateCard key={`${item.key}:${item.updated_at || 'default'}`} item={item} onSaved={load} />)}</div>}
+        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-700">{error}</p>}{loading ? <p>Cargando…</p> : <><section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="text-lg font-bold">Lectura de frescura</h2><p className="mt-1 text-sm text-slate-600">La fecha siempre se muestra y se registra. Elegí en qué procesos también se pronuncia.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{settings.map(item => <label key={item.key} className="flex min-h-14 items-center justify-between rounded-xl border p-3"><span className="font-medium">{item.name}</span><input type="checkbox" checked={item.enabled} onChange={() => toggleSetting(item)} /></label>)}</div></section><div className="mt-4 grid gap-4">{items.map(item => <TemplateCard key={`${item.key}:${item.updated_at || 'default'}`} item={item} onSaved={load} />)}</div></>}
     </div>
 }
