@@ -174,6 +174,14 @@ class ControlFlowTest(unittest.TestCase):
             verification_mode='full_sku', physical_b=0, physical_u=0))
         self.assertEqual(answer['answers']['1002']['verification'], 'not_found')
 
+    def test_null_product_key_uses_sku_and_does_not_block_picking(self):
+        check = self.call('post', f'/loads/{self.load_id}/courts/1/start/0', 'picker')
+        self.assertEqual(check['products'][0]['product_key'], check['products'][0]['sku'])
+        product = check['products'][0]
+        answer = self.call('post', f'/loads/{self.load_id}/courts/1/checks/0/{check["id"]}/answer',
+            'picker', data={'sku':product['sku'], 'product_key':'null', 'result':'ok'})
+        self.assertIn(product['sku'], answer['answers'])
+
     def test_long_timer_is_flagged_without_changing_history(self):
         from services.load_control import timing
         check=dict(active_seconds=142*3600,started_at=(datetime.now(timezone.utc)-timedelta(hours=143)).isoformat(),timer_started_at=None)

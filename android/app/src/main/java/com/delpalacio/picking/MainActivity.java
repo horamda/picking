@@ -362,7 +362,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.20.1 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.21.5 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -671,7 +671,7 @@ public final class MainActivity extends Activity {
             JSONArray alerts=started.optJSONArray("picking_alerts");if(alerts==null)alerts=new JSONArray();
             court=obj("numero",selected.optInt("owner_court"),"status",obj("shortages",shortages,"picking_alerts",alerts));
             index=0;JSONObject answers=check.optJSONObject("answers");
-            while(index<products.length()-1 && answers!=null && answers.has(products.optJSONObject(index).optString("product_key",products.optJSONObject(index).optString("sku"))))index++;
+            while(index<products.length()-1 && answers!=null && answers.has(productKey(products.optJSONObject(index))))index++;
             automaticallySpokenProducts.clear();product();
         });
     }
@@ -727,7 +727,7 @@ public final class MainActivity extends Activity {
             products=check.optJSONArray("products");if(products==null)products=c.optJSONArray("productos");if(products==null)products=new JSONArray();index=0;
             automaticallySpokenProducts.clear();
             if(c.optBoolean("assistance",false))speak(voiceText("assistance_start","Refuerzo en cancha {court}. Tenés {total} productos asignados. Prepará solamente los productos que indica la aplicación.","court",c.optInt("numero"),"total",products.length()));
-            JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).optString("product_key",products.getJSONObject(index).getString("sku")))) index++;
+            JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(productKey(products.getJSONObject(index)))) index++;
             product();
         });
     }
@@ -753,13 +753,20 @@ public final class MainActivity extends Activity {
         return configured.isEmpty()?"":configured+" "+destinations(p);
     }
     private String freshnessText(String value){
-        if(value==null||value.isEmpty())return "no informada";
+        if(value==null||value.isEmpty()||value.equalsIgnoreCase("null")||value.equalsIgnoreCase("none"))return "";
         try{return java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));}
         catch(Exception ignored){return value;}
     }
+    private String productKey(JSONObject product){
+        if(product==null)return "";
+        String sku=product.optString("sku","");
+        if(!product.has("product_key")||product.isNull("product_key"))return sku;
+        String value=product.optString("product_key",sku).trim();
+        return value.isEmpty()||value.equalsIgnoreCase("null")||value.equalsIgnoreCase("none")?sku:value;
+    }
     private String productSpeechKey(){
         JSONObject p=products.optJSONObject(index);
-        return check.optString("id")+":"+p.optString("product_key",p.optString("sku"));
+        return check.optString("id")+":"+productKey(p);
     }
     private void speakProductOnce(){
         String key=productSpeechKey();
@@ -774,7 +781,7 @@ public final class MainActivity extends Activity {
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);
-        text("Frescura exacta: "+freshnessText(p.optString("fecha_frescura")),18);
+        String freshness=freshnessText(p.optString("fecha_frescura"));if(!freshness.isEmpty())text("Frescura exacta: "+freshness,18);
         String destination=destinations(p);
         if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
@@ -794,9 +801,9 @@ public final class MainActivity extends Activity {
             TextView caption=label(metricLabels[i],10,MUTED,false);caption.setGravity(Gravity.CENTER);box.addView(caption);
         }
         if(!p.optBoolean("configuracion_pallet_completa"))text("Configuración logística incompleta o inconsistente.",12);
-        if(check.optJSONObject("answers").has(p.optString("product_key",p.optString("sku")))) text("Este producto ya tiene una respuesta guardada.",16);
+        if(check.optJSONObject("answers").has(productKey(p))) text("Este producto ya tiene una respuesta guardada.",16);
         if(isController()){
-            JSONObject alert=existingAlert(p.optString("product_key",p.optString("sku")));
+            JSONObject alert=existingAlert(productKey(p));
             if(alert!=null){
                 String reason=alert.optString("shortage_reason","no_localizado").replace('_',' ');
                 text("AVISO DE PICKING: "+reason.toUpperCase(),17);
@@ -837,7 +844,7 @@ public final class MainActivity extends Activity {
         if(busy || check==null || check.isNull("timer_started_at")) return;
         if(pendingAnswer()){message("Hay un registro por verificar. Volvé al producto o al inicio y usá Verificar guardado.");return;}
         stopAudio();
-        try { JSONObject current=products.getJSONObject(index);data.put("sku",current.getString("sku"));data.put("product_key",current.optString("product_key",current.getString("sku"))); } catch(Exception e) {error(e);return;}
+        try { JSONObject current=products.getJSONObject(index);data.put("sku",current.getString("sku"));data.put("product_key",productKey(current)); } catch(Exception e) {error(e);return;}
         if(demo) { try { check.getJSONObject("answers").put(data.getString("sku"),data); } catch(Exception e){error(e);} afterAnswer();return; }
         try{data.put("request_id",UUID.randomUUID().toString());}catch(Exception e){error(e);return;}
         String endpoint=path();
@@ -871,17 +878,17 @@ public final class MainActivity extends Activity {
     }
     private JSONObject existingShortage(String productKey){
         JSONArray values=court.optJSONObject("status").optJSONArray("shortages");
-        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(value.optString("product_key",value.optString("sku"))))return value;}
+        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(productKey(value)))return value;}
         return null;
     }
     private JSONObject existingAlert(String productKey){
         JSONArray values=court.optJSONObject("status").optJSONArray("picking_alerts");
-        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(value.optString("product_key",value.optString("sku"))))return value;}
+        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(productKey(value)))return value;}
         return null;
     }
     private void showIncident(String result){
         stopAudio();currentScreen="shortage";
-        JSONObject p=products.optJSONObject(index),previous=existingShortage(p.optString("product_key",p.optString("sku")));
+        JSONObject p=products.optJSONObject(index),previous=existingShortage(productKey(p));
         boolean confirmation=stage()==2 && result.equals("shortage") && previous!=null;
         screen(result.equals("corrected")?"Error corregido":"Registrar faltante");
         content=card(result.equals("corrected")?0xfffcd34d:0xfffecaca);

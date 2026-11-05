@@ -322,11 +322,16 @@ def voice_products(products):
         calculated_floors = (per_pallet // per_floor if per_floor and per_pallet and per_pallet % per_floor == 0 else None)
         floors = configured_floors or calculated_floors
         consistent = bool(per_floor and per_pallet and floors and per_floor * floors == per_pallet)
-        result.append(dict(product,
+        result.append(dict(product, product_key=str(product.get('product_key') or product['sku']),
             descripcion_voz=(article.descripcion_voz if article else None) or product['descripcion'],
             bultos_por_piso=per_floor, pisos_por_pallet=floors, bultos_por_pallet=per_pallet,
             configuracion_pallet_completa=consistent))
     return result
+
+
+def requested_product_key(data, sku):
+    value = data.get('product_key')
+    return sku if value is None or str(value).strip().lower() in ('', 'null', 'none') else str(value)
 
 
 def full_pallets_info(load, court):
@@ -885,10 +890,9 @@ def answer(load_id, number, stage, check_id):
         if len(check.get('receipts', {})) >= 20000:
             fail('Limite de registros alcanzado. Consulta al supervisor.', 409)
     sku = str(data.get('sku', ''))
-    requested_key = str(data.get('product_key') or sku)
+    requested_key = requested_product_key(data, sku)
     prod = next((p for p in court['productos']
-                 if (str(p.get('product_key') or p['sku']) == requested_key
-                     if data.get('product_key') else str(p['sku']) == sku)), None)
+                 if str(p.get('product_key') or p['sku']) == requested_key), None)
     if not prod:
         fail('Producto inexistente.', 404)
     if data.get('verification_mode') == 'full_sku':
@@ -1654,10 +1658,9 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
         if len(check.get('receipts', {})) >= 20000:
             fail('Límite de registros alcanzado. Consultá al supervisor.', 409)
     sku = str(data.get('sku', ''))
-    requested_key = str(data.get('product_key') or sku)
+    requested_key = requested_product_key(data, sku)
     product = next((item for item in pallet['items']
-                    if (str(item.get('product_key') or item['sku']) == requested_key
-                        if data.get('product_key') else str(item['sku']) == sku)), None)
+                    if str(item.get('product_key') or item['sku']) == requested_key), None)
     if not product:
         fail('Producto inexistente en este pallet.', 404)
     result = data.get('result')
