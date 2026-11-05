@@ -71,7 +71,9 @@ def board(truck):
     for pallet in physical_pallets(truck):
         first, second = effective_check(truck, pallet, 1), effective_check(truck, pallet, 2)
         ready = assembly_done(truck, pallet)
+        assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
         rows.append(dict(deepcopy(pallet), assembly_done=ready,
+            assembly=_check_summary(assembly),
             controls={'1': _check_summary(first), '2': _check_summary(second)},
             control1_available=ready and first.get('status') != 'done',
             control2_available=first.get('status') == 'done' and second.get('status') != 'done'))

@@ -1346,6 +1346,20 @@ def warehouse_monitor():
             for pallet in physical_pallets(truck):
                 products = voice_products(pallet['items'])
                 bultos, unidades, bultos_equiv = process_amounts(products)
+                pallet_incidents = [item for item in truck.state.get('incidents', {}).values()
+                    if item.get('pallet_id') == pallet['id'] and item.get('load_id') == pallet['load_id']]
+                incident_summary = dict(
+                    picking_errors=sum(item.get('incident', {}).get('error_count', 0) for item in pallet_incidents
+                        if item.get('incident', {}).get('origin') == 'picking'),
+                    control_errors=sum(item.get('incident', {}).get('error_count', 0) for item in pallet_incidents
+                        if item.get('incident', {}).get('origin') == 'control'),
+                    stock_differences=sum(1 for item in pallet_incidents if item.get('incident', {}).get('origin') == 'stock'),
+                    incident_expected_b=sum(item.get('incident', {}).get('expected_b', 0) for item in pallet_incidents),
+                    incident_actual_b=sum(item.get('incident', {}).get('actual_b', 0) for item in pallet_incidents),
+                    incident_difference_b=sum(item.get('incident', {}).get('difference_b', 0) for item in pallet_incidents),
+                    incident_expected_u=sum(item.get('incident', {}).get('expected_u', 0) for item in pallet_incidents),
+                    incident_actual_u=sum(item.get('incident', {}).get('actual_u', 0) for item in pallet_incidents),
+                    incident_difference_u=sum(item.get('incident', {}).get('difference_u', 0) for item in pallet_incidents))
                 assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
                 for display_stage, check in ((0, assembly), (1, effective_check(truck, pallet, 1)),
                                              (2, effective_check(truck, pallet, 2))):
@@ -1372,7 +1386,7 @@ def warehouse_monitor():
                         shortages=sum(answer.get('result') == 'shortage' for answer in answers.values()),
                         bultos=bultos, unidades=unidades, bultos_equiv=bultos_equiv,
                         responsible_candidates=[name for name in candidates if name], available=available,
-                        blocked_reason=blocked_reason, planning='approved'))
+                        blocked_reason=blocked_reason, planning='approved', **incident_summary))
     from datetime import datetime, timedelta
     # The warehouse day is Argentina (UTC-3); stored audit timestamps are UTC.
     day_start = datetime.strptime(date, '%Y-%m-%d') + timedelta(hours=3)
@@ -1411,6 +1425,21 @@ def pallet_control_context(load_id, pallet_id, stage, check_id=None):
     if check_id and check.get('user_id') != g.current_user.id:
         fail('Este pallet estÃ¡ reservado por otro controlador.', 403)
     return load, pallet, state, ps, check
+
+
+def pallet_incident_responsible(state, pallet, stage, origin):
+    if origin == 'stock':
+        return None
+    if origin == 'picking':
+        check = court_state(state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
+    elif origin == 'control' and stage == 2:
+        check = edit_pallet_state(state, pallet['key'])['checks'].get('1', {})
+    else:
+        fail('La causa seleccionada no corresponde a esta etapa de control.')
+    responsible = db.session.get(User, check.get('user_id')) if check.get('user_id') else None
+    if not responsible:
+        fail('No se pudo identificar automáticamente al responsable. Consultá al supervisor.', 409)
+    return responsible
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/start/<int:stage>')
@@ -1512,28 +1541,38 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
     if stage == 2 and previous_shortage and result != 'shortage':
         fail('Este producto tiene un faltante del Control 1. Confirmalo con las mismas cantidades.', 409)
     if result in ('corrected', 'shortage') and not confirmation:
-        responsible = db.session.get(User, data.get('responsible_user_id')) if type(data.get('responsible_user_id')) is int else None
         origin = data.get('origin')
-        if not responsible or not responsible.active or origin not in ('picking', 'control'):
-            fail('IndicÃ¡ el responsable del error y el proceso correspondiente.')
-        incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
+        if origin not in ('picking', 'stock', 'control'):
+            fail('Indicá si corresponde a picking, stock o control.')
+        responsible = pallet_incident_responsible(state, pallet, stage, origin)
+        incident = dict(responsible_user_id=responsible.id if responsible else None,
+            responsible_username=responsible.username if responsible else 'Diferencia de stock',
             origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
-    if result == 'shortage':
+    if result in ('shortage', 'corrected'):
         bultos, unidades = data.get('physical_b'), data.get('physical_u')
         if type(bultos) is not int or type(unidades) is not int or min(bultos, unidades) < 0:
-            fail('IngresÃ¡ cantidades fÃ­sicas enteras y no negativas.')
-        if bultos > product['bultos'] or unidades > product['unidades'] or (bultos, unidades) == (product['bultos'], product['unidades']):
-            fail('El faltante debe ser menor a la cantidad planificada.')
-        if stage == 2 and previous_shortage and (bultos, unidades) != (previous_shortage['actual_b'], previous_shortage['actual_u']):
+            fail('Ingresá cantidades físicas enteras y no negativas.')
+        if result == 'shortage' and (bultos > product['bultos'] or unidades > product['unidades']):
+            fail('Un faltante no puede superar la cantidad planificada.')
+        if (bultos, unidades) == (product['bultos'], product['unidades']):
+            fail('La cantidad encontrada debe ser diferente de la planificada.')
+        if result == 'shortage' and stage == 2 and previous_shortage and (bultos, unidades) != (previous_shortage['actual_b'], previous_shortage['actual_u']):
             fail('La cantidad difiere del Control 1. Un supervisor debe revisar el pallet.', 409)
+        if incident:
+            incident.update(expected_b=product['bultos'], expected_u=product['unidades'],
+                actual_b=bultos, actual_u=unidades, difference_b=product['bultos'] - bultos,
+                difference_u=product['unidades'] - unidades,
+                error_count=0 if incident['origin'] == 'stock' else 1)
+    if result == 'shortage':
         ps['shortages'][sku] = dict(sku=sku, descripcion=product['descripcion'], expected_b=product['bultos'],
             expected_u=product['unidades'], actual_b=bultos, actual_u=unidades, reported_by=g.current_user.id,
             note=note or (previous_shortage or {}).get('note', ''), created_at=now(),
             incident=incident or (previous_shortage or {}).get('incident'))
     else:
-        bultos, unidades = product['bultos'], product['unidades']
         if result == 'corrected' and not note:
-            fail('DescribÃ­ la diferencia corregida.')
+            fail('Describí la diferencia corregida.')
+        if result == 'ok':
+            bultos, unidades = product['bultos'], product['unidades']
         ps['shortages'].pop(sku, None)
     check['answers'][sku] = dict(sku=sku, result=result, physical_b=bultos, physical_u=unidades,
         note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
@@ -1541,6 +1580,10 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
         check['answers'][sku]['request_id'] = request_id
         check.setdefault('receipts', {})[request_id] = dict(
             digest=digest, sku=sku, saved_at=check['answers'][sku]['saved_at'])
+    if incident and not confirmation:
+        state.setdefault('incidents', {})[f'{check_id}:{pallet_id}:{sku}'] = dict(
+            check['answers'][sku], load_id=load.id, court=pallet['owner_court'], pallet_id=pallet_id,
+            stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control_pallet',
         dict(load_id=load.id, pallet_id=pallet_id, stage=stage, **check['answers'][sku]))
     return jsonify(check)

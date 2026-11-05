@@ -342,7 +342,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.19.1 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.20.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -567,7 +567,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.19.1",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.20.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -810,21 +810,18 @@ public final class MainActivity extends Activity {
         content=card(result.equals("corrected")?0xfffcd34d:0xfffecaca);
         text(result.equals("corrected")?"Error corregido":"Faltante real",20);
         text(p.optString("descripcion")+" · planilla: "+p.optInt("bultos")+" bultos + "+p.optInt("unidades")+" unidades",13);gap(8);
-        EditText foundB=null,foundU=null;
-        if(result.equals("shortage")){
-            text(confirmation?"Confirmá las cantidades registradas en el Control 1":"Ingresá la cantidad encontrada, no lo que falta",14);
-            foundB=input("Bultos encontrados",InputType.TYPE_CLASS_NUMBER);foundU=input("Unidades encontradas",InputType.TYPE_CLASS_NUMBER);
-            foundB.setText(String.valueOf(confirmation?previous.optInt("actual_b"):0));foundU.setText(String.valueOf(confirmation?previous.optInt("actual_u"):0));
-            foundB.setEnabled(!confirmation);foundU.setEnabled(!confirmation);
-        }
+        text(confirmation?"Confirmá las cantidades registradas en el Control 1":"Ingresá la cantidad encontrada antes de corregir",14);
+        EditText foundB=input("Bultos encontrados",InputType.TYPE_CLASS_NUMBER),foundU=input("Unidades encontradas",InputType.TYPE_CLASS_NUMBER);
+        foundB.setText(String.valueOf(confirmation?previous.optInt("actual_b"):0));foundU.setText(String.valueOf(confirmation?previous.optInt("actual_u"):0));
+        foundB.setEnabled(!confirmation);foundU.setEnabled(!confirmation);
         final EditText physicalB=foundB,physicalU=foundU;
-        Spinner origin=new Spinner(this),responsible=new Spinner(this);
-        List<Integer> responsibleIds=new ArrayList<>();List<String> responsibleNames=new ArrayList<>();
+        Spinner origin=new Spinner(this);
         if(!confirmation){
-            text("Proceso responsable",13);origin.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Picking","Control"}));content.addView(origin);
-            gap(8);text("Responsable del error",13);
-            for(int i=0;i<operators.length();i++){JSONObject person=operators.optJSONObject(i);responsibleIds.add(person.optInt("id"));responsibleNames.add(person.optString("username")+" · "+person.optString("role"));}
-            responsible.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,responsibleNames));content.addView(responsible);
+            text("Causa de la diferencia",13);
+            String[] causes=stage()==2?new String[]{"Error de picking","Diferencia de stock","Error del Control 1"}:new String[]{"Error de picking","Diferencia de stock"};
+            origin.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,causes));content.addView(origin);
+            JSONObject assembly=pallet==null?null:pallet.optJSONObject("assembly");
+            text("Responsable automático: "+(assembly!=null&&!assembly.optString("username").isEmpty()?assembly.optString("username"):"se determinará en el servidor"),13);
         }else text("Se conserva el responsable registrado por el primer controlador: "+previous.optJSONObject("incident").optString("responsible_username"),13);
         gap(8);text("Observación"+(result.equals("corrected")?" obligatoria":" opcional"),13);
         EditText note=input("Describí qué ocurrió…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
@@ -833,15 +830,13 @@ public final class MainActivity extends Activity {
             try{
                 if(result.equals("corrected") && note.getText().toString().trim().isEmpty()){feedback.setText("Describí la diferencia que fue corregida.");return;}
                 JSONObject payload=obj("result",result,"note",note.getText().toString());
-                if(result.equals("shortage")){
-                    String validation=ShortageAmounts.error(physicalB.getText().toString(),physicalU.getText().toString(),p.optInt("bultos"),p.optInt("unidades"));
-                    if(!validation.isEmpty()){feedback.setText(validation);return;}
-                    payload.put("physical_b",Integer.parseInt(physicalB.getText().toString()));payload.put("physical_u",Integer.parseInt(physicalU.getText().toString()));
-                }
+                int actualB=Integer.parseInt(physicalB.getText().toString()),actualU=Integer.parseInt(physicalU.getText().toString());
+                if(actualB<0||actualU<0){feedback.setText("Ingresá cantidades no negativas.");return;}
+                if(actualB==p.optInt("bultos")&&actualU==p.optInt("unidades")){feedback.setText("La cantidad encontrada debe ser diferente de la planificada.");return;}
+                if(result.equals("shortage")&&(actualB>p.optInt("bultos")||actualU>p.optInt("unidades"))){feedback.setText("Un faltante no puede superar la cantidad planificada.");return;}
+                payload.put("physical_b",actualB);payload.put("physical_u",actualU);
                 if(!confirmation){
-                    if(responsibleIds.isEmpty()){feedback.setText("No hay personal activo para asignar como responsable.");return;}
-                    payload.put("origin",origin.getSelectedItemPosition()==0?"picking":"control");
-                    payload.put("responsible_user_id",responsibleIds.get(responsible.getSelectedItemPosition()));
+                    payload.put("origin",origin.getSelectedItemPosition()==0?"picking":origin.getSelectedItemPosition()==1?"stock":"control");
                 }
                 answer(payload);
             }catch(Exception e){error(e);}

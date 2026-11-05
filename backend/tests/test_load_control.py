@@ -402,8 +402,18 @@ class ControlFlowTest(unittest.TestCase):
         for index, product in enumerate(first['products']):
             payload = {'sku': product['sku'], 'result': 'ok'}
             if index == 0:
+                actual_b, actual_u = product['bultos'], product['unidades']
+                if actual_b > 0:
+                    actual_b -= 1
+                else:
+                    actual_u -= 1
+                payload.update(result='corrected', physical_b=actual_b, physical_u=actual_u,
+                    origin='picking', responsible_user_id=User.query.filter_by(username='admin').one().id,
+                    note='Diferencia corregida')
                 payload['request_id'] = request_id
-                self.call('post', first_path + '/answer', 'ana', data=payload)
+                saved = self.call('post', first_path + '/answer', 'ana', data=payload)
+                self.assertEqual(saved['answers'][product['sku']]['incident']['responsible_username'], 'picker')
+                self.assertEqual(saved['answers'][product['sku']]['incident']['difference_b'], product['bultos'] - actual_b)
                 self.call('post', first_path + '/answer', 'ana', data=payload)
                 receipt = self.call('get', first_path + f'/receipts/{request_id}', 'ana')
                 self.assertTrue(receipt['found'])
