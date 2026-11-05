@@ -87,7 +87,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         if type(bpp) is not int or bpp <= 0 or type(upb) is not int or upb <= 0:
             raise ValueError(f'Falta capacidad válida en el catálogo para SKU {row.get("sku")}.')
         count, remainder = divmod(row['bultos'], bpp)
-        reference = {key: row.get(key) for key in ('load_id', 'reparto', 'court', 'sku', 'descripcion',
+        reference = {key: row.get(key) for key in ('load_id', 'reparto', 'court', 'sku', 'product_key',
+            'fecha_frescura', 'descripcion',
             'calibre', 'stack_family', 'stack_family_name', 'must_be_bottom', 'base_priority', 'allowed_above',
             'cases_per_layer', 'max_layers', 'business_unit', 'can_be_base', 'stable',
             'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending',
@@ -170,7 +171,8 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
         raise ValueError('El armado manual no contiene pallets de picking.')
 
     def signature(item):
-        return (item.get('load_id'), item.get('order'), item.get('court'), str(item.get('sku')),
+        return (item.get('load_id'), item.get('order'), item.get('court'),
+                item.get('product_key') or str(item.get('sku')),
                 item.get('bultos'), item.get('unidades'))
 
     allowed = set(merge_allowed_load_ids or [])
@@ -227,7 +229,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
     tasks = {}
     for pallet in mixed:
         for item in pallet['items']:
-            key = (item['load_id'], item['assigned_court'], item['sku'])
+            key = (item['load_id'], item['assigned_court'], item.get('product_key') or item['sku'])
             task = tasks.setdefault(key, dict(item, court=item['assigned_court'], source_courts=[],
                                               bultos=0, unidades=0, pallet_ids=[]))
             task['bultos'] += item['bultos']

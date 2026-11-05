@@ -7,7 +7,9 @@ from services.load_control import court_state
 def _group_items(items):
     grouped = {}
     for raw in items:
-        item = grouped.setdefault(str(raw['sku']), dict(raw, bultos=0, unidades=0,
+        identity = raw.get('product_key') or (f'{raw["sku"]}|{raw["fecha_frescura"]}'
+            if raw.get('fecha_frescura') else str(raw['sku']))
+        item = grouped.setdefault(identity, dict(raw, product_key=identity, bultos=0, unidades=0,
             source_courts=[], pallet_ids=[]))
         item['bultos'] += raw.get('bultos', 0)
         item['unidades'] += raw.get('unidades', 0)
@@ -56,6 +58,18 @@ def assembly_done(truck, pallet):
     return check.get('status') == 'done'
 
 
+def picking_alerts(truck, pallet):
+    alerts = []
+    for item in pallet['items']:
+        identity = str(item.get('product_key') or item['sku'])
+        for court in item.get('source_courts') or [pallet['owner_court']]:
+            preparation = court_state(truck.state, pallet['load_id'], court).get('preparation_shortages', {}).get('0', {})
+            alert = preparation.get(identity) or preparation.get(str(item['sku']))
+            if alert and not any(existing.get('product_key') == identity for existing in alerts):
+                alerts.append(dict(deepcopy(alert), product_key=identity, source_court=court))
+    return alerts
+
+
 def effective_check(truck, pallet, stage):
     check = pallet_state(truck.state, pallet['key'])['checks'].get(str(stage))
     if check:
@@ -72,8 +86,10 @@ def board(truck):
         first, second = effective_check(truck, pallet, 1), effective_check(truck, pallet, 2)
         ready = assembly_done(truck, pallet)
         assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
+        alerts = picking_alerts(truck, pallet)
         rows.append(dict(deepcopy(pallet), assembly_done=ready,
             assembly=_check_summary(assembly),
+            picking_alerts=alerts, picking_alert_count=len(alerts),
             controls={'1': _check_summary(first), '2': _check_summary(second)},
             control1_available=ready and first.get('status') != 'done',
             control2_available=first.get('status') == 'done' and second.get('status') != 'done'))

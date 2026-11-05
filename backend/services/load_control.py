@@ -168,15 +168,18 @@ def snapshot(consolidado):
         if not match:
             raise ValueError(f'El SKU {item.sku} no tiene una cancha reconocible. Revisá el PDF original.')
         number = int(match.group(1))
+        freshness = item.fecha_frescura.isoformat() if item.fecha_frescura else None
+        product_key = f'{item.sku}|{freshness}' if freshness else item.sku
         products = courts.setdefault(number, {})
-        product = products.setdefault(item.sku, dict(sku=item.sku, descripcion=item.descripcion,
-            almacen=item.almacen, bultos=0, unidades=0, lineas_originales=[]))
+        product = products.setdefault(product_key, dict(product_key=product_key, sku=item.sku,
+            descripcion=item.descripcion, almacen=item.almacen, fecha_frescura=freshness,
+            bultos=0, unidades=0, lineas_originales=[]))
         if (item.bultos or 0) < 0 or (item.unidades or 0) < 0:
             raise ValueError('No se admiten cantidades negativas.')
         product['bultos'] += item.bultos or 0
         product['unidades'] += item.unidades or 0
         product['lineas_originales'].append(dict(detalle_id=item.id, almacen=item.almacen,
-            bultos=item.bultos or 0, unidades=item.unidades or 0))
+            fecha_frescura=freshness, bultos=item.bultos or 0, unidades=item.unidades or 0))
     if not courts:
         raise ValueError('El reparto no tiene productos.')
     return dict(reparto=consolidado.reparto, camion=truck_name(consolidado.camion),

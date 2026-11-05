@@ -24,7 +24,7 @@ from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 from services.assistance import helpers, usable, personal_check, products_for, queue_for, can_access as assistance_access
 from services.pallet_control import (physical_pallets, pallet_state, edit_pallet_state, assembly_done,
-    effective_check, board as pallet_control_board, claim_assignment)
+    effective_check, board as pallet_control_board, claim_assignment, picking_alerts)
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
@@ -318,7 +318,8 @@ def voice_products(products):
 
 def full_pallets_info(load, court):
     plan = load.truck.state.get('planning') or {}
-    return [dict(sku=p['sku'], descripcion=p['descripcion'], pallets=p['pallets'], bultos=p['bultos'])
+    return [dict(sku=p['sku'], product_key=p.get('product_key'), fecha_frescura=p.get('fecha_frescura'),
+                 descripcion=p['descripcion'], pallets=p['pallets'], bultos=p['bultos'])
             for p in plan.get('full_pallets', []) if p['load_id'] == load.id and p['court'] == court['numero']]
 
 
@@ -335,17 +336,19 @@ def task_products(load, court, stage):
     if stage == 4 and not load_picking_complete(load):
         return []
     rows = plan['picking_tasks' if stage == 0 else 'full_pallets']
-    quantities = {p['sku']: p for p in rows if p['load_id'] == load.id and p['court'] == court['numero']}
-    pallet_info = {p['sku']: p for p in full_pallets_info(load, court)} if stage == 0 else {}
+    identity = lambda p: p.get('product_key') or p['sku']
+    quantities = {identity(p): p for p in rows if p['load_id'] == load.id and p['court'] == court['numero']}
+    pallet_info = {identity(p): p for p in full_pallets_info(load, court)} if stage == 0 else {}
     result = []
     source_products = court['productos'] if stage != 0 or not plan.get('manual_edition') else list(quantities.values())
     for product in source_products:
-        task = quantities.get(product['sku'])
+        product_id = identity(product)
+        task = quantities.get(product_id)
         if task and (task['bultos'] or task.get('unidades', 0)):
-            info = pallet_info.get(product['sku'], {})
+            info = pallet_info.get(product_id, {})
             destinations = [dict(pallet_id=pallet['id'], bultos=item['bultos'], unidades=item['unidades'])
                 for pallet in plan.get('mixed_pallets', []) for item in pallet['items']
-                if stage == 0 and item['load_id'] == load.id and item.get('assigned_court', item['court']) == court['numero'] and item['sku'] == product['sku']]
+                if stage == 0 and item['load_id'] == load.id and item.get('assigned_court', item['court']) == court['numero'] and identity(item) == product_id]
             result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0),
                                pallet_destinations=destinations,
                                source_courts=task.get('source_courts', [task.get('court')]),
@@ -374,8 +377,8 @@ def control_products(load, court):
             parts.append(dict(pallet, unidades=0, pallet_id=pallet.get('id')))
     grouped = {}
     for item in parts:
-        sku = item['sku']
-        product = grouped.setdefault(sku, dict(item, bultos=0, unidades=0, pallet_ids=[], source_courts=[]))
+        identity = item.get('product_key') or item['sku']
+        product = grouped.setdefault(identity, dict(item, bultos=0, unidades=0, pallet_ids=[], source_courts=[]))
         product['bultos'] += item.get('bultos', 0)
         product['unidades'] += item.get('unidades', 0)
         if item.get('pallet_id') and item['pallet_id'] not in product['pallet_ids']:
@@ -772,7 +775,10 @@ def answer(load_id, number, stage, check_id):
         if len(check.get('receipts', {})) >= 20000:
             fail('Limite de registros alcanzado. Consulta al supervisor.', 409)
     sku = str(data.get('sku', ''))
-    prod = next((p for p in court['productos'] if p['sku'] == sku), None)
+    requested_key = str(data.get('product_key') or sku)
+    prod = next((p for p in court['productos']
+                 if (str(p.get('product_key') or p['sku']) == requested_key
+                     if data.get('product_key') else str(p['sku']) == sku)), None)
     if not prod:
         fail('Producto inexistente.', 404)
     if data.get('verification_mode') == 'full_sku':
@@ -788,7 +794,8 @@ def answer(load_id, number, stage, check_id):
     if result not in ('ok', 'corrected', 'shortage'):
         fail('Resultado inválido.')
     shortages = cs['shortages'] if stage in (1, 2) else cs.setdefault('preparation_shortages', {}).setdefault(str(stage), {})
-    shortage = shortages.get(sku)
+    answer_key = str(prod.get('product_key') or sku)
+    shortage = shortages.get(answer_key)
     confirmation = stage == 2 and result == 'shortage' and shortage is not None
     incident = shortage.get('incident') if confirmation else None
     if result in ('corrected', 'shortage') and not confirmation:
@@ -800,8 +807,11 @@ def answer(load_id, number, stage, check_id):
         incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
                         origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
     shortages = cs['shortages'] if stage in (1, 2) else cs.setdefault('preparation_shortages', {}).setdefault(str(stage), {})
-    shortage = shortages.get(sku)
+    shortage = shortages.get(answer_key)
     if result == 'shortage':
+        shortage_reason = (data.get('shortage_reason') or 'no_localizado') if stage in (0, 4) else None
+        if stage in (0, 4) and shortage_reason not in ('stock', 'rotura', 'no_localizado', 'frescura_no_disponible'):
+            fail('Indicá si el faltante corresponde a stock, rotura, producto no localizado o frescura no disponible.')
         b, u = data.get('physical_b'), data.get('physical_u')
         if type(b) is not int or type(u) is not int or min(b, u) < 0:
             fail('Ingresá cantidades físicas enteras y no negativas.')
@@ -811,9 +821,11 @@ def answer(load_id, number, stage, check_id):
             if not shortage or (shortage['actual_b'], shortage['actual_u']) != (b, u):
                 fail('La cantidad difiere del primer control. Un supervisor debe reabrir la cancha.', 409)
         else:
-            shortages[sku] = dict(sku=sku, descripcion=prod['descripcion'],
+            shortages[answer_key] = dict(sku=sku, product_key=answer_key,
+                fecha_frescura=prod.get('fecha_frescura'), descripcion=prod['descripcion'],
                 expected_b=prod['bultos'], expected_u=prod['unidades'], actual_b=b, actual_u=u,
-                reported_by=g.current_user.id, note=note, created_at=now(), incident=incident)
+                reported_by=g.current_user.id, reported_username=g.current_user.username,
+                shortage_reason=shortage_reason, note=note, created_at=now(), incident=incident)
     else:
         b, u = prod['bultos'], prod['unidades']
         if result == 'corrected' and not note:
@@ -821,18 +833,20 @@ def answer(load_id, number, stage, check_id):
         if shortage and stage == 2:
             fail('Este SKU tiene un faltante declarado. Confirmalo o pedí reapertura al supervisor.', 409)
         if shortage:
-            del shortages[sku]
-    check['answers'][sku] = dict(sku=sku, result=result, physical_b=b, physical_u=u, note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
+            del shortages[answer_key]
+    check['answers'][answer_key] = dict(sku=sku, product_key=answer_key,
+        fecha_frescura=prod.get('fecha_frescura'), result=result, physical_b=b, physical_u=u,
+        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
     if data.get('verification_mode') == 'full_sku':
-        check['answers'][sku]['verification'] = 'not_found' if not_found else 'full_sku'
+        check['answers'][answer_key]['verification'] = 'not_found' if not_found else 'full_sku'
     if request_id:
-        check['answers'][sku]['request_id'] = request_id
-        check.setdefault('receipts', {})[request_id] = dict(digest=digest, sku=sku, saved_at=check['answers'][sku]['saved_at'])
+        check['answers'][answer_key]['request_id'] = request_id
+        check.setdefault('receipts', {})[request_id] = dict(digest=digest, sku=answer_key, saved_at=check['answers'][answer_key]['saved_at'])
     if incident and not confirmation:
-        state.setdefault('incidents', {})[f'{check_id}:{sku}'] = dict(check['answers'][sku],
+        state.setdefault('incidents', {})[f'{check_id}:{answer_key}'] = dict(check['answers'][answer_key],
             load_id=load.id, court=number, stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control',
-               dict(load_id=load.id, court=number, stage=stage, **check['answers'][sku]))
+               dict(load_id=load.id, court=number, stage=stage, **check['answers'][answer_key]))
     return jsonify(check)
 
 
@@ -859,7 +873,7 @@ def answer_receipt(load_id, number, stage, check_id, request_id):
 @auth_required
 def finish(load_id, number, stage, check_id):
     load, court, state, cs, check = access(load_id, number, stage, check_id)
-    if (stage != 0 or check.get('day')) and any(p['sku'] not in check['answers'] for p in court['productos']):
+    if (stage != 0 or check.get('day')) and any(str(p.get('product_key') or p['sku']) not in check['answers'] for p in court['productos']):
         fail('Hay productos pendientes de controlar.', 409)
     release_timer(check)
     check.update(status='done', finished_at=now())
@@ -1086,6 +1100,7 @@ def planning_rows(truck):
                 article = catalog.get(product['sku'])
                 rows.append(dict(load_id=load.id, reparto=load.reparto, court=court['numero'],
                     sku=product['sku'], descripcion=product['descripcion'], bultos=product['bultos'],
+                    product_key=product.get('product_key'), fecha_frescura=product.get('fecha_frescura'),
                     unidades=product['unidades'], bultos_por_pallet=article.bultos_por_pallet if article else None,
                     unidades_por_bulto=article.unidades_por_bulto if article else None,
                     **stacking_values(article, rules)))
@@ -1493,7 +1508,8 @@ def start_pallet_control(load_id, pallet_id, stage):
     save_state(load.truck, state, g.current_user, 'iniciar_control_pallet',
                dict(load_id=load.id, pallet_id=pallet_id, stage=stage))
     return jsonify(dict(check, products=voice_products(pallet['items']),
-                        pallet=dict(pallet, shortages=list(ps['shortages'].values()))))
+                        pallet=dict(pallet, shortages=list(ps['shortages'].values()),
+                                    picking_alerts=picking_alerts(load.truck, pallet))))
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/pause')
@@ -1528,33 +1544,48 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
         if len(check.get('receipts', {})) >= 20000:
             fail('Límite de registros alcanzado. Consultá al supervisor.', 409)
     sku = str(data.get('sku', ''))
-    product = next((item for item in pallet['items'] if str(item['sku']) == sku), None)
+    requested_key = str(data.get('product_key') or sku)
+    product = next((item for item in pallet['items']
+                    if (str(item.get('product_key') or item['sku']) == requested_key
+                        if data.get('product_key') else str(item['sku']) == sku)), None)
     if not product:
         fail('Producto inexistente en este pallet.', 404)
     result = data.get('result')
     if result not in ('ok', 'corrected', 'shortage'):
         fail('Resultado invÃ¡lido.')
     note = str(data.get('note') or '').strip()[:2000]
-    previous_shortage = ps['shortages'].get(sku)
+    answer_key = str(product.get('product_key') or sku)
+    previous_shortage = ps['shortages'].get(answer_key)
     confirmation = stage == 2 and previous_shortage is not None and result == 'shortage'
     incident = previous_shortage.get('incident') if confirmation else None
     if stage == 2 and previous_shortage and result != 'shortage':
         fail('Este producto tiene un faltante del Control 1. Confirmalo con las mismas cantidades.', 409)
     if result in ('corrected', 'shortage') and not confirmation:
-        origin = data.get('origin')
+        error_type = data.get('error_type') or ('stock' if data.get('origin') == 'stock' else 'quantity')
+        if error_type not in ('wrong_product', 'less_quantity', 'more_quantity', 'freshness', 'stock', 'control', 'quantity'):
+            fail('Indicá un tipo de diferencia válido.')
+        if error_type == 'wrong_product' and not str(data.get('found_sku') or '').strip():
+            fail('Ingresá el SKU encontrado.')
+        if error_type == 'freshness' and not str(data.get('actual_freshness') or '').strip():
+            fail('Ingresá la frescura encontrada.')
+        origin = 'stock' if error_type == 'stock' else ('control' if error_type == 'control' else 'picking')
         if origin not in ('picking', 'stock', 'control'):
             fail('Indicá si corresponde a picking, stock o control.')
         responsible = pallet_incident_responsible(state, pallet, stage, origin)
         incident = dict(responsible_user_id=responsible.id if responsible else None,
             responsible_username=responsible.username if responsible else 'Diferencia de stock',
-            origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
+            origin=origin, error_type=error_type, detected_by=g.current_user.id,
+            detected_username=g.current_user.username,
+            found_sku=str(data.get('found_sku') or '').strip()[:50] or None,
+            actual_freshness=str(data.get('actual_freshness') or '').strip()[:20] or None)
     if result in ('shortage', 'corrected'):
         bultos, unidades = data.get('physical_b'), data.get('physical_u')
         if type(bultos) is not int or type(unidades) is not int or min(bultos, unidades) < 0:
             fail('Ingresá cantidades físicas enteras y no negativas.')
         if result == 'shortage' and (bultos > product['bultos'] or unidades > product['unidades']):
             fail('Un faltante no puede superar la cantidad planificada.')
-        if (bultos, unidades) == (product['bultos'], product['unidades']):
+        if ((bultos, unidades) == (product['bultos'], product['unidades'])
+                and (incident or {}).get('error_type') not in ('wrong_product', 'freshness')):
             fail('La cantidad encontrada debe ser diferente de la planificada.')
         if result == 'shortage' and stage == 2 and previous_shortage and (bultos, unidades) != (previous_shortage['actual_b'], previous_shortage['actual_u']):
             fail('La cantidad difiere del Control 1. Un supervisor debe revisar el pallet.', 409)
@@ -1564,7 +1595,8 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
                 difference_u=product['unidades'] - unidades,
                 error_count=0 if incident['origin'] == 'stock' else 1)
     if result == 'shortage':
-        ps['shortages'][sku] = dict(sku=sku, descripcion=product['descripcion'], expected_b=product['bultos'],
+        ps['shortages'][answer_key] = dict(sku=sku, product_key=answer_key,
+            fecha_frescura=product.get('fecha_frescura'), descripcion=product['descripcion'], expected_b=product['bultos'],
             expected_u=product['unidades'], actual_b=bultos, actual_u=unidades, reported_by=g.current_user.id,
             note=note or (previous_shortage or {}).get('note', ''), created_at=now(),
             incident=incident or (previous_shortage or {}).get('incident'))
@@ -1573,19 +1605,20 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
             fail('Describí la diferencia corregida.')
         if result == 'ok':
             bultos, unidades = product['bultos'], product['unidades']
-        ps['shortages'].pop(sku, None)
-    check['answers'][sku] = dict(sku=sku, result=result, physical_b=bultos, physical_u=unidades,
+        ps['shortages'].pop(answer_key, None)
+    check['answers'][answer_key] = dict(sku=sku, product_key=answer_key,
+        fecha_frescura=product.get('fecha_frescura'), result=result, physical_b=bultos, physical_u=unidades,
         note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
     if request_id:
-        check['answers'][sku]['request_id'] = request_id
+        check['answers'][answer_key]['request_id'] = request_id
         check.setdefault('receipts', {})[request_id] = dict(
-            digest=digest, sku=sku, saved_at=check['answers'][sku]['saved_at'])
+            digest=digest, sku=answer_key, saved_at=check['answers'][answer_key]['saved_at'])
     if incident and not confirmation:
         state.setdefault('incidents', {})[f'{check_id}:{pallet_id}:{sku}'] = dict(
-            check['answers'][sku], load_id=load.id, court=pallet['owner_court'], pallet_id=pallet_id,
+            check['answers'][answer_key], load_id=load.id, court=pallet['owner_court'], pallet_id=pallet_id,
             stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control_pallet',
-        dict(load_id=load.id, pallet_id=pallet_id, stage=stage, **check['answers'][sku]))
+        dict(load_id=load.id, pallet_id=pallet_id, stage=stage, **check['answers'][answer_key]))
     return jsonify(check)
 
 
@@ -1605,7 +1638,7 @@ def pallet_answer_receipt(load_id, pallet_id, stage, check_id, request_id):
 @roles_required('controlador')
 def finish_pallet_control(load_id, pallet_id, stage, check_id):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
-    if any(str(product['sku']) not in check.get('answers', {}) for product in pallet['items']):
+    if any(str(product.get('product_key') or product['sku']) not in check.get('answers', {}) for product in pallet['items']):
         fail('Hay productos pendientes de controlar.', 409)
     release_timer(check)
     check.update(status='done', finished_at=now())

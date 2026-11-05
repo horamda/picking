@@ -115,6 +115,7 @@ class ConsolidadoDetalle(db.Model):
     cancha = db.Column(db.String(120), nullable=True)
     prioridad = db.Column(db.String(50), nullable=True)
     sku_estado = db.Column(db.String(80), nullable=True)
+    fecha_frescura = db.Column(db.Date, nullable=True)
 
 class LogEntry(db.Model):
     __tablename__ = 'logs'

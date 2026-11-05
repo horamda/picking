@@ -168,7 +168,8 @@ def upload_pdfs():
                         almacen=row.get('almacen') or consolidado.almacen,
                         cancha=row.get('cancha') or consolidado.cancha,
                         prioridad=row_metrics['prioridad'],
-                        sku_estado='encontrado' if article else 'no encontrado'
+                        sku_estado='encontrado' if article else 'no encontrado',
+                        fecha_frescura=row.get('fecha_frescura')
                     )
                     db.session.add(detalle)
                 file_saved.append({

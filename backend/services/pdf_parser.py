@@ -92,7 +92,7 @@ def parse_metadata(lines: list[str]) -> dict:
 def aggregate_items(items: list[dict]) -> list[dict]:
     grouped = {}
     for item in items:
-        key = (item['sku'], item.get('cancha') or '', item.get('almacen') or '')
+        key = (item['sku'], item.get('cancha') or '', item.get('almacen') or '', item.get('fecha_frescura'))
         if key not in grouped:
             grouped[key] = {
                 'sku': item['sku'],
@@ -101,6 +101,7 @@ def aggregate_items(items: list[dict]) -> list[dict]:
                 'unidades': 0,
                 'cancha': item.get('cancha'),
                 'almacen': item.get('almacen'),
+                'fecha_frescura': item.get('fecha_frescura'),
                 'lineas': 0,
             }
         grouped[key]['bultos'] += item.get('bultos', 0)
@@ -164,7 +165,7 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
         return None
 
     sku = row[0]['text']
-    fecha_reparto = parse_pdf_date(row[date_idx]['text']) if date_idx is not None else None
+    fecha_frescura = parse_pdf_date(row[date_idx]['text']) if date_idx is not None else None
     if bultos_x is not None and unids_x is not None:
         # Restrict to A CARGAR: DESCARGA columns must never count as picking.
         width = unids_x - bultos_x
@@ -199,7 +200,7 @@ def parse_item_row(row: list[dict], bultos_x, unids_x):
     return {
         'sku': sku,
         'descripcion': descripcion,
-        'fecha_reparto': fecha_reparto,
+        'fecha_frescura': fecha_frescura.date() if fecha_frescura else None,
         'bultos': bultos,
         'unidades': unidades,
     }

@@ -34,3 +34,9 @@ test('aplica la plantilla administrativa con sus variables', () => {
     assert.match(spoken, /Buscá 2 bultos y 4 unidades de Brahma litro\. Vas 3 de 12\./)
     assert.equal(voicePrompt({ descripcion: 'Agua', bultos: 2 }, 0, 1, 0, { picking_product: null }), '')
 })
+
+test('lee la frescura exacta sin mezclarla con la descripción editable', () => {
+    const prompt = voicePrompt({ descripcion: 'Brahma', descripcion_voz: 'Brahma litro', bultos: 2, fecha_frescura: '2027-06-03' }, 0, 1, 0)
+    assert.match(prompt, /Brahma litro/)
+    assert.match(prompt, /Frescura exacta 3\/6\/2027/)
+})

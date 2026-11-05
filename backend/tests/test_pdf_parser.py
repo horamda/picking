@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.pdf_parser import parse_item_row
+from services.pdf_parser import parse_item_row, aggregate_items
 from services.pdf_parser import parse_pdf_file
 from io import BytesIO
 from reportlab.pdfgen import canvas
@@ -17,13 +17,22 @@ class PdfColumnsTest(unittest.TestCase):
         item = parse_item_row(row, 366, 432.5)
         self.assertEqual((item['bultos'], item['unidades']), (0, 4))
         self.assertEqual(item['descripcion'], 'RED BULL CAN 6X4 250')
-        self.assertIsNone(item['fecha_reparto'])
+        self.assertIsNone(item['fecha_frescura'])
 
     def test_discharge_never_added_to_load(self):
         row = [word('1001', 35, 60), word('Producto', 70, 120), word('21/01/27', 280, 315),
                word('6', 375, 380), word('3', 440, 445), word('99', 500, 510), word('8', 570, 575)]
         item = parse_item_row(row, 366, 432.5)
         self.assertEqual((item['bultos'], item['unidades']), (6, 3))
+        self.assertEqual(str(item['fecha_frescura']), '2027-01-21')
+
+    def test_same_sku_with_different_freshness_stays_separate(self):
+        rows = [dict(sku='7038', descripcion='Brahma', cancha='1', almacen='A',
+                     fecha_frescura=value, bultos=amount, unidades=0)
+                for value, amount in [('2027-06-03', 31), ('2027-06-04', 7)]]
+        grouped = aggregate_items(rows)
+        self.assertEqual(len(grouped), 2)
+        self.assertEqual([item['bultos'] for item in grouped], [31, 7])
 
     def test_undated_product_is_imported_but_empty_containers_are_not(self):
         output = BytesIO(); pdf = canvas.Canvas(output)

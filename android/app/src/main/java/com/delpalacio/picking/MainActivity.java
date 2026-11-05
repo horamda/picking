@@ -647,9 +647,10 @@ public final class MainActivity extends Activity {
             JSONObject startedPallet=started.optJSONObject("pallet");
             JSONArray shortages=startedPallet==null?new JSONArray():startedPallet.optJSONArray("shortages");
             if(shortages==null)shortages=new JSONArray();
-            court=obj("numero",selected.optInt("owner_court"),"status",obj("shortages",shortages));
+            JSONArray alerts=started.optJSONArray("picking_alerts");if(alerts==null)alerts=new JSONArray();
+            court=obj("numero",selected.optInt("owner_court"),"status",obj("shortages",shortages,"picking_alerts",alerts));
             index=0;JSONObject answers=check.optJSONObject("answers");
-            while(index<products.length()-1 && answers!=null && answers.has(products.optJSONObject(index).optString("sku")))index++;
+            while(index<products.length()-1 && answers!=null && answers.has(products.optJSONObject(index).optString("product_key",products.optJSONObject(index).optString("sku"))))index++;
             automaticallySpokenProducts.clear();product();
         });
     }
@@ -705,14 +706,14 @@ public final class MainActivity extends Activity {
             products=check.optJSONArray("products");if(products==null)products=c.optJSONArray("productos");if(products==null)products=new JSONArray();index=0;
             automaticallySpokenProducts.clear();
             if(c.optBoolean("assistance",false))speak(voiceText("assistance_start","Refuerzo en cancha {court}. Tenés {total} productos asignados. Prepará solamente los productos que indica la aplicación.","court",c.optInt("numero"),"total",products.length()));
-            JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).getString("sku"))) index++;
+            JSONObject answers=check.getJSONObject("answers"); while(index<products.length()-1 && answers.has(products.getJSONObject(index).optString("product_key",products.getJSONObject(index).getString("sku")))) index++;
             product();
         });
     }
     private String prompt() {
         JSONObject p=products.optJSONObject(index);
         String name=p.optString("descripcion_voz",p.optString("descripcion"));
-        String fallback=ProductSpeech.prompt(name,p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length());
+        String fallback=ProductSpeech.prompt(name,p.optInt("bultos"),p.optInt("unidades"),p.optInt("pallets"),stage(),index,products.length(),freshnessText(p.optString("fecha_frescura")));
         String configured=fallback;
         if(stage()==4 && p.optInt("pallets")>0){
             String pallets=p.optInt("pallets")==1?"un pallet completo":p.optInt("pallets")+" pallets completos";
@@ -727,9 +728,14 @@ public final class MainActivity extends Activity {
         }
         return configured.isEmpty()?"":configured+" "+destinations(p);
     }
+    private String freshnessText(String value){
+        if(value==null||value.isEmpty())return "no informada";
+        try{return java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));}
+        catch(Exception ignored){return value;}
+    }
     private String productSpeechKey(){
         JSONObject p=products.optJSONObject(index);
-        return check.optString("id")+":"+p.optString("sku");
+        return check.optString("id")+":"+p.optString("product_key",p.optString("sku"));
     }
     private void speakProductOnce(){
         String key=productSpeechKey();
@@ -744,6 +750,7 @@ public final class MainActivity extends Activity {
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
         text(p.optString("descripcion"),24);
+        text("Frescura exacta: "+freshnessText(p.optString("fecha_frescura")),18);
         String destination=destinations(p);
         if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
@@ -754,7 +761,15 @@ public final class MainActivity extends Activity {
             TextView caption=label(i==0?"BULTOS DE LA\nPLANILLA":"UNIDADES DE LA\nPLANILLA",10,MUTED,false);caption.setGravity(Gravity.CENTER);box.addView(caption);
             TextView amount=label(String.valueOf(p.optInt(i==0?"bultos":"unidades")),40,INK,true);amount.setGravity(Gravity.CENTER);box.addView(amount);
         }
-        if(check.optJSONObject("answers").has(p.optString("sku"))) text("Este producto ya tiene una respuesta guardada.",16);
+        if(check.optJSONObject("answers").has(p.optString("product_key",p.optString("sku")))) text("Este producto ya tiene una respuesta guardada.",16);
+        if(isController()){
+            JSONObject alert=existingAlert(p.optString("product_key",p.optString("sku")));
+            if(alert!=null){
+                String reason=alert.optString("shortage_reason","no_localizado").replace('_',' ');
+                text("AVISO DE PICKING: "+reason.toUpperCase(),17);
+                text("Se encontraron "+alert.optInt("physical_b")+" bultos y "+alert.optInt("physical_u")+" unidades. Informó: "+alert.optString("reported_username","operario")+".",14);
+            }
+        }
         if(stage()==0 && p.optInt("full_pallets_count")>0){
             gap(6);TextView full=text("Pallets completos: "+p.optInt("full_pallets_count")+" · "+p.optInt("full_pallets_bultos")+" bultos",14);full.setTextColor(dark?0xff7dd3fc:0xff0369a1);
             text("Informativo · Se registran por separado del picking indicado arriba.",12);
@@ -789,7 +804,7 @@ public final class MainActivity extends Activity {
         if(busy || check==null || check.isNull("timer_started_at")) return;
         if(pendingAnswer()){message("Hay un registro por verificar. Volvé al producto o al inicio y usá Verificar guardado.");return;}
         stopAudio();
-        try { data.put("sku",products.getJSONObject(index).getString("sku")); } catch(Exception e) {error(e);return;}
+        try { JSONObject current=products.getJSONObject(index);data.put("sku",current.getString("sku"));data.put("product_key",current.optString("product_key",current.getString("sku"))); } catch(Exception e) {error(e);return;}
         if(demo) { try { check.getJSONObject("answers").put(data.getString("sku"),data); } catch(Exception e){error(e);} afterAnswer();return; }
         try{data.put("request_id",UUID.randomUUID().toString());}catch(Exception e){error(e);return;}
         String endpoint=path();
@@ -821,14 +836,19 @@ public final class MainActivity extends Activity {
         if(isController()){showIncident("shortage");return;}
         showShortage();
     }
-    private JSONObject existingShortage(String sku){
+    private JSONObject existingShortage(String productKey){
         JSONArray values=court.optJSONObject("status").optJSONArray("shortages");
-        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && sku.equals(value.optString("sku")))return value;}
+        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(value.optString("product_key",value.optString("sku"))))return value;}
+        return null;
+    }
+    private JSONObject existingAlert(String productKey){
+        JSONArray values=court.optJSONObject("status").optJSONArray("picking_alerts");
+        if(values!=null)for(int i=0;i<values.length();i++){JSONObject value=values.optJSONObject(i);if(value!=null && productKey.equals(value.optString("product_key",value.optString("sku"))))return value;}
         return null;
     }
     private void showIncident(String result){
         stopAudio();currentScreen="shortage";
-        JSONObject p=products.optJSONObject(index),previous=existingShortage(p.optString("sku"));
+        JSONObject p=products.optJSONObject(index),previous=existingShortage(p.optString("product_key",p.optString("sku")));
         boolean confirmation=stage()==2 && result.equals("shortage") && previous!=null;
         screen(result.equals("corrected")?"Error corregido":"Registrar faltante");
         content=card(result.equals("corrected")?0xfffcd34d:0xfffecaca);
@@ -842,11 +862,13 @@ public final class MainActivity extends Activity {
         Spinner origin=new Spinner(this);
         if(!confirmation){
             text("Causa de la diferencia",13);
-            String[] causes=stage()==2?new String[]{"Error de picking","Diferencia de stock","Error del Control 1"}:new String[]{"Error de picking","Diferencia de stock"};
+            String[] causes=stage()==2?new String[]{"Menos cantidad","Más cantidad","Artículo equivocado","Frescura incorrecta","Diferencia de stock","Error del Control 1"}:new String[]{"Menos cantidad","Más cantidad","Artículo equivocado","Frescura incorrecta","Diferencia de stock"};
             origin.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,causes));content.addView(origin);
             JSONObject assembly=pallet==null?null:pallet.optJSONObject("assembly");
             text("Si es error de picking, responsable automático: "+(assembly!=null&&!assembly.optString("username").isEmpty()?assembly.optString("username"):"se determinará en el servidor")+". Las diferencias de stock no penalizan al operario.",13);
         }else text("Se conserva el responsable registrado por el primer controlador: "+previous.optJSONObject("incident").optString("responsible_username"),13);
+        EditText foundSku=input("SKU encontrado (solo artículo equivocado)",InputType.TYPE_CLASS_TEXT);
+        EditText actualFreshness=input("Frescura encontrada DD/MM/AAAA",InputType.TYPE_CLASS_DATETIME);
         gap(8);text("Observación"+(result.equals("corrected")?" obligatoria":" opcional"),13);
         EditText note=input("Describí qué ocurrió…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
         TextView feedback=text("",14);
@@ -856,11 +878,15 @@ public final class MainActivity extends Activity {
                 JSONObject payload=obj("result",result,"note",note.getText().toString());
                 int actualB=Integer.parseInt(physicalB.getText().toString()),actualU=Integer.parseInt(physicalU.getText().toString());
                 if(actualB<0||actualU<0){feedback.setText("Ingresá cantidades no negativas.");return;}
-                if(actualB==p.optInt("bultos")&&actualU==p.optInt("unidades")){feedback.setText("La cantidad encontrada debe ser diferente de la planificada.");return;}
+                String[] types=stage()==2?new String[]{"less_quantity","more_quantity","wrong_product","freshness","stock","control"}:new String[]{"less_quantity","more_quantity","wrong_product","freshness","stock"};
+                String errorType=confirmation?"quantity":types[origin.getSelectedItemPosition()];
+                if(actualB==p.optInt("bultos")&&actualU==p.optInt("unidades")&&!errorType.equals("wrong_product")&&!errorType.equals("freshness")){feedback.setText("La cantidad encontrada debe ser diferente de la planificada.");return;}
                 if(result.equals("shortage")&&(actualB>p.optInt("bultos")||actualU>p.optInt("unidades"))){feedback.setText("Un faltante no puede superar la cantidad planificada.");return;}
                 payload.put("physical_b",actualB);payload.put("physical_u",actualU);
                 if(!confirmation){
-                    payload.put("origin",origin.getSelectedItemPosition()==0?"picking":origin.getSelectedItemPosition()==1?"stock":"control");
+                    if(errorType.equals("wrong_product")&&foundSku.getText().toString().trim().isEmpty()){feedback.setText("Ingresá el SKU encontrado.");return;}
+                    if(errorType.equals("freshness")&&actualFreshness.getText().toString().trim().isEmpty()){feedback.setText("Ingresá la frescura encontrada.");return;}
+                    payload.put("error_type",errorType);payload.put("found_sku",foundSku.getText().toString().trim());payload.put("actual_freshness",actualFreshness.getText().toString().trim());
                 }
                 answer(payload);
             }catch(Exception e){error(e);}
@@ -884,6 +910,10 @@ public final class MainActivity extends Activity {
         gap(8);text("Proceso al que corresponde",13);TextView origin=text(stage()==4?"Pallets completos":"Picking",16);origin.setPadding(dp(14),dp(14),dp(14),dp(14));origin.setBackground(shape(Color.WHITE,0xffcbd5e1,12));
         text("Responsable: "+user.optString("username"),12);gap(4);
         text("Observación (opcional)",13); EditText note=input("Escribí qué pasó con el producto…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
+        Spinner reason=new Spinner(this);
+        String[] reasonLabels={"Falta de stock","Rotura","Producto no localizado","Frescura solicitada no disponible"};
+        String[] reasonValues={"stock","rotura","no_localizado","frescura_no_disponible"};
+        text("Motivo",13);reason.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,reasonLabels));content.addView(reason);
         shortageFeedback=text("",16);shortageFeedback.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         android.text.TextWatcher watcher=new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int start,int count,int after){}
@@ -897,7 +927,7 @@ public final class MainActivity extends Activity {
                 if(!validation.isEmpty()){shortageFeedback.setText(validation);return;}
                 int physicalB=Integer.parseInt(shortageB.getText().toString()),physicalU=Integer.parseInt(shortageU.getText().toString());
                 int responsible=demo?0:user.getInt("id");
-                answer(obj("result","shortage","physical_b",physicalB,"physical_u",physicalU,"responsible_user_id",responsible,"origin","picking","note",note.getText().toString()));
+                answer(obj("result","shortage","physical_b",physicalB,"physical_u",physicalU,"responsible_user_id",responsible,"origin","picking","shortage_reason",reasonValues[reason.getSelectedItemPosition()],"note",note.getText().toString()));
             } catch(Exception e) {error(e);}
         });
         button("Cancelar",()->{stopAudio();product();});content=body;
