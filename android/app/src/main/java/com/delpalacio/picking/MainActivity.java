@@ -410,6 +410,18 @@ public final class MainActivity extends Activity {
     private String destinations(JSONObject product) {
         if(!demo && stage()==4 && !product.optString("pallet_group").isEmpty())return "Grupo de pallets completos "+product.optString("pallet_group")+". Reparto "+product.optString("reparto")+". ";
         if(demo || stage()!=0 || load==null || court==null)return "";
+        JSONArray explicit=product.optJSONArray("pallet_destinations");
+        if(explicit!=null && explicit.length()>0){
+            StringBuilder instructions=new StringBuilder();
+            for(int i=0;i<explicit.length();i++){
+                JSONObject destination=explicit.optJSONObject(i);if(destination==null)continue;
+                String placement=destination.optString("placement");
+                if(placement.equals("base"))instructions.append("Ubicá como base. ");
+                else if(placement.equals("arriba"))instructions.append("Ubicá arriba de la base. ");
+                instructions.append(ProductSpeech.destination(destination.optString("pallet_id"),destination.optInt("bultos"),destination.optInt("unidades"),destination.optBoolean("shared")));
+            }
+            if(instructions.length()>0)return instructions.toString();
+        }
         JSONObject summary=load.optJSONObject("truck_summary");
         JSONObject mine=summary==null?null:summary.optJSONObject("mine");
         JSONArray allocations=mine==null?null:mine.optJSONArray("allocations");
@@ -423,7 +435,7 @@ public final class MainActivity extends Activity {
                     result.append(item.optString("placement").equals("base")?"Ubicá como base. ":"Ubicá arriba de la base. ").append(ProductSpeech.destination(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
             }
         }
-        return result.length()==0?"Destino de pallet no disponible. Consultá al supervisor. ":result.toString();
+        return result.length()==0?"Destino de pallet no disponible. Actualizá la tarea; si continúa, consultá al supervisor. ":result.toString();
     }
     private void truckSummary(JSONObject summary,boolean waiting) {
         if(summary==null)return;
@@ -593,7 +605,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.2",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.3",12);content=body;
         });
     }
     private void openLoad(int id) {

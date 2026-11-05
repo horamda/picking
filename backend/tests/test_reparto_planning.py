@@ -61,6 +61,10 @@ class RepartoPlanningTest(Fixture):
         check=self.call('post',f'/loads/{second_load.id}/courts/1/start/0','picker')
         self.assertTrue(all(p['assembly_mode']=='compact' and p['reparto']==second.reparto for p in check['products']))
         self.assertTrue(all(p['pallet_destinations'] for p in check['products']))
+        self.assertTrue(all(destination.get('placement') in ('base', 'arriba')
+                            for product in check['products'] for destination in product['pallet_destinations']))
+        self.assertTrue(all(type(destination.get('shared')) is bool
+                            for product in check['products'] for destination in product['pallet_destinations']))
         from routes.load_control import load_picking_complete, task_products
         self.assertFalse(load_picking_complete(second_load))
         self.assertEqual(task_products(second_load,second_load.content['canchas'][0],4),[])

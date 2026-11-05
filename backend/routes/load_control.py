@@ -346,9 +346,18 @@ def task_products(load, court, stage):
         task = quantities.get(product_id)
         if task and (task['bultos'] or task.get('unidades', 0)):
             info = pallet_info.get(product_id, {})
-            destinations = [dict(pallet_id=pallet['id'], bultos=item['bultos'], unidades=item['unidades'])
-                for pallet in plan.get('mixed_pallets', []) for item in pallet['items']
-                if stage == 0 and item['load_id'] == load.id and item.get('assigned_court', item['court']) == court['numero'] and identity(item) == product_id]
+            destinations = []
+            for pallet in plan.get('mixed_pallets', []):
+                for item in pallet['items']:
+                    if not (stage == 0 and item['load_id'] == load.id
+                            and item.get('assigned_court', item['court']) == court['numero']
+                            and identity(item) == product_id):
+                        continue
+                    layer = next((candidate for candidate in pallet.get('layers', [])
+                                  if candidate.get('order') == item.get('order')), {})
+                    destinations.append(dict(pallet_id=pallet['id'], bultos=item['bultos'],
+                        unidades=item['unidades'], placement=layer.get('placement'),
+                        shared=pallet.get('shared', False)))
             result.append(dict(product, bultos=task['bultos'], unidades=task.get('unidades', 0), pallets=task.get('pallets', 0),
                                pallet_destinations=destinations,
                                source_courts=task.get('source_courts', [task.get('court')]),
