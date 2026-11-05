@@ -17,7 +17,7 @@ def pallet_compatible(pallet, reference, mix_courts, compact):
         return True
     base = pallet['items'][0]
     # Retornables de litro se arman desde la base por pisos. Un resto de piso
-    # queda concentrado y no se utiliza como apoyo para otro artÃ­culo.
+    # queda concentrado y no se utiliza como apoyo para otro artículo.
     if prefers_complete_floors(reference):
         return False
     if prefers_complete_floors(base) and not base.get('floor_complete'):

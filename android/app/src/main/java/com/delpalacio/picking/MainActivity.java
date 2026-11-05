@@ -519,11 +519,11 @@ public final class MainActivity extends Activity {
             Set<String> newTasks=new HashSet<>(availableTasks);
             if(knownTasks!=null)newTasks.removeAll(knownTasks);
             if(knownTasks!=null && !newTasks.isEmpty()) {
-                text("Ten?s nuevas tareas habilitadas. Revis? tu pr?ximo trabajo.",18);
+                text("Tenés nuevas tareas habilitadas. Revisá tu próximo trabajo.",18);
                 if(!isController())speak(voiceText("new_tasks","Tenés nuevas tareas habilitadas. Revisá tu próximo trabajo."));
             }
             knownTasks=availableTasks;
-            text("Actualizaci?n autom?tica cada 15 segundos mientras est?s en esta pantalla.",13);
+            text("Actualización automática cada 15 segundos mientras estés en esta pantalla.",13);
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 JSONObject controlProgress=truck.optJSONObject("control_progress");boolean controlDone=isController()&&controlProgress!=null&&controlProgress.optBoolean("completed");
@@ -593,7 +593,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.1",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.2",12);content=body;
         });
     }
     private void openLoad(int id) {

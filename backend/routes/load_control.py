@@ -470,7 +470,7 @@ def get_physical_pallet(load, pallet_id):
     pallet = next((item for item in physical_pallets(load.truck)
                    if item['load_id'] == load.id and item['id'] == pallet_id), None)
     if not pallet:
-        fail('Pallet fÃ­sico no encontrado.', 404)
+        fail('Pallet físico no encontrado.', 404)
     return pallet
 
 
@@ -1331,7 +1331,7 @@ def warehouse_monitor():
                     bultos, unidades, bultos_equiv = process_amounts(products)
                     if stage == 0:
                         available = bool(plan or legacy_in_progress(truck))
-                        blocked_reason = None if available else 'Espera aprobaciÃ³n del supervisor'
+                        blocked_reason = None if available else 'Espera aprobación del supervisor'
                     elif stage == 4:
                         available = load_picking_complete(load)
                         blocked_reason = None if available else 'Espera que finalicen todas las canchas del reparto'
@@ -1422,7 +1422,7 @@ def warehouse_monitor():
 def control_pallets(truck_id):
     truck = get_truck(truck_id)
     if not approved(truck) and not legacy_in_progress(truck):
-        fail('La carga espera aprobaciÃ³n del supervisor.', 409)
+        fail('La carga espera aprobación del supervisor.', 409)
     result = pallet_control_board(truck)
     result.update(truck_id=truck.id, truck=truck.truck, date=truck.load_date, branch=truck.branch,
                   status=status(truck))
@@ -1431,7 +1431,7 @@ def control_pallets(truck_id):
 
 def pallet_control_context(load_id, pallet_id, stage, check_id=None):
     if stage not in (1, 2):
-        fail('Etapa de control invÃ¡lida.')
+        fail('Etapa de control inválida.')
     load = get_load(load_id)
     ensure_open(load.truck)
     pallet = get_physical_pallet(load, pallet_id)
@@ -1439,9 +1439,9 @@ def pallet_control_context(load_id, pallet_id, stage, check_id=None):
     ps = edit_pallet_state(state, pallet['key'])
     check = ps['checks'].get(str(stage))
     if check_id and (not check or check.get('id') != check_id):
-        fail('El control del pallet cambiÃ³. VolvÃ© al camiÃ³n.', 409)
+        fail('El control del pallet cambió. Volvé al camión.', 409)
     if check_id and check.get('user_id') != g.current_user.id:
-        fail('Este pallet estÃ¡ reservado por otro controlador.', 403)
+        fail('Este pallet está reservado por otro controlador.', 403)
     return load, pallet, state, ps, check
 
 
@@ -1465,7 +1465,7 @@ def pallet_incident_responsible(state, pallet, stage, origin):
 def start_pallet_control(load_id, pallet_id, stage):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage)
     if not assembly_done(load.truck, pallet):
-        fail('Este pallet todavÃ­a estÃ¡ en armado.', 409)
+        fail('Este pallet todavía está en armado.', 409)
     first = effective_check(load.truck, pallet, 1)
     if stage == 2 and first.get('status') != 'done':
         fail('Primero debe finalizar el Control 1 de este pallet.', 409)
@@ -1503,7 +1503,7 @@ def start_pallet_control(load_id, pallet_id, stage):
         ps['checks'][str(stage)] = check
         reserve_timer(check)
     elif check.get('user_id') != g.current_user.id:
-        fail('Este pallet estÃ¡ reservado por otro controlador.', 409)
+        fail('Este pallet está reservado por otro controlador.', 409)
     elif not check.get('timer_started_at'):
         reserve_timer(check)
         check['timer_started_at'] = now()
@@ -1533,7 +1533,7 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
     data = body()
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
     if check.get('status') != 'active' or not check.get('timer_started_at'):
-        fail('ReanudÃ¡ el control antes de registrar productos.', 409)
+        fail('Reanudá el control antes de registrar productos.', 409)
     request_id = data.get('request_id')
     digest = hashlib.sha256(json.dumps({k: v for k, v in data.items() if k != 'request_id'}, sort_keys=True).encode()).hexdigest()
     if request_id is not None:
@@ -1555,7 +1555,7 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
         fail('Producto inexistente en este pallet.', 404)
     result = data.get('result')
     if result not in ('ok', 'corrected', 'shortage'):
-        fail('Resultado invÃ¡lido.')
+        fail('Resultado inválido.')
     note = str(data.get('note') or '').strip()[:2000]
     answer_key = str(product.get('product_key') or sku)
     previous_shortage = ps['shortages'].get(answer_key)

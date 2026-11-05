@@ -135,9 +135,9 @@ def claim_assignment(state, stage, user):
     own = assignments.get(str(stage))
     other = assignments.get(str(2 if stage == 1 else 1))
     if own and own['user_id'] != user.id:
-        raise ValueError(f'El Control {stage} de este camiÃ³n estÃ¡ asignado a {own["username"]}.')
+        raise ValueError(f'El Control {stage} de este camión está asignado a {own["username"]}.')
     if other and other['user_id'] == user.id:
-        raise PermissionError('Los dos controles del camiÃ³n deben realizarlos personas diferentes.')
+        raise PermissionError('Los dos controles del camión deben realizarlos personas diferentes.')
     if not own:
         assignments[str(stage)] = {'user_id': user.id, 'username': user.username}
     return assignments[str(stage)]
