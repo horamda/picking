@@ -420,12 +420,18 @@ class ControlFlowTest(unittest.TestCase):
             else:
                 self.call('post', first_path + '/answer', 'ana', data=payload)
         self.call('post', first_path + '/finish', 'ana')
+        ana_progress = self.call('get', '/trucks', 'ana')[0]['control_progress']
+        self.assertTrue(ana_progress['completed'])
+        self.assertEqual((ana_progress['stage'], ana_progress['done'], ana_progress['total']), (1, 1, 1))
         self.call('post', start + '/2', 'ana', expected=403)
         second = self.call('post', start + '/2', 'ben')
         second_path = f'/loads/{pallet["load_id"]}/pallets/{pallet["id"]}/checks/2/{second["id"]}'
         for product in second['products']:
             self.call('post', second_path + '/answer', 'ben', data={'sku': product['sku'], 'result': 'ok'})
         self.call('post', second_path + '/finish', 'ben')
+        ben_progress = self.call('get', '/trucks', 'ben')[0]['control_progress']
+        self.assertTrue(ben_progress['completed'])
+        self.assertEqual(ben_progress['stage'], 2)
         final = self.call('get', f'/trucks/{self.truck_id}/control-pallets', 'ana')
         self.assertEqual(final['assignments']['1']['username'], 'ana')
         self.assertEqual(final['assignments']['2']['username'], 'ben')

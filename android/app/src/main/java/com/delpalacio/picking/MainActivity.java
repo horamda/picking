@@ -489,6 +489,11 @@ public final class MainActivity extends Activity {
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
             List<Integer> refreshed=new ArrayList<>(assigned);Collections.sort(refreshed);assignments.setText("Tus canchas: "+refreshed);
             JSONArray trucks=response.getJSONArray("trucks");
+            if(isController()){
+                List<JSONObject> ordered=new ArrayList<>();for(int i=0;i<trucks.length();i++)ordered.add(trucks.getJSONObject(i));
+                ordered.sort(Comparator.comparing(item->{JSONObject progress=item.optJSONObject("control_progress");return progress!=null&&progress.optBoolean("completed");}));
+                JSONArray sorted=new JSONArray();for(JSONObject item:ordered)sorted.put(item);trucks=sorted;
+            }
             if(announceQueue){
                 announceQueue=false;
                 if(!isController()){
@@ -521,13 +526,15 @@ public final class MainActivity extends Activity {
             text("Actualizaci?n autom?tica cada 15 segundos mientras est?s en esta pantalla.",13);
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
-                content=card(BORDER);text("Camión actual: "+truck.optString("truck"),22);
+                JSONObject controlProgress=truck.optJSONObject("control_progress");boolean controlDone=isController()&&controlProgress!=null&&controlProgress.optBoolean("completed");
+                LinearLayout truckCard=card(controlDone?0xff64748b:BORDER);if(controlDone)truckCard.setAlpha(0.58f);content=truckCard;text("Camión actual: "+truck.optString("truck"),22);
                 text(truck.optString("load_date")+" · "+loads.length()+" cargas",15);
                 JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
                 if(mine!=null && !summary.isNull("pallets"))text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
                 if(isController()){
-                    text("Elegí este camión para ver sus pallets y el avance de ambos controles.",14);
-                    styledButton("Ver pallets del camión →",GREEN,Color.WHITE,GREEN,()->openControlTruck(truck));
+                    if(controlProgress!=null)text(controlProgress.optString("label"),18);
+                    text(controlDone?"Tu trabajo en este camión ya terminó. Podés consultar el resultado.":"Elegí este camión para ver sus pallets y el avance de ambos controles.",14);
+                    styledButton(controlDone?"Ver resultado":"Ver pallets del camión →",controlDone?SURFACE:GREEN,controlDone?MUTED:Color.WHITE,controlDone?BORDER:GREEN,()->openControlTruck(truck));
                     content=body;
                     continue;
                 }
@@ -586,7 +593,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.20.1",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.1",12);content=body;
         });
     }
     private void openLoad(int id) {

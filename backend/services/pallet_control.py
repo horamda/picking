@@ -98,6 +98,33 @@ def board(truck):
         control2_complete=bool(rows) and all(row['controls']['2'].get('status') == 'done' for row in rows))
 
 
+def user_control_progress(board_data, user_id):
+    """Summarize one controller's work without hiding the truck audit trail."""
+    assignments = board_data.get('assignments') or {}
+    first, second = assignments.get('1'), assignments.get('2')
+    stage = 1 if first and first.get('user_id') == user_id else 2 if second and second.get('user_id') == user_id else 0
+    rows = board_data.get('pallets') or []
+    if stage:
+        done = sum(1 for row in rows if row.get('controls', {}).get(str(stage), {}).get('status') == 'done')
+        completed = bool(rows) and done == len(rows)
+        return dict(stage=stage, assigned=True, completed=completed, done=done, total=len(rows),
+                    available=not completed,
+                    label=(f'Tu Control {stage} finalizado' if completed
+                           else f'Tu Control {stage}: {done} de {len(rows)} pallets'))
+    if board_data.get('control2_complete'):
+        return dict(stage=0, assigned=False, completed=True, done=len(rows), total=len(rows),
+                    available=False, label='Camión totalmente controlado')
+    if first is None:
+        return dict(stage=1, assigned=False, completed=False, done=0, total=len(rows),
+                    available=True, label='Control 1 disponible')
+    if second is None and first.get('user_id') != user_id:
+        done = sum(1 for row in rows if row.get('controls', {}).get('1', {}).get('status') == 'done')
+        return dict(stage=2, assigned=False, completed=False, done=0, total=len(rows),
+                    available=True, label=f'Control 2 disponible · Control 1: {done} de {len(rows)} pallets')
+    return dict(stage=0, assigned=False, completed=False, done=0, total=len(rows),
+                available=False, label='Controles asignados a otros operadores')
+
+
 def _check_summary(check):
     return {key: check.get(key) for key in ('id', 'stage', 'user_id', 'username', 'status',
         'started_at', 'timer_started_at', 'finished_at') if check.get(key) is not None}

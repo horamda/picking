@@ -24,7 +24,7 @@ from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 from services.assistance import helpers, usable, personal_check, products_for, queue_for, can_access as assistance_access
 from services.pallet_control import (physical_pallets, pallet_state, edit_pallet_state, assembly_done,
-    effective_check, board as pallet_control_board, claim_assignment, picking_alerts)
+    effective_check, board as pallet_control_board, claim_assignment, picking_alerts, user_control_progress)
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
@@ -598,9 +598,12 @@ def trucks():
             allowed = work_courts(g.current_user, [t])
             st['shortages'] = [sh for sh in st['shortages'] if sh['court'] in allowed]
             st['pending_sources'] = []
+        control_progress = (user_control_progress(pallet_control_board(t), g.current_user.id)
+                            if g.current_user.role.name == 'controlador' and valid else None)
         result.append(dict(id=t.id, branch=t.branch, load_date=t.load_date, truck=t.truck,
             version=t.version, planning_status='approved' if valid else 'legacy' if legacy_in_progress(t) else 'pending', status=st, loads=loads,
             dispatch=t.state.get('dispatch'), queue_current=queued,
+            control_progress=control_progress,
             summary=truck_summary(t, dispatch_catalog(), work_courts(g.current_user, [t]) if preparation_worker() else None,
                                   4 if g.current_user.role.name == 'palletizador' else 0, valid=bool(valid), user_id=g.current_user.id if preparation_worker() else None)))
     return jsonify(result)
