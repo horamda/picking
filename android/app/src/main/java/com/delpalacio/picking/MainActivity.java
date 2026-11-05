@@ -821,7 +821,7 @@ public final class MainActivity extends Activity {
             String[] causes=stage()==2?new String[]{"Error de picking","Diferencia de stock","Error del Control 1"}:new String[]{"Error de picking","Diferencia de stock"};
             origin.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,causes));content.addView(origin);
             JSONObject assembly=pallet==null?null:pallet.optJSONObject("assembly");
-            text("Responsable automático: "+(assembly!=null&&!assembly.optString("username").isEmpty()?assembly.optString("username"):"se determinará en el servidor"),13);
+            text("Si es error de picking, responsable automático: "+(assembly!=null&&!assembly.optString("username").isEmpty()?assembly.optString("username"):"se determinará en el servidor")+". Las diferencias de stock no penalizan al operario.",13);
         }else text("Se conserva el responsable registrado por el primer controlador: "+previous.optJSONObject("incident").optString("responsible_username"),13);
         gap(8);text("Observación"+(result.equals("corrected")?" obligatoria":" opcional"),13);
         EditText note=input("Describí qué ocurrió…",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);note.setSingleLine(false);note.setMinLines(3);note.setGravity(Gravity.TOP);
