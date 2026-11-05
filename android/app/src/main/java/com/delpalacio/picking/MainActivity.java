@@ -235,15 +235,27 @@ public final class MainActivity extends Activity {
     }
     private void error(Exception error) {
         if(currentScreen.equals("shortage") && shortageFeedback!=null)shortageFeedback.setText(error.getMessage());
+        if(!pendingAnswer() && currentScreen.equals("product"))product();
         if(pendingAnswer()) new AlertDialog.Builder(this)
             .setTitle("Registro por verificar")
-            .setMessage("No repitas la respuesta. Primero consult? si qued? guardada en el servidor.")
-            .setNegativeButton("M?s tarde",null)
+            .setMessage("No repitas la respuesta. Primero consultá si quedó guardada en el servidor.\n\nMotivo: "+errorReason(error))
+            .setNegativeButton("Más tarde",null)
             .setPositiveButton("Verificar guardado",(d,w)->recoverAnswer(false)).show();
         boolean announce=voice;
         if(voice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
         message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
         if(announce && ttsReady)speak("No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente.");
+    }
+    private String errorReason(Exception error){
+        if(error instanceof java.net.SocketTimeoutException)return "El servidor tardó demasiado en responder.";
+        if(error instanceof java.net.UnknownHostException)return "No hay conexión a Internet o no se encuentra el servidor.";
+        if(error instanceof java.net.ConnectException)return "No se pudo conectar con el servidor.";
+        String value=error.getMessage();return value==null||value.trim().isEmpty()?"No se recibió una respuesta confirmable.":value;
+    }
+    private boolean definitiveFailure(Exception error){
+        if(!(error instanceof Api.HttpError))return false;
+        int status=((Api.HttpError)error).status;
+        return status>=400&&status<500&&status!=408&&status!=429;
     }
     private JSONObject json(String method, String path, JSONObject body) throws Exception { return new JSONObject(api.request(method,path,body)); }
     private static JSONObject obj(Object... pairs) {
@@ -272,6 +284,7 @@ public final class MainActivity extends Activity {
         return result;
     }
     private boolean pendingAnswer(){return !demo && api!=null && user!=null && getPreferences(0).contains(pendingKey());}
+    private void clearPendingAnswer(){if(api!=null&&user!=null)getPreferences(0).edit().remove(pendingKey()).commit();}
     private void recoverAnswer(boolean retry){
         if(!pendingAnswer())return;
         try {
@@ -282,8 +295,14 @@ public final class MainActivity extends Activity {
                 if(!receipt.optBoolean("found") && retry)return obj("found",true,"check",json("POST",endpoint+"/answer",payload));
                 return receipt;
             },receipt->{
-                if(!receipt.optBoolean("found")){message("El servidor no registra esta operación. Podés reintentar el mismo registro sin duplicarlo.");return;}
-                getPreferences(0).edit().remove(pendingKey()).commit();
+                if(!receipt.optBoolean("found")){
+                    String reason=pending.optString("last_error","La conexión se interrumpió antes de recibir la confirmación.");
+                    new AlertDialog.Builder(this).setTitle("Confirmado: no se guardó")
+                        .setMessage("El servidor no tiene este registro.\n\nMotivo original: "+reason+"\n\nPodés reenviar exactamente la misma respuesta o descartarla para corregir los datos.")
+                        .setNegativeButton("Descartar y corregir",(d,w)->{clearPendingAnswer();product();message("Registro descartado. Revisá los datos y volvé a enviarlo.");})
+                        .setPositiveButton("Reintentar ahora",(d,w)->recoverAnswer(true)).show();return;
+                }
+                clearPendingAnswer();
                 if(receipt.optBoolean("superseded")){listLoads();message("El registro existió pero fue reemplazado. Revisá la tarea antes de continuar.");return;}
                 if(currentScreen.equals("product") || currentScreen.equals("shortage")){
                     if(path().equals(endpoint) && products.optJSONObject(index).optString("sku").equals(payload.optString("sku"))){check=receipt.getJSONObject("check");afterAnswer();message("Guardado confirmado por el servidor.");return;}
@@ -295,7 +314,7 @@ public final class MainActivity extends Activity {
     private void pendingControls(){
         if(!pendingAnswer())return;
         text("Registro por verificar",18);
-        text("No repitas la carga. Primero comprobá si el servidor la guardó.",14);
+        text("No repitas la carga. Primero comprobá si el servidor la guardó. Mientras tanto no se puede finalizar el control.",14);
         button("Verificar guardado",()->recoverAnswer(false));
         button("Reintentar mismo registro",()->new AlertDialog.Builder(this).setTitle("Reintentar registro")
             .setMessage("Primero se consultará el comprobante. Solo si no existe se enviará el mismo registro.")
@@ -342,7 +361,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.20.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.20.1 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -567,7 +586,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.20.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.20.1",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -744,11 +763,11 @@ public final class MainActivity extends Activity {
         pendingControls();
         boolean paused=check.isNull("timer_started_at");
         if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar "+stageLabel(), () -> startCourt(court,stage())); }
-        else {
+        else if(!pendingAnswer()) {
             styledButton("Correcto →",GREEN,Color.WHITE,GREEN, () -> answer(obj("result","ok")));
             if(isController())styledButton("Error corregido",0xfffffbeb,0xff92400e,0xfffcd34d,()->showIncident("corrected"));
             styledButton("Faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage);
-        }
+        }else message("Resolvé el registro pendiente para continuar con los productos.");
         LinearLayout navigation=row();content.addView(navigation);content=navigation;
         Button previous=styledButton("← Anterior",Color.WHITE,INK,BORDER,()->{if(index>0){index--;product();}});
         Button next=styledButton("Siguiente →",Color.WHITE,INK,BORDER,()->{if(index<products.length()-1){index++;product();}});
@@ -759,7 +778,8 @@ public final class MainActivity extends Activity {
         button("Pausar y volver a canchas",this::pauseAndLeave);
         text("Reparto "+load.optString("reparto")+(pallet==null?"":" · Pallet "+pallet.optString("id"))+" · "+user.optString("username"),12);
         LinearLayout footer=column();footer.setPadding(dp(16),dp(10),dp(16),dp(4));footer.setBackgroundColor(SURFACE);root.addView(footer);content=footer;
-        button(isController()?"Finalizar "+stageLabel():"Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle(isController()?"Finalizar "+stageLabel():"Finalizar picking")
+        if(pendingAnswer())text("Finalización bloqueada · verificá el registro pendiente",16);
+        else button(isController()?"Finalizar "+stageLabel():"Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle(isController()?"Finalizar "+stageLabel():"Finalizar picking")
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
             .setNegativeButton("Seguir",(d,w)->product()).setOnCancelListener(d->product()).setPositiveButton("Finalizar",(d,w)->finishPicking()).show(); });
         content=body;
@@ -779,9 +799,13 @@ public final class MainActivity extends Activity {
         message("Enviando registro…");
         task(() -> {
             try { return json("POST",endpoint+"/answer",data); }
-            catch(Api.HttpError e) {
-                if(e.status==400 || e.status==403 || e.status==422)
-                    getPreferences(0).edit().remove(pendingKey()).commit();
+            catch(Exception e) {
+                if(definitiveFailure(e))clearPendingAnswer();
+                else try{
+                    JSONObject stored=new JSONObject(getPreferences(0).getString(pendingKey(),"{}"));
+                    stored.put("last_error",errorReason(e));
+                    getPreferences(0).edit().putString(pendingKey(),stored.toString()).commit();
+                }catch(Exception ignored){ }
                 throw e;
             }
         }, result -> {
