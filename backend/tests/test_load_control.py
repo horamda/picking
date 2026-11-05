@@ -389,6 +389,38 @@ class ControlFlowTest(unittest.TestCase):
         self.assertTrue(any(product['sku'] == pallet['items'][0]['sku'] for product in owner_products))
         self.assertFalse(any(product['sku'] == pallet['items'][0]['sku'] for product in source_products))
 
+    def test_crossed_pallet_controls_unlock_individually(self):
+        board = self.call('get', f'/trucks/{self.truck_id}/control-pallets', 'ana')
+        pallet = board['pallets'][0]
+        start = f'/loads/{pallet["load_id"]}/pallets/{pallet["id"]}/start'
+        self.call('post', start + '/1', 'ana', expected=409)
+        picking = self.start(0, 'picker')
+        self.call('post', picking + '/finish', 'picker')
+        first = self.call('post', start + '/1', 'ana')
+        first_path = f'/loads/{pallet["load_id"]}/pallets/{pallet["id"]}/checks/1/{first["id"]}'
+        request_id = '12345678-1234-1234-1234-123456789abc'
+        for index, product in enumerate(first['products']):
+            payload = {'sku': product['sku'], 'result': 'ok'}
+            if index == 0:
+                payload['request_id'] = request_id
+                self.call('post', first_path + '/answer', 'ana', data=payload)
+                self.call('post', first_path + '/answer', 'ana', data=payload)
+                receipt = self.call('get', first_path + f'/receipts/{request_id}', 'ana')
+                self.assertTrue(receipt['found'])
+            else:
+                self.call('post', first_path + '/answer', 'ana', data=payload)
+        self.call('post', first_path + '/finish', 'ana')
+        self.call('post', start + '/2', 'ana', expected=403)
+        second = self.call('post', start + '/2', 'ben')
+        second_path = f'/loads/{pallet["load_id"]}/pallets/{pallet["id"]}/checks/2/{second["id"]}'
+        for product in second['products']:
+            self.call('post', second_path + '/answer', 'ben', data={'sku': product['sku'], 'result': 'ok'})
+        self.call('post', second_path + '/finish', 'ben')
+        final = self.call('get', f'/trucks/{self.truck_id}/control-pallets', 'ana')
+        self.assertEqual(final['assignments']['1']['username'], 'ana')
+        self.assertEqual(final['assignments']['2']['username'], 'ben')
+        self.assertEqual(final['pallets'][0]['controls']['2']['status'], 'done')
+
 
     def call(self, method, path, user='admin', expected=200, data=None):
         kwargs = {'headers':{'Authorization':'Bearer '+self.tokens[user]}}

@@ -23,6 +23,8 @@ from services.pdf_articles import enable_pdf_articles
 from utils.db import db
 from services.users import create_user as register_user, UserCreationError
 from services.assistance import helpers, usable, personal_check, products_for, queue_for, can_access as assistance_access
+from services.pallet_control import (physical_pallets, pallet_state, edit_pallet_state, assembly_done,
+    effective_check, board as pallet_control_board, claim_assignment)
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
@@ -459,6 +461,14 @@ def get_load(load_id):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         get_truck(load.truck_id)
     return load
+
+
+def get_physical_pallet(load, pallet_id):
+    pallet = next((item for item in physical_pallets(load.truck)
+                   if item['load_id'] == load.id and item['id'] == pallet_id), None)
+    if not pallet:
+        fail('Pallet fÃ­sico no encontrado.', 404)
+    return pallet
 
 
 def ensure_open(truck):
@@ -1010,8 +1020,18 @@ def performance():
         for load in truck.loads:
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
-                entries.extend(dict(c, load_id=load.id, court=court['numero']) for c in cs['checks'].values())
+                entries.extend(dict(c, load_id=load.id, court=court['numero']) for c in cs['checks'].values()
+                               if not truck.state.get('pallet_control_keys') or c.get('stage') not in (1, 2))
                 entries.extend(dict(c, load_id=load.id, court=court['numero'], assistance=True) for c in helpers(cs))
+        for pallet_key, pallet in truck.state.get('pallet_controls', {}).items():
+            try:
+                pallet_load_id, pallet_id = pallet_key.split(':', 1)
+                pallet_load_id = int(pallet_load_id)
+            except (TypeError, ValueError):
+                continue
+            entries.extend(dict(check, load_id=pallet_load_id, court=pallet.get('owner_court'),
+                                pallet_id=pallet_id, pallet_control=True)
+                           for check in pallet.get('checks', {}).values())
         for check in entries:
             entry = dict(truck=truck.truck, date=truck.load_date, branch=truck.branch,
                          **{k: v for k, v in check.items() if k != 'answers'}, answered=len(check.get('answers', {})), elapsed_seconds=elapsed(check), timing=timing(check))
@@ -1280,6 +1300,8 @@ def warehouse_monitor():
                         elapsed_seconds=elapsed(h), timing=timing(h), shortages=sum(a['result']=='shortage' for a in h['answers'].values()),
                         planning='approved' if plan else 'pending'))
                 for stage in (0, 4, 1, 2):
+                    if truck.state.get('pallet_control_keys'):
+                        continue
                     products = task_products(load, court, stage) if stage in (0, 4) else control_products(load, court)
                     if not products:
                         continue
@@ -1319,6 +1341,38 @@ def warehouse_monitor():
                         assembly_destinations=assembly_destinations(load, court['numero']),
                         available=available, blocked_reason=blocked_reason,
                         planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending'))
+        if truck.state.get('pallet_control_keys'):
+            assignments = truck.state.get('pallet_control_assignments', {})
+            for pallet in physical_pallets(truck):
+                products = voice_products(pallet['items'])
+                bultos, unidades, bultos_equiv = process_amounts(products)
+                assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
+                for display_stage, check in ((0, assembly), (1, effective_check(truck, pallet, 1)),
+                                             (2, effective_check(truck, pallet, 2))):
+                    answers = check.get('answers', {})
+                    if display_stage == 0:
+                        available, blocked_reason = True, None
+                    elif display_stage == 1:
+                        available = assembly_done(truck, pallet)
+                        blocked_reason = None if available else 'Espera armado del pallet'
+                    else:
+                        available = effective_check(truck, pallet, 1).get('status') == 'done'
+                        blocked_reason = None if available else 'Espera Control 1 de este pallet'
+                    assigned = assignments.get(str(display_stage), {}) if display_stage in (1, 2) else {}
+                    candidates = ([assigned.get('username')] if assigned.get('username') else
+                        responsible_candidates(display_stage, pallet['owner_court'],
+                            assignments.get('1', {}).get('user_id') if display_stage == 2 else None))
+                    rows.append(dict(id=f'{pallet["key"]}:{display_stage}', load_id=pallet['load_id'],
+                        pallet_id=pallet['id'], truck=truck.truck, reparto=pallet['reparto'], branch=truck.branch,
+                        court=pallet['owner_court'], stage=display_stage, user_id=check.get('user_id'),
+                        username=check.get('username'),
+                        status='pending' if not check else 'done' if check.get('status') == 'done' else 'running' if check.get('timer_started_at') else 'paused',
+                        answered=sum(str(product['sku']) in answers for product in products), total=len(products),
+                        elapsed_seconds=elapsed(check), timing=timing(check),
+                        shortages=sum(answer.get('result') == 'shortage' for answer in answers.values()),
+                        bultos=bultos, unidades=unidades, bultos_equiv=bultos_equiv,
+                        responsible_candidates=[name for name in candidates if name], available=available,
+                        blocked_reason=blocked_reason, planning='approved'))
     from datetime import datetime, timedelta
     # The warehouse day is Argentina (UTC-3); stored audit timestamps are UTC.
     day_start = datetime.strptime(date, '%Y-%m-%d') + timedelta(hours=3)
@@ -1329,6 +1383,219 @@ def warehouse_monitor():
         events=[dict(id=event.id, action=event.action, username=username, at=event.timestamp.isoformat()+'Z') for event, username in latest],
         operators=[dict(id=u.id, username=u.username, role=u.role.name, courts=worker_courts[u.id])
             for u in active_workers])
+
+
+@load_control_bp.get('/trucks/<int:truck_id>/control-pallets')
+@roles_required('administrador', 'supervisor', 'controlador')
+def control_pallets(truck_id):
+    truck = get_truck(truck_id)
+    if not approved(truck) and not legacy_in_progress(truck):
+        fail('La carga espera aprobaciÃ³n del supervisor.', 409)
+    result = pallet_control_board(truck)
+    result.update(truck_id=truck.id, truck=truck.truck, date=truck.load_date, branch=truck.branch,
+                  status=status(truck))
+    return jsonify(result)
+
+
+def pallet_control_context(load_id, pallet_id, stage, check_id=None):
+    if stage not in (1, 2):
+        fail('Etapa de control invÃ¡lida.')
+    load = get_load(load_id)
+    ensure_open(load.truck)
+    pallet = get_physical_pallet(load, pallet_id)
+    state = deepcopy(load.truck.state)
+    ps = edit_pallet_state(state, pallet['key'])
+    check = ps['checks'].get(str(stage))
+    if check_id and (not check or check.get('id') != check_id):
+        fail('El control del pallet cambiÃ³. VolvÃ© al camiÃ³n.', 409)
+    if check_id and check.get('user_id') != g.current_user.id:
+        fail('Este pallet estÃ¡ reservado por otro controlador.', 403)
+    return load, pallet, state, ps, check
+
+
+@load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/start/<int:stage>')
+@roles_required('controlador')
+def start_pallet_control(load_id, pallet_id, stage):
+    load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage)
+    if not assembly_done(load.truck, pallet):
+        fail('Este pallet todavÃ­a estÃ¡ en armado.', 409)
+    first = effective_check(load.truck, pallet, 1)
+    if stage == 2 and first.get('status') != 'done':
+        fail('Primero debe finalizar el Control 1 de este pallet.', 409)
+    assignments = state.setdefault('pallet_control_assignments', {})
+    all_pallets = physical_pallets(load.truck)
+    # Import completed court controls before activating pallet controls. This keeps
+    # already audited work and prevents another controller from claiming the truck.
+    for physical in all_pallets:
+        physical_state = edit_pallet_state(state, physical['key'])
+        physical_state.setdefault('owner_court', physical['owner_court'])
+        for number in (1, 2):
+            legacy = effective_check(load.truck, physical, number)
+            if legacy.get('status') != 'done':
+                continue
+            existing_owner = assignments.get(str(number))
+            if existing_owner and existing_owner.get('user_id') != legacy.get('user_id'):
+                fail(f'Hay controles anteriores de distintas personas en Control {number}. El supervisor debe revisarlos.', 409)
+            if legacy.get('user_id'):
+                assignments[str(number)] = {'user_id': legacy['user_id'], 'username': legacy.get('username')}
+            physical_state['checks'].setdefault(str(number), deepcopy(legacy))
+    ps = edit_pallet_state(state, pallet['key'])
+    check = ps['checks'].get(str(stage))
+    try:
+        claim_assignment(state, stage, g.current_user)
+    except PermissionError as exc:
+        fail(str(exc), 403)
+    except ValueError as exc:
+        fail(str(exc), 409)
+    if check and check.get('status') == 'done':
+        fail('Este pallet ya fue controlado.', 409)
+    if not check:
+        check = dict(id=uuid4().hex, stage=stage, user_id=g.current_user.id,
+            username=g.current_user.username, status='active', started_at=now(),
+            timer_started_at=now(), active_seconds=0, answers={})
+        ps['checks'][str(stage)] = check
+        reserve_timer(check)
+    elif check.get('user_id') != g.current_user.id:
+        fail('Este pallet estÃ¡ reservado por otro controlador.', 409)
+    elif not check.get('timer_started_at'):
+        reserve_timer(check)
+        check['timer_started_at'] = now()
+    state['pallet_control_keys'] = [item['key'] for item in all_pallets]
+    save_state(load.truck, state, g.current_user, 'iniciar_control_pallet',
+               dict(load_id=load.id, pallet_id=pallet_id, stage=stage))
+    return jsonify(dict(check, products=voice_products(pallet['items']),
+                        pallet=dict(pallet, shortages=list(ps['shortages'].values()))))
+
+
+@load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/pause')
+@roles_required('controlador')
+def pause_pallet_control(load_id, pallet_id, stage, check_id):
+    load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
+    if check.get('status') != 'active':
+        fail('Control finalizado.', 409)
+    release_timer(check)
+    save_state(load.truck, state, g.current_user, 'pausar_control_pallet',
+               dict(load_id=load.id, pallet_id=pallet_id, stage=stage))
+    return jsonify(check)
+
+
+@load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/answer')
+@roles_required('controlador')
+def answer_pallet_control(load_id, pallet_id, stage, check_id):
+    data = body()
+    load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
+    if check.get('status') != 'active' or not check.get('timer_started_at'):
+        fail('ReanudÃ¡ el control antes de registrar productos.', 409)
+    request_id = data.get('request_id')
+    digest = hashlib.sha256(json.dumps({k: v for k, v in data.items() if k != 'request_id'}, sort_keys=True).encode()).hexdigest()
+    if request_id is not None:
+        if not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9-]{36}', request_id):
+            fail('Identificador de registro inválido.')
+        receipt = check.get('receipts', {}).get(request_id)
+        if receipt:
+            if receipt['digest'] != digest:
+                fail('Ese identificador ya corresponde a otra respuesta.', 409)
+            return jsonify(check)
+        if len(check.get('receipts', {})) >= 20000:
+            fail('Límite de registros alcanzado. Consultá al supervisor.', 409)
+    sku = str(data.get('sku', ''))
+    product = next((item for item in pallet['items'] if str(item['sku']) == sku), None)
+    if not product:
+        fail('Producto inexistente en este pallet.', 404)
+    result = data.get('result')
+    if result not in ('ok', 'corrected', 'shortage'):
+        fail('Resultado invÃ¡lido.')
+    note = str(data.get('note') or '').strip()[:2000]
+    previous_shortage = ps['shortages'].get(sku)
+    confirmation = stage == 2 and previous_shortage is not None and result == 'shortage'
+    incident = previous_shortage.get('incident') if confirmation else None
+    if stage == 2 and previous_shortage and result != 'shortage':
+        fail('Este producto tiene un faltante del Control 1. Confirmalo con las mismas cantidades.', 409)
+    if result in ('corrected', 'shortage') and not confirmation:
+        responsible = db.session.get(User, data.get('responsible_user_id')) if type(data.get('responsible_user_id')) is int else None
+        origin = data.get('origin')
+        if not responsible or not responsible.active or origin not in ('picking', 'control'):
+            fail('IndicÃ¡ el responsable del error y el proceso correspondiente.')
+        incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
+            origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
+    if result == 'shortage':
+        bultos, unidades = data.get('physical_b'), data.get('physical_u')
+        if type(bultos) is not int or type(unidades) is not int or min(bultos, unidades) < 0:
+            fail('IngresÃ¡ cantidades fÃ­sicas enteras y no negativas.')
+        if bultos > product['bultos'] or unidades > product['unidades'] or (bultos, unidades) == (product['bultos'], product['unidades']):
+            fail('El faltante debe ser menor a la cantidad planificada.')
+        if stage == 2 and previous_shortage and (bultos, unidades) != (previous_shortage['actual_b'], previous_shortage['actual_u']):
+            fail('La cantidad difiere del Control 1. Un supervisor debe revisar el pallet.', 409)
+        ps['shortages'][sku] = dict(sku=sku, descripcion=product['descripcion'], expected_b=product['bultos'],
+            expected_u=product['unidades'], actual_b=bultos, actual_u=unidades, reported_by=g.current_user.id,
+            note=note or (previous_shortage or {}).get('note', ''), created_at=now(),
+            incident=incident or (previous_shortage or {}).get('incident'))
+    else:
+        bultos, unidades = product['bultos'], product['unidades']
+        if result == 'corrected' and not note:
+            fail('DescribÃ­ la diferencia corregida.')
+        ps['shortages'].pop(sku, None)
+    check['answers'][sku] = dict(sku=sku, result=result, physical_b=bultos, physical_u=unidades,
+        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
+    if request_id:
+        check['answers'][sku]['request_id'] = request_id
+        check.setdefault('receipts', {})[request_id] = dict(
+            digest=digest, sku=sku, saved_at=check['answers'][sku]['saved_at'])
+    save_state(load.truck, state, g.current_user, 'respuesta_control_pallet',
+        dict(load_id=load.id, pallet_id=pallet_id, stage=stage, **check['answers'][sku]))
+    return jsonify(check)
+
+
+@load_control_bp.get('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/receipts/<request_id>')
+@roles_required('controlador')
+def pallet_answer_receipt(load_id, pallet_id, stage, check_id, request_id):
+    load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
+    receipt = check.get('receipts', {}).get(request_id)
+    if not receipt:
+        return jsonify(found=False)
+    answer = check.get('answers', {}).get(receipt['sku'], {})
+    return jsonify(found=True, saved_at=receipt['saved_at'],
+                   superseded=answer.get('request_id') != request_id, check=check)
+
+
+@load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/finish')
+@roles_required('controlador')
+def finish_pallet_control(load_id, pallet_id, stage, check_id):
+    load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
+    if any(str(product['sku']) not in check.get('answers', {}) for product in pallet['items']):
+        fail('Hay productos pendientes de controlar.', 409)
+    release_timer(check)
+    check.update(status='done', finished_at=now())
+    save_state(load.truck, state, g.current_user, 'finalizar_control_pallet',
+               dict(load_id=load.id, pallet_id=pallet_id, stage=stage))
+    return jsonify(check)
+
+
+@load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/shortages/<sku>/<action>')
+@roles_required(*MANAGERS)
+def pallet_shortage_action(load_id, pallet_id, sku, action):
+    load = get_load(load_id)
+    pallet = get_physical_pallet(load, pallet_id)
+    state = deepcopy(load.truck.state)
+    ps = edit_pallet_state(state, pallet['key'])
+    shortage = ps['shortages'].get(sku)
+    if not shortage:
+        fail('Faltante no encontrado.', 404)
+    if action == 'approve':
+        if not all(ps['checks'].get(str(number), {}).get('status') == 'done' for number in (1, 2)):
+            fail('Completá ambos controles del pallet antes de autorizar el faltante.', 409)
+        if not shortage.get('approved_by'):
+            shortage.update(approved_by=g.current_user.id, approved_at=now())
+    elif action == 'adjusted':
+        if not shortage.get('approved_by'):
+            fail('Primero debe autorizarse el faltante.', 409)
+        if not shortage.get('adjusted_by'):
+            shortage.update(adjusted_by=g.current_user.id, adjusted_at=now())
+    else:
+        fail('Acción inválida.', 404)
+    save_state(load.truck, state, g.current_user, 'faltante_pallet_' + action,
+               dict(load_id=load.id, pallet_id=pallet_id, sku=sku))
+    return jsonify(ok=True)
 
 
 @load_control_bp.post('/trucks/<int:truck_id>/planning/start')

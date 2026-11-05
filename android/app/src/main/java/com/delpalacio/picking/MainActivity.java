@@ -59,7 +59,7 @@ public final class MainActivity extends Activity {
     }
     private final Runnable clockTick=new Runnable(){public void run(){updateClock();handler.postDelayed(this,1000);}};
     private Api api;
-    private JSONObject user, load, court, check, activeTruck;
+    private JSONObject user, load, court, check, activeTruck, controlTruck, pallet;
     private JSONObject voiceTemplates = new JSONObject();
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
@@ -255,7 +255,10 @@ public final class MainActivity extends Activity {
     private int stage() { return isController()?currentStage:!demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
     private String stageLabel(){return stage()==4?"Pallets":stage()==2?"Control 2":stage()==1?"Control 1":"Picking";}
     private String roleLabel(){return isController()?"Control de cargas":stage()==4?"Pallets completos":"Picking";}
-    private String path() { return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id"); }
+    private String path() {
+        if(isController() && pallet!=null)return "/load-control/loads/"+load.optInt("id")+"/pallets/"+pallet.optString("id")+"/checks/"+stage()+"/"+check.optString("id");
+        return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id");
+    }
     private String pendingKey(){return "pending_answer:"+api.base+":"+user.optInt("id");}
     private String voiceTemplatesKey(String base){return "voice_templates:"+base;}
     private void loadVoiceTemplates(String base){
@@ -339,7 +342,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.18.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.19.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -503,6 +506,12 @@ public final class MainActivity extends Activity {
                 text(truck.optString("load_date")+" · "+loads.length()+" cargas",15);
                 JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
                 if(mine!=null && !summary.isNull("pallets"))text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
+                if(isController()){
+                    text("ElegÃ­ este camiÃ³n para ver sus pallets y el avance de ambos controles.",14);
+                    styledButton("Ver pallets del camiÃ³n â†’",GREEN,Color.WHITE,GREEN,()->openControlTruck(truck));
+                    content=body;
+                    continue;
+                }
                 JSONObject nextLoad=null,nextCourt=null;int best=99;
                 for(int l=0;l<loads.length();l++){
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
@@ -558,11 +567,72 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.18.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.19.0",12);content=body;
         });
     }
     private void openLoad(int id) {
         openLoad(id,0);
+    }
+    private void openControlTruck(JSONObject truck){
+        controlTruck=truck;pallet=null;check=null;
+        task(()->json("GET","/load-control/trucks/"+truck.optInt("id")+"/control-pallets",null),this::showControlPallets);
+    }
+    private String palletControlStatus(JSONObject control){
+        if(control==null || control.length()==0)return "Sin iniciar";
+        if(control.optString("status").equals("done"))return "Finalizado";
+        return control.isNull("timer_started_at")?"Pausado":"En curso";
+    }
+    private void showControlPallets(JSONObject board){
+        currentScreen="pallet_board";pallet=null;check=null;
+        screen("CamiÃ³n "+board.optString("truck"));button("Volver a camiones",this::listLoads);
+        JSONObject assignments=board.optJSONObject("assignments");if(assignments==null)assignments=new JSONObject();
+        JSONObject firstOwner=assignments.optJSONObject("1"),secondOwner=assignments.optJSONObject("2");
+        int userId=user.optInt("id"),myStage=0;
+        if(firstOwner!=null && firstOwner.optInt("user_id")==userId)myStage=1;
+        else if(secondOwner!=null && secondOwner.optInt("user_id")==userId)myStage=2;
+        else if(firstOwner==null)myStage=1;
+        else if(secondOwner==null && firstOwner.optInt("user_id")!=userId)myStage=2;
+        final int controlStage=myStage;
+        text("Control 1: "+(firstOwner==null?"sin asignar":firstOwner.optString("username")),16);
+        text("Control 2: "+(secondOwner==null?"sin asignar":secondOwner.optString("username")),16);
+        if(board.optBoolean("control2_complete"))text("CamiÃ³n finalizado en ambos controles",18);
+        else if(board.optBoolean("control1_complete"))text("Control 1 del camiÃ³n finalizado",18);
+        else text("Los pallets se habilitan individualmente al finalizar la etapa anterior.",14);
+        JSONObject truckStatus=board.optJSONObject("status");
+        if(truckStatus!=null && truckStatus.optBoolean("complete") && truckStatus.isNull("assets"))
+            styledButton("Registrar activos de salida",GREEN,Color.WHITE,GREEN,()->startAssets(controlTruck));
+        else if(truckStatus!=null && !truckStatus.isNull("assets"))text("Activos de salida registrados",14);
+        JSONArray pallets=board.optJSONArray("pallets");if(pallets==null)pallets=new JSONArray();
+        for(int i=0;i<pallets.length();i++){
+            JSONObject item=pallets.optJSONObject(i),controls=item.optJSONObject("controls");
+            JSONObject first=controls==null?null:controls.optJSONObject("1"),second=controls==null?null:controls.optJSONObject("2");
+            content=card(item.optBoolean("assembly_done")?BORDER:0xff64748b);
+            text("Pallet "+item.optString("id")+" Â· Reparto "+item.optString("reparto"),20);
+            text("Cancha responsable "+item.optInt("owner_court")+" Â· "+item.optJSONArray("items").length()+" productos",14);
+            text("Control 1: "+palletControlStatus(first)+(first!=null&&!first.optString("username").isEmpty()?" Â· "+first.optString("username"):""),14);
+            text("Control 2: "+palletControlStatus(second)+(second!=null&&!second.optString("username").isEmpty()?" Â· "+second.optString("username"):""),14);
+            if(!item.optBoolean("assembly_done"))text("TodavÃ­a en armado",14);
+            else if(controlStage==1 && item.optBoolean("control1_available"))styledButton("Controlar pallet â†’",GREEN,Color.WHITE,GREEN,()->startPallet(item,1));
+            else if(controlStage==2 && item.optBoolean("control2_available"))styledButton("Controlar pallet â†’",GREEN,Color.WHITE,GREEN,()->startPallet(item,2));
+            else if(controlStage==0)text("Este camiÃ³n ya estÃ¡ reservado por otros controladores.",13);
+            else text(controlStage==2?"Esperando Control 1":"Sin trabajo pendiente en este pallet",13);
+            content=body;
+        }
+        if(pallets.length()==0)message("Este camiÃ³n no tiene pallets fÃ­sicos en el plan aprobado.");
+    }
+    private void startPallet(JSONObject selected,int requestedStage){
+        currentStage=requestedStage;pallet=selected;
+        task(()->json("POST","/load-control/loads/"+selected.optInt("load_id")+"/pallets/"+selected.optString("id")+"/start/"+requestedStage,obj()),started->{
+            check=started;products=started.optJSONArray("products");if(products==null)products=new JSONArray();
+            load=obj("id",selected.optInt("load_id"),"reparto",selected.optString("reparto"));
+            JSONObject startedPallet=started.optJSONObject("pallet");
+            JSONArray shortages=startedPallet==null?new JSONArray():startedPallet.optJSONArray("shortages");
+            if(shortages==null)shortages=new JSONArray();
+            court=obj("numero",selected.optInt("owner_court"),"status",obj("shortages",shortages));
+            index=0;JSONObject answers=check.optJSONObject("answers");
+            while(index<products.length()-1 && answers!=null && answers.has(products.optJSONObject(index).optString("sku")))index++;
+            automaticallySpokenProducts.clear();product();
+        });
     }
     private void openLoad(int id,int selectedCourt) {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
@@ -650,7 +720,7 @@ public final class MainActivity extends Activity {
     private void product() {
         currentScreen = "product";
         if(products.length()==0) { message("La cancha no tiene productos."); return; }
-        JSONObject p=products.optJSONObject(index); screen(stageLabel() + " · Cancha " + court.optInt("numero"));
+        JSONObject p=products.optJSONObject(index); screen(stageLabel() + (isController()&&pallet!=null?" · Pallet "+pallet.optString("id"):" · Cancha " + court.optInt("numero")));
         if(p.optBoolean("separate_reparto"))text(ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),true),16);
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
@@ -687,7 +757,7 @@ public final class MainActivity extends Activity {
         content=body;gap(10);text("Siguiente permite revisar sin confirmar el producto.",12);
         if(!isController())button("Escuchar / repetir producto", () -> speak(prompt()));
         button("Pausar y volver a canchas",this::pauseAndLeave);
-        text("Reparto "+load.optString("reparto")+" · "+user.optString("username"),12);
+        text("Reparto "+load.optString("reparto")+(pallet==null?"":" · Pallet "+pallet.optString("id"))+" · "+user.optString("username"),12);
         LinearLayout footer=column();footer.setPadding(dp(16),dp(10),dp(16),dp(4));footer.setBackgroundColor(SURFACE);root.addView(footer);content=footer;
         button(isController()?"Finalizar "+stageLabel():"Finalizar picking", () -> { stopAudio(); new AlertDialog.Builder(this).setTitle(isController()?"Finalizar "+stageLabel():"Finalizar picking")
             .setMessage(check.optJSONObject("answers").length()+" de "+products.length()+" productos registrados. ¿Finalizar?")
@@ -819,13 +889,13 @@ public final class MainActivity extends Activity {
         voice=false;stopAudio();
         if(demo){login();return;}
         filter="Todos";
-        if(check.isNull("timer_started_at")){openLoad(load.optInt("id"));return;}
-        task(() -> json("POST",path()+"/pause",obj()), result -> { check=result; openLoad(load.optInt("id")); });
+        if(check.isNull("timer_started_at")){if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id"));return;}
+        task(() -> json("POST",path()+"/pause",obj()), result -> { check=result;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id")); });
     }
     private void finishPicking() {
         voice=false;stopAudio();
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
-        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;listLoads();});
+        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else listLoads();});
     }
     private void startAssets(JSONObject truck){
         task(()->obj("types",new JSONArray(api.request("GET","/load-control/asset-types",null)),
@@ -942,6 +1012,7 @@ public final class MainActivity extends Activity {
         if(currentScreen.equals("shortage")){stopAudio();product();return;}
         if(currentScreen.equals("product")){pauseAndLeave();return;}
         if(currentScreen.equals("assets")){activeTruck=null;listLoads();return;}
+        if(currentScreen.equals("pallet_board")){controlTruck=null;pallet=null;listLoads();return;}
         if(currentScreen.equals("courts")){listLoads();return;}
         new AlertDialog.Builder(this).setTitle("Salir de la app")
             .setMessage("¿Querés salir de Del Palacio Picking?")

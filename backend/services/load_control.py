@@ -105,12 +105,28 @@ def selected_loads(truck):
 def status(truck, state=None):
     state = truck.state if state is None else state
     loads = selected_loads(truck)
-    complete = bool(loads) and all(
-        court_done(court_state(state, load.id, c['numero']))
-        for load in loads for c in load.content['canchas'])
+    pallet_keys = state.get('pallet_control_keys')
+    if pallet_keys:
+        complete = all(all(state.get('pallet_controls', {}).get(key, {}).get('checks', {}).get(str(stage), {}).get('status') == 'done'
+                           for stage in (1, 2)) for key in pallet_keys)
+    else:
+        complete = bool(loads) and all(
+            court_done(court_state(state, load.id, c['numero']))
+            for load in loads for c in load.content['canchas'])
     shortages = [dict(sh, load_id=load.id, reparto=load.reparto, court=c['numero'])
                  for load in loads for c in load.content['canchas']
                  for sh in court_state(state, load.id, c['numero'])['shortages'].values()]
+    load_by_id = {load.id: load for load in loads}
+    for key, pallet in state.get('pallet_controls', {}).items():
+        try:
+            pallet_load_id, pallet_id = key.split(':', 1)
+            pallet_load = load_by_id.get(int(pallet_load_id))
+        except (TypeError, ValueError):
+            pallet_load, pallet_id = None, key
+        shortages.extend(dict(sh, pallet_key=key, pallet_id=pallet_id,
+            load_id=pallet_load.id if pallet_load else None,
+            reparto=pallet_load.reparto if pallet_load else None,
+            court=pallet.get('owner_court')) for sh in pallet.get('shortages', {}).values())
     pending = []  # Unselected sources are explicitly outside a configured departure.
     if truck.state.get('dispatch') is None:
         start_date = datetime.fromisoformat(truck.load_date)
@@ -132,7 +148,8 @@ def audit(user, action, truck, details):
 
 
 def save_state(truck, state, user, action, details):
-    may_release = action in ('finalizar_control', 'faltante_approve', 'registrar_activos')
+    may_release = action in ('finalizar_control', 'finalizar_control_pallet', 'faltante_approve',
+                             'faltante_pallet_approve', 'registrar_activos')
     if may_release and not state.get('released_at') and status(truck, state)['allowed']:
         state['released_at'] = now()
         audit(user, 'liberacion_en_aplicacion', truck, {})
