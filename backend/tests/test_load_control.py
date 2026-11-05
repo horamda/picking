@@ -373,6 +373,22 @@ class ControlFlowTest(unittest.TestCase):
         self.call('get', '/monitor?date=2026-10-15', 'picker', expected=403)
         self.call('get', '/monitor?date=2026-10-15', 'ana', expected=403)
 
+    def test_controls_follow_final_pallet_owner_instead_of_source_court(self):
+        from copy import deepcopy
+        from routes.load_control import control_products
+        from services.load_control import ControlLoad
+        load = db.session.get(ControlLoad, self.load_id)
+        state = deepcopy(load.truck.state)
+        pallet = state['planning']['mixed_pallets'][0]
+        pallet['owner_court'] = 1
+        pallet['items'][0]['court'] = 2
+        load.truck.state = state
+        db.session.flush()
+        owner_products = control_products(load, {'numero': 1, 'productos': []})
+        source_products = control_products(load, {'numero': 2, 'productos': []})
+        self.assertTrue(any(product['sku'] == pallet['items'][0]['sku'] for product in owner_products))
+        self.assertFalse(any(product['sku'] == pallet['items'][0]['sku'] for product in source_products))
+
 
     def call(self, method, path, user='admin', expected=200, data=None):
         kwargs = {'headers':{'Authorization':'Bearer '+self.tokens[user]}}
@@ -620,6 +636,10 @@ class ControlFlowTest(unittest.TestCase):
         self.call('post', f'/loads/{self.load_id}/courts/1/start/1', 'ben', expected=409)
         self.call('post', picking+'/finish', 'picker')
         self.complete(1, 'ana', shortage=True)
+        monitor = self.call('get', '/monitor?date=2026-10-15', 'super')
+        second_stage = next(process for process in monitor['processes']
+                            if process['load_id'] == self.load_id and process['court'] == 1 and process['stage'] == 2)
+        self.assertEqual(second_stage['responsible_candidates'], ['ben'])
         self.call('post', f'/loads/{self.load_id}/courts/1/start/2', 'ana', expected=403)
         second = self.start(2, 'ben')
         self.answer(second, '1001', 'ben', expected=409)

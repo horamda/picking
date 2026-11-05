@@ -354,6 +354,35 @@ def task_products(load, court, stage):
     return result
 
 
+def control_products(load, court):
+    """Controls follow the approved physical destination, not the PDF source court."""
+    plan = load.truck.state.get('planning')
+    if not plan:
+        return deepcopy(court['productos'])
+    parts = []
+    for pallet in plan.get('mixed_pallets', []):
+        if pallet.get('load_id') != load.id:
+            continue
+        for item in pallet.get('items', []):
+            destination = item.get('assigned_court', pallet.get('owner_court', item.get('court')))
+            if destination == court['numero']:
+                parts.append(dict(item, pallet_id=pallet.get('id')))
+    for pallet in plan.get('full_pallets', []):
+        if pallet.get('load_id') == load.id and pallet.get('court') == court['numero']:
+            parts.append(dict(pallet, unidades=0, pallet_id=pallet.get('id')))
+    grouped = {}
+    for item in parts:
+        sku = item['sku']
+        product = grouped.setdefault(sku, dict(item, bultos=0, unidades=0, pallet_ids=[], source_courts=[]))
+        product['bultos'] += item.get('bultos', 0)
+        product['unidades'] += item.get('unidades', 0)
+        if item.get('pallet_id') and item['pallet_id'] not in product['pallet_ids']:
+            product['pallet_ids'].append(item['pallet_id'])
+        if item.get('court') not in product['source_courts']:
+            product['source_courts'].append(item.get('court'))
+    return list(grouped.values())
+
+
 def load_picking_complete(load):
     """Full pallets become work only after every picking assignment in this reparto is closed."""
     for court in load.content['canchas']:
@@ -467,6 +496,8 @@ def serialize_load(load, summary=False):
             court['full_pallets_info'] = pallet_info
         if not manager() and g.current_user.role.name in ('operador', 'palletizador'):
             court['productos'] = products_for(load, court, worker_stage, g.current_user.id, task_products(load, court, worker_stage))
+        elif not manager() and g.current_user.role.name == 'controlador':
+            court['productos'] = control_products(load, court)
         cs = court_state(load.truck.state, load.id, court['numero'])
         worker_check = personal_check(cs, worker_stage, g.current_user.id)
         court['assistance'] = bool(worker_check and worker_check.get('day'))
@@ -486,7 +517,7 @@ def serialize_load(load, summary=False):
             court['cantidad'] = len(court.pop('productos'))
         else:
             court['productos'] = voice_products(court['productos'])
-    if g.current_user.role.name in ('operador', 'palletizador'):
+    if g.current_user.role.name in ('operador', 'palletizador', 'controlador'):
         result['canchas'] = [c for c in result['canchas'] if c.get('cantidad', len(c.get('productos', []))) > 0
                             or (g.current_user.role.name == 'operador' and c['full_pallet_count'] > 0)]
     return result
@@ -642,6 +673,8 @@ def start(load_id, number, stage):
         fail('Primero debe finalizar el picking de todas las canchas de este reparto.', 409)
     if stage in (0, 4) and not task_products(load, court, stage):
         fail('No hay productos para este proceso.', 409)
+    if stage in (1, 2) and not control_products(load, court):
+        fail('Esta cancha no tiene productos en el armado final.', 409)
     state = deepcopy(load.truck.state)
     cs = edit_court(state, load.id, number)
     if stage in (0, 4) and any(str(n) in cs['checks'] for n in (1, 2)):
@@ -695,6 +728,8 @@ def access(load_id, number, stage, check_id):
         fail('La planificacion necesita revision del supervisor.', 409)
     if stage in (0, 4):
         court['productos'] = products_for(load, court, stage, g.current_user.id, task_products(load, court, stage))
+    elif stage in (1, 2):
+        court['productos'] = control_products(load, court)
     state = deepcopy(load.truck.state)
     cs = edit_court(state, load.id, number)
     check = personal_check(cs, stage, g.current_user.id, check_id)
@@ -1201,10 +1236,25 @@ def warehouse_monitor():
             equivalent += amount
         return bultos, unidades, round(equivalent, 2) if complete else None
 
-    def responsible_candidates(stage, court_number):
+    def responsible_candidates(stage, court_number, excluded_user_id=None):
         role = 'operador' if stage == 0 else 'palletizador' if stage == 4 else 'controlador'
         return [user.username for user in active_workers if user.role.name == role
+                and user.id != excluded_user_id
                 and (role == 'palletizador' or court_number in worker_courts[user.id])]
+
+    def assembly_destinations(load, court_number):
+        plan = load.truck.state.get('planning') or {}
+        result = []
+        for pallet in plan.get('mixed_pallets', []):
+            if pallet.get('load_id') != load.id:
+                continue
+            if not any(item.get('court') == court_number for item in pallet.get('items', [])):
+                continue
+            destination = dict(pallet_id=pallet.get('id'),
+                               owner_court=pallet.get('owner_court', pallet.get('court')))
+            if destination not in result:
+                result.append(destination)
+        return result
 
     trucks = ControlTruck.query.filter_by(load_date=date).options(selectinload(ControlTruck.loads)).all()
     for truck in trucks:
@@ -1230,7 +1280,7 @@ def warehouse_monitor():
                         elapsed_seconds=elapsed(h), timing=timing(h), shortages=sum(a['result']=='shortage' for a in h['answers'].values()),
                         planning='approved' if plan else 'pending'))
                 for stage in (0, 4, 1, 2):
-                    products = task_products(load, court, stage) if stage in (0, 4) else court['productos']
+                    products = task_products(load, court, stage) if stage in (0, 4) else control_products(load, court)
                     if not products:
                         continue
                     check = cs['checks'].get(str(stage), {})
@@ -1264,7 +1314,9 @@ def warehouse_monitor():
                         answered=answered, personal_answered=sum(a.get('user_id') == check.get('user_id') for a in answers.values() if check.get('user_id')), total=len(products), elapsed_seconds=elapsed(check), timing=timing(check),
                         shortages=sum(a['result']=='shortage' for a in answers.values()),
                         bultos=bultos, unidades=unidades, bultos_equiv=bultos_equiv,
-                        responsible_candidates=responsible_candidates(stage, court['numero']),
+                        responsible_candidates=responsible_candidates(stage, court['numero'],
+                            cs['checks'].get('1', {}).get('user_id') if stage == 2 else None),
+                        assembly_destinations=assembly_destinations(load, court['numero']),
                         available=available, blocked_reason=blocked_reason,
                         planning='approved' if plan else 'legacy' if legacy_in_progress(truck) else 'pending'))
     from datetime import datetime, timedelta

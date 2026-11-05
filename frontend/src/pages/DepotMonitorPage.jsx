@@ -11,7 +11,7 @@ function ProcessCard({ entries, stage, group }) {
     const process = entries.find(item => !item.assistance) || entries[0]
     const helpers = entries.filter(item => item.assistance)
     const title = ['1 · Armado', '2 · Control 1', '3 · Control 2'][stage]
-    if (!process) return <article className="monitor-process-card border-slate-600 bg-slate-900"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{title}</h3><span className="rounded-md bg-black/20 px-2 py-1 text-xs">No requerido</span></div><p className="mt-3 text-lg font-semibold">No requiere picking</p><p className="mt-1 text-sm text-slate-300">Esta cancha no tiene bultos ni unidades sueltas.</p><progress value="0" max="1" className="mt-auto h-2 w-full" /></article>
+    if (!process) { const destinations = group.assemblyDestinations || []; return <article className="monitor-process-card border-slate-600 bg-slate-900"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{title}</h3><span className="rounded-md bg-black/20 px-2 py-1 text-xs">No requerido</span></div><p className="mt-3 text-lg font-semibold">No requiere picking propio</p><p className="mt-1 text-sm text-slate-300">{destinations.length ? `Sus productos se prepararon en ${destinations.map(item => `${item.pallet_id} por Cancha ${item.owner_court}`).join(', ')}.` : 'Esta cancha no tiene bultos ni unidades sueltas.'}</p><progress value="0" max="1" className="mt-auto h-2 w-full" /></article> }
     const displayStatus = process.status === 'pending' && process.available === false ? 'waiting' : process.status
     const candidates = process.responsible_candidates || []
     const responsibility = process.username ? `Responsable: ${process.username}` : candidates.length === 1 ? `Responsable previsto: ${candidates[0]}` : candidates.length ? `Disponibles: ${candidates.join(', ')}` : 'Sin responsable asignado'
@@ -40,7 +40,8 @@ export default function DepotMonitorPage() {
     const grouped = new Map()
     processes.filter(process => [0, 1, 2].includes(process.stage)).forEach(process => {
         const key = `${process.load_id}:${process.court}`
-        if (!grouped.has(key)) grouped.set(key, { key, truck: process.truck, reparto: process.reparto, court: process.court, stages: [[], [], []] })
+        if (!grouped.has(key)) grouped.set(key, { key, truck: process.truck, reparto: process.reparto, court: process.court, assemblyDestinations: process.assembly_destinations || [], stages: [[], [], []] })
+        if (!grouped.get(key).assemblyDestinations.length && process.assembly_destinations?.length) grouped.get(key).assemblyDestinations = process.assembly_destinations
         grouped.get(key).stages[process.stage].push(process)
     })
     const groups = [...grouped.values()].sort((a, b) => (truckOrder.get(a.truck) ?? 999) - (truckOrder.get(b.truck) ?? 999) || String(a.truck).localeCompare(String(b.truck), 'es', { numeric: true }) || String(a.reparto).localeCompare(String(b.reparto), 'es', { numeric: true }) || a.court - b.court)
