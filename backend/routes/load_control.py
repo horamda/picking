@@ -1489,7 +1489,8 @@ def warehouse_monitor():
                     incident_expected_u=sum(item.get('incident', {}).get('expected_u', 0) for item in pallet_incidents),
                     incident_actual_u=sum(item.get('incident', {}).get('actual_u', 0) for item in pallet_incidents),
                     incident_difference_u=sum(item.get('incident', {}).get('difference_u', 0) for item in pallet_incidents))
-                assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
+                assembly = (pallet_state(truck.state, pallet['key'])['checks'].get('4', {}) if pallet['assembly_stage'] == 4
+                            else court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {}))
                 for display_stage, check in ((0, assembly), (1, effective_check(truck, pallet, 1)),
                                              (2, effective_check(truck, pallet, 2))):
                     answers = check.get('answers', {})
@@ -1540,9 +1541,34 @@ def control_pallets(truck_id):
     return jsonify(result)
 
 
+@load_control_bp.get('/trucks/<int:truck_id>/full-pallets')
+@roles_required('administrador', 'supervisor', 'palletizador')
+def full_pallet_board(truck_id):
+    truck = get_truck(truck_id)
+    if not approved(truck):
+        fail('La carga espera aprobación del supervisor.', 409)
+    rows = []
+    for pallet in physical_pallets(truck):
+        if pallet['assembly_stage'] != 4:
+            continue
+        load = next((item for item in selected_loads(truck) if item.id == pallet['load_id']), None)
+        check = pallet_state(truck.state, pallet['key'])['checks'].get('4', {})
+        ready = bool(load and load_picking_complete(load))
+        rows.append(dict(deepcopy(pallet), available=ready and check.get('status') != 'done',
+            blocked_reason=None if ready else 'Espera que finalice el picking del reparto',
+            assembly=_check_summary(check)))
+    return jsonify(truck_id=truck.id, truck=truck.truck, date=truck.load_date,
+        branch=truck.branch, pallets=rows,
+        completed=bool(rows) and all(row['assembly'].get('status') == 'done' for row in rows))
+
+
 def pallet_control_context(load_id, pallet_id, stage, check_id=None):
-    if stage not in (1, 2):
+    if stage not in (1, 2, 4):
         fail('Etapa de control inválida.')
+    if stage == 4 and g.current_user.role.name != 'palletizador':
+        fail('Este proceso corresponde al armador de pallets completos.', 403)
+    if stage in (1, 2) and g.current_user.role.name != 'controlador':
+        fail('Este proceso corresponde a control de cargas.', 403)
     load = get_load(load_id)
     ensure_open(load.truck)
     pallet = get_physical_pallet(load, pallet_id)
@@ -1572,10 +1598,15 @@ def pallet_incident_responsible(state, pallet, stage, origin):
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/start/<int:stage>')
-@roles_required('controlador')
+@roles_required('controlador', 'palletizador')
 def start_pallet_control(load_id, pallet_id, stage):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage)
-    if not assembly_done(load.truck, pallet):
+    if stage == 4:
+        if g.current_user.role.name != 'palletizador' or pallet['assembly_stage'] != 4:
+            fail('Este pallet no corresponde al proceso de pallets completos.', 403)
+        if not load_picking_complete(load):
+            fail('Primero debe finalizar el picking de todas las canchas del reparto.', 409)
+    elif not assembly_done(load.truck, pallet):
         fail('Este pallet todavía está en armado.', 409)
     first = effective_check(load.truck, pallet, 1)
     if stage == 2 and first.get('status') != 'done':
@@ -1599,12 +1630,13 @@ def start_pallet_control(load_id, pallet_id, stage):
             physical_state['checks'].setdefault(str(number), deepcopy(legacy))
     ps = edit_pallet_state(state, pallet['key'])
     check = ps['checks'].get(str(stage))
-    try:
-        claim_assignment(state, stage, g.current_user)
-    except PermissionError as exc:
-        fail(str(exc), 403)
-    except ValueError as exc:
-        fail(str(exc), 409)
+    if stage in (1, 2):
+        try:
+            claim_assignment(state, stage, g.current_user)
+        except PermissionError as exc:
+            fail(str(exc), 403)
+        except ValueError as exc:
+            fail(str(exc), 409)
     if check and check.get('status') == 'done':
         fail('Este pallet ya fue controlado.', 409)
     if not check:
@@ -1627,7 +1659,7 @@ def start_pallet_control(load_id, pallet_id, stage):
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/pause')
-@roles_required('controlador')
+@roles_required('controlador', 'palletizador')
 def pause_pallet_control(load_id, pallet_id, stage, check_id):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
     if check.get('status') != 'active':
@@ -1639,7 +1671,7 @@ def pause_pallet_control(load_id, pallet_id, stage, check_id):
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/answer')
-@roles_required('controlador')
+@roles_required('controlador', 'palletizador')
 def answer_pallet_control(load_id, pallet_id, stage, check_id):
     data = body()
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
@@ -1681,7 +1713,7 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
             fail('Ingresá el SKU encontrado.')
         if error_type == 'freshness' and not str(data.get('actual_freshness') or '').strip():
             fail('Ingresá la frescura encontrada.')
-        origin = 'stock' if error_type == 'stock' else ('control' if error_type == 'control' else 'picking')
+        origin = 'stock' if stage == 4 or error_type == 'stock' else ('control' if error_type == 'control' else 'picking')
         if origin not in ('picking', 'stock', 'control'):
             fail('Indicá si corresponde a picking, stock o control.')
         responsible = pallet_incident_responsible(state, pallet, stage, origin)
@@ -1736,7 +1768,7 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
 
 
 @load_control_bp.get('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/receipts/<request_id>')
-@roles_required('controlador')
+@roles_required('controlador', 'palletizador')
 def pallet_answer_receipt(load_id, pallet_id, stage, check_id, request_id):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
     receipt = check.get('receipts', {}).get(request_id)
@@ -1748,7 +1780,7 @@ def pallet_answer_receipt(load_id, pallet_id, stage, check_id, request_id):
 
 
 @load_control_bp.post('/loads/<int:load_id>/pallets/<pallet_id>/checks/<int:stage>/<check_id>/finish')
-@roles_required('controlador')
+@roles_required('controlador', 'palletizador')
 def finish_pallet_control(load_id, pallet_id, stage, check_id):
     load, pallet, state, ps, check = pallet_control_context(load_id, pallet_id, stage, check_id)
     if any(str(product.get('product_key') or product['sku']) not in check.get('answers', {}) for product in pallet['items']):

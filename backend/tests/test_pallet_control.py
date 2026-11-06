@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from services.pallet_control import physical_pallets, claim_assignment, user_control_progress
+from services.pallet_control import physical_pallets, claim_assignment, user_control_progress, assembly_done
 
 
 class PalletControlTest(unittest.TestCase):
@@ -21,6 +21,12 @@ class PalletControlTest(unittest.TestCase):
         self.assertEqual([p['id'] for p in pallets], ['M001', 'F001-01', 'F001-02'])
         self.assertEqual([p['owner_court'] for p in pallets], [5, 1, 1])
         self.assertEqual([p['items'][0]['bultos'] for p in pallets], [4, 50, 50])
+
+    def test_full_pallet_completion_is_independent_from_source_court(self):
+        truck = self.truck()
+        pallet = physical_pallets(truck)[1]
+        truck.state['pallet_controls'] = {pallet['key']: {'checks': {'4': {'status': 'done'}}, 'shortages': {}}}
+        self.assertTrue(assembly_done(truck, pallet))
 
     def test_assignments_are_crossed_and_exclusive(self):
         state = {}

@@ -54,6 +54,10 @@ def edit_pallet_state(state, key):
 
 
 def assembly_done(truck, pallet):
+    if pallet['assembly_stage'] == 4:
+        check = pallet_state(truck.state, pallet['key'])['checks'].get('4', {})
+        if check:
+            return check.get('status') == 'done'
     check = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
     return check.get('status') == 'done'
 
@@ -85,7 +89,8 @@ def board(truck):
     for pallet in physical_pallets(truck):
         first, second = effective_check(truck, pallet, 1), effective_check(truck, pallet, 2)
         ready = assembly_done(truck, pallet)
-        assembly = court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {})
+        assembly = (pallet_state(truck.state, pallet['key'])['checks'].get('4', {}) if pallet['assembly_stage'] == 4
+                    else court_state(truck.state, pallet['load_id'], pallet['owner_court'])['checks'].get(str(pallet['assembly_stage']), {}))
         alerts = picking_alerts(truck, pallet)
         rows.append(dict(deepcopy(pallet), assembly_done=ready,
             assembly=_check_summary(assembly),

@@ -274,11 +274,12 @@ public final class MainActivity extends Activity {
         return o;
     }
     private boolean isController(){return !demo && user!=null && user.optString("role").equals("controlador");}
+    private boolean isPalletizer(){return !demo && user!=null && user.optString("role").equals("palletizador");}
     private int stage() { return isController()?currentStage:!demo && user != null && user.optString("role").equals("palletizador") ? 4 : 0; }
     private String stageLabel(){return stage()==4?"Pallets":stage()==2?"Control 2":stage()==1?"Control 1":"Picking";}
     private String roleLabel(){return isController()?"Control de cargas":stage()==4?"Pallets completos":"Picking";}
     private String path() {
-        if(isController() && pallet!=null)return "/load-control/loads/"+load.optInt("id")+"/pallets/"+pallet.optString("id")+"/checks/"+stage()+"/"+check.optString("id");
+        if(pallet!=null && (isController() || isPalletizer()))return "/load-control/loads/"+load.optInt("id")+"/pallets/"+pallet.optString("id")+"/checks/"+stage()+"/"+check.optString("id");
         return "/load-control/loads/" + load.optInt("id") + "/courts/" + court.optInt("numero") + "/checks/" + stage() + "/" + check.optString("id");
     }
     private String pendingKey(){return "pending_answer:"+api.base+":"+user.optInt("id");}
@@ -371,7 +372,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.23.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.24.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -565,6 +566,12 @@ public final class MainActivity extends Activity {
                     content=body;
                     continue;
                 }
+                if(isPalletizer()){
+                    text("Pallets completos de todos los repartos y canchas del camión.",14);
+                    styledButton("Ver pallets completos →",GREEN,Color.WHITE,GREEN,()->openFullPalletTruck(truck));
+                    content=body;
+                    continue;
+                }
                 JSONObject nextLoad=null,nextCourt=null;int best=99;
                 for(int l=0;l<loads.length();l++){
                     JSONObject candidate=loads.getJSONObject(l);JSONArray candidates=candidate.getJSONArray("canchas");
@@ -621,7 +628,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.23.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.24.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -630,6 +637,40 @@ public final class MainActivity extends Activity {
     private void openControlTruck(JSONObject truck){
         controlTruck=truck;pallet=null;check=null;
         task(()->json("GET","/load-control/trucks/"+truck.optInt("id")+"/control-pallets",null),this::showControlPallets);
+    }
+    private void openFullPalletTruck(JSONObject truck){
+        controlTruck=truck;pallet=null;check=null;currentStage=4;
+        task(()->json("GET","/load-control/trucks/"+truck.optInt("id")+"/full-pallets",null),this::showFullPallets);
+    }
+    private void showFullPallets(JSONObject board){
+        currentScreen="full_pallet_board";pallet=null;check=null;
+        screen("Camión "+board.optString("truck"));button("Volver a camiones",this::listLoads);
+        text("Pallets completos",20);text("Cada pallet es una tarea independiente. La cancha se muestra solo como origen informativo.",13);
+        JSONArray rows=board.optJSONArray("pallets");if(rows==null)rows=new JSONArray();
+        for(int i=0;i<rows.length();i++){
+            JSONObject item=rows.optJSONObject(i),assembly=item.optJSONObject("assembly");
+            String state=assembly==null||assembly.length()==0?(item.optBoolean("available")?"Disponible":"En espera"):
+                "done".equals(assembly.optString("status"))?"Finalizado":assembly.has("timer_started_at")?"En curso":"Pausado";
+            content=card("Finalizado".equals(state)?0xff64748b:item.optBoolean("available")?GREEN:BORDER);
+            text("Pallet "+item.optString("id")+" · "+state,18);
+            text("Reparto "+item.optString("reparto")+" · Origen cancha "+item.optInt("owner_court"),13);
+            JSONArray items=item.optJSONArray("items");JSONObject product=items==null?null:items.optJSONObject(0);
+            if(product!=null){text(product.optString("descripcion"),16);text(product.optInt("bultos")+" bultos · Frescura "+(freshnessText(product.optString("fecha_frescura")).isEmpty()?"no informada":freshnessText(product.optString("fecha_frescura"))),13);}
+            if(item.optBoolean("available") || "En curso".equals(state) || "Pausado".equals(state))
+                styledButton("Finalizado".equals(state)?"Finalizado":"Preparar pallet →",GREEN,Color.WHITE,GREEN,()->startFullPallet(item));
+            else if(!"Finalizado".equals(state))text(item.optString("blocked_reason","Esperando picking del reparto"),13);
+            content=body;
+        }
+        if(rows.length()==0)message("Este camión no tiene pallets completos en el plan aprobado.");
+        else if(board.optBoolean("completed"))message("Todos los pallets completos de este camión están terminados.");
+    }
+    private void startFullPallet(JSONObject selected){
+        currentStage=4;pallet=selected;court=obj("numero",selected.optInt("owner_court"));
+        task(()->json("POST","/load-control/loads/"+selected.optInt("load_id")+"/pallets/"+selected.optString("id")+"/start/4",obj()),started->{
+            check=started;products=started.optJSONArray("products");if(products==null)products=new JSONArray();
+            load=obj("id",selected.optInt("load_id"),"reparto",selected.optString("reparto"),"camion",controlTruck.optString("truck"));
+            automaticallySpokenProducts.clear();index=0;product();
+        });
     }
     private String palletControlStatus(JSONObject control){
         if(control==null || control.length()==0)return "Sin iniciar";
@@ -1018,13 +1059,13 @@ public final class MainActivity extends Activity {
         stopAudio();
         if(demo){login();return;}
         filter="Todos";
-        if(check.isNull("timer_started_at")){if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id"));return;}
-        task(() -> json("POST",path()+"/pause",obj()), result -> { check=result;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id")); });
+        if(check.isNull("timer_started_at")){if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else if(isPalletizer()&&pallet!=null&&controlTruck!=null)openFullPalletTruck(controlTruck);else openLoad(load.optInt("id"));return;}
+        task(() -> json("POST",path()+"/pause",obj()), result -> { check=result;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else if(isPalletizer()&&pallet!=null&&controlTruck!=null)openFullPalletTruck(controlTruck);else openLoad(load.optInt("id")); });
     }
     private void finishPicking() {
         stopAudio();voiceConfirmFinish=false;
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
-        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else listLoads();});
+        task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else if(isPalletizer()&&pallet!=null&&controlTruck!=null)openFullPalletTruck(controlTruck);else listLoads();});
     }
     private void startAssets(JSONObject truck){
         task(()->obj("types",new JSONArray(api.request("GET","/load-control/asset-types",null)),
@@ -1169,6 +1210,7 @@ public final class MainActivity extends Activity {
         if(currentScreen.equals("product")){pauseAndLeave();return;}
         if(currentScreen.equals("assets")){activeTruck=null;listLoads();return;}
         if(currentScreen.equals("pallet_board")){controlTruck=null;pallet=null;listLoads();return;}
+        if(currentScreen.equals("full_pallet_board")){controlTruck=null;pallet=null;listLoads();return;}
         if(currentScreen.equals("courts")){listLoads();return;}
         new AlertDialog.Builder(this).setTitle("Salir de la app")
             .setMessage("¿Querés salir de Del Palacio Picking?")
