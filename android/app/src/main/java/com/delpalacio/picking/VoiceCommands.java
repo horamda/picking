@@ -12,7 +12,7 @@ final class VoiceCommands {
     static String parse(String input,JSONObject configured) {
         String text = Normalizer.normalize(input.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
             .replaceAll("\\p{M}", "").replaceAll("[.,;:!?]", "").trim().replaceAll("\\s+", " ");
-        if(configured!=null)for(Iterator<String> keys=configured.keys();keys.hasNext();){String key=keys.next();JSONArray aliases=configured.optJSONArray(key);if(aliases==null)continue;for(int i=0;i<aliases.length();i++)if(text.equals(normalize(aliases.optString(i))))return key;}
+        if(configured!=null)for(Iterator<String> keys=configured.keys();keys.hasNext();){String key=keys.next();JSONArray aliases=configured.optJSONArray(key);if(aliases==null)continue;for(int i=0;i<aliases.length();i++){String alias=normalize(aliases.optString(i));if(text.equals(alias)||repeated(text,alias))return key;}}
         return switch (text) {
             case "correcto", "confirmo", "bien" -> "ok";
             case "faltante", "falta" -> "shortage";
@@ -28,6 +28,10 @@ final class VoiceCommands {
             case "registrar faltante", "guardar faltante" -> "register";
             default -> "unknown";
         };
+    }
+    private static boolean repeated(String text,String alias){
+        if(alias.isEmpty()||!text.startsWith(alias))return false;
+        String rest=text;while(rest.equals(alias)||rest.startsWith(alias+" ")){if(rest.equals(alias))return true;rest=rest.substring(alias.length()).trim();}return false;
     }
     private static String normalize(String value){return Normalizer.normalize(value.toLowerCase(Locale.ROOT),Normalizer.Form.NFD).replaceAll("\\p{M}","").trim().replaceAll("\\s+"," ");}
     static String grammar() {

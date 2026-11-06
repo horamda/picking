@@ -251,10 +251,12 @@ public final class MainActivity extends Activity {
             .setMessage("No repitas la respuesta. Primero consultá si quedó guardada en el servidor.\n\nMotivo: "+errorReason(error))
             .setNegativeButton("Más tarde",null)
             .setPositiveButton("Verificar guardado",(d,w)->recoverAnswer(false)).show();
+        boolean recoverVoice=voice && !pendingAnswer() && (currentScreen.equals("product") || currentScreen.equals("shortage"));
         boolean announce=voice;
-        if(voice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
+        if(voice && !recoverVoice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
+        else if(recoverVoice)stopMic();
         message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
-        if(announce && ttsReady)speak("No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente.");
+        if(announce && ttsReady)speak(recoverVoice?"No pude completar la operación. Revisá la pantalla y repetí el comando.":"No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente.");
     }
     private String errorReason(Exception error){
         if(error instanceof java.net.SocketTimeoutException)return "El servidor tardó demasiado en responder.";
@@ -372,7 +374,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.24.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.25.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -628,7 +630,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.24.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.25.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -1094,7 +1096,10 @@ public final class MainActivity extends Activity {
         button("Cancelar y volver",this::listLoads);
     }
     private void enableVoice() {
-        if(isController() || !visible || busy || check==null || check.isNull("timer_started_at") || !(currentScreen.equals("product") || currentScreen.equals("shortage")))return;
+        if(isController() || !visible || busy)return;
+        boolean working=currentScreen.equals("product") || currentScreen.equals("shortage");
+        if(!working && !currentScreen.equals("loads") && !currentScreen.equals("courts"))return;
+        if(working && (check==null || check.isNull("timer_started_at")))return;
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},10);return;}
         if(!ttsReady){message("Activá o instalá una voz en español en los ajustes de texto a voz de Android.");return;}
         if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED && !getPreferences(0).getBoolean("notificationAsked",false)){
@@ -1163,20 +1168,20 @@ public final class MainActivity extends Activity {
         if(currentScreen.equals("loads")){
             if(action.equals("continue") && voiceNextLoadId>0)openLoad(voiceNextLoadId,voiceNextCourt);
             else if(action.equals("refresh"))listLoads();
-            else message("Decí continuar o actualizar tareas.");
+            else invalidVoiceCommand("Decí continuar o actualizar tareas.");
             return;
         }
         if(currentScreen.equals("courts")){
             if(action.equals("start") && voiceCourtCandidate!=null)startCourt(voiceCourtCandidate,stage());
             else if(action.equals("cancel"))listLoads();
-            else message("Decí iniciar cancha o cancelar.");
+            else invalidVoiceCommand("Decí iniciar cancha o cancelar.");
             return;
         }
         if(currentScreen.equals("shortage")){
             if(action.equals("register") && voiceShortageSubmit!=null){voiceShortageSubmit.run();return;}
             if(action.equals("cancel")){stopAudio();product();return;}
             Integer[] values=VoiceQuantities.parse(text);
-            if(values==null){message("Decí cantidades o registrar faltante.");return;}
+            if(values==null){invalidVoiceCommand("Decí cantidades o registrar faltante.");return;}
             JSONObject p=products.optJSONObject(index);
             if((values[0]!=null && values[0]>p.optInt("bultos")) || (values[1]!=null && values[1]>p.optInt("unidades"))){message("La cantidad dictada supera la planilla. Repetila o corregila a mano.");return;}
             if(values[0]!=null){shortageB.setText(values[0].toString());shortageB.setBackground(shape(Color.WHITE,GREEN,12));bHint.setText("Completado por voz");bHint.setTextColor(GREEN);}
@@ -1191,8 +1196,12 @@ public final class MainActivity extends Activity {
             case "next" -> {if(index<products.length()-1){index++;product();}}
             case "prev" -> {if(index>0){index--;product();}}
             case "finish" -> {voiceConfirmFinish=true;speak("¿Confirmás finalizar esta cancha? Decí confirmar o cancelar.");}
-            default -> message(voiceText("unknown_command","No entendí. Decí correcto, faltante o repetir."));
+            default -> invalidVoiceCommand(voiceText("unknown_command","No entendí. Decí correcto, faltante o repetir."));
         }
+    }
+    private void invalidVoiceCommand(String guidance){
+        message(guidance);updateVoiceUi("Comando no reconocido · sigo escuchando");
+        speak(guidance);
     }
     private void stopMic(){if(voiceSession!=null)voiceSession.suspendListening();}
     private void stopVoiceSession(){

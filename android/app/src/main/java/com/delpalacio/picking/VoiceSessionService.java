@@ -35,8 +35,9 @@ public final class VoiceSessionService extends Service {
     private String grammar=VoiceCommands.grammar();
     private final Runnable watchdog=new Runnable(){public void run(){
         if(!active || !wanted || microphone==null)return;
-        // Vosk emits partial callbacks even during silence. Only a stalled recorder is restarted.
-        if(SystemClock.elapsedRealtime()-lastEvent>20000)recover(generation,"La captura dejó de responder.");
+        // Preparar un producto puede implicar un silencio largo. Un silencio no consume
+        // el presupuesto de errores: se recrea la captura y la sesión sigue activa.
+        if(SystemClock.elapsedRealtime()-lastEvent>60000)restartCapture(generation,"Reiniciando escucha…");
         else handler.postDelayed(this,5000);
     }};
 
@@ -102,14 +103,14 @@ public final class VoiceSessionService extends Service {
             if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Permiso de micrófono revocado.");
             recognizer=new Recognizer(model,16000,grammar);microphone=new SpeechService(recognizer,16000);
             boolean started=microphone.startListening(new RecognitionListener(){
-                @Override public void onPartialResult(String json){handler.post(()->{if(attempt==generation)lastEvent=SystemClock.elapsedRealtime();});}
+                @Override public void onPartialResult(String json){handler.post(()->{if(attempt==generation){lastEvent=SystemClock.elapsedRealtime();recovery.stable();}});}
                 @Override public void onResult(String json){handler.post(()->{
-                    if(!active || !wanted || attempt!=generation)return;lastEvent=SystemClock.elapsedRealtime();
+                    if(!active || !wanted || attempt!=generation)return;lastEvent=SystemClock.elapsedRealtime();recovery.stable();
                     try{String text=new JSONObject(json).optString("text");if(listener!=null && !text.trim().isEmpty())listener.onText(text);}catch(Exception e){recover(attempt,"No se pudo interpretar el audio.");}
                 });}
-                @Override public void onFinalResult(String json){handler.post(()->recover(attempt,"La captura terminó."));}
+                @Override public void onFinalResult(String json){handler.post(()->restartCapture(attempt,"Renovando escucha…"));}
                 @Override public void onError(Exception error){handler.post(()->recover(attempt,error.getMessage()));}
-                @Override public void onTimeout(){handler.post(()->recover(attempt,"La captura se interrumpió."));}
+                @Override public void onTimeout(){handler.post(()->restartCapture(attempt,"Renovando escucha…"));}
             });
             if(!started)throw new IllegalStateException("El micrófono no inició.");
             lastEvent=SystemClock.elapsedRealtime();state("Escuchando…");handler.postDelayed(watchdog,5000);
@@ -123,6 +124,11 @@ public final class VoiceSessionService extends Service {
         if(delay<0){end("No pude recuperar el micrófono. Cerrá otras apps que lo usen y tocá Activar voz.");return;}
         state("Reconectando micrófono…");int next=generation;
         handler.postDelayed(()->{if(active && wanted && next==generation)openMicrophone();},delay);
+    }
+    private void restartCapture(int attempt,String reason){
+        if(!active || !wanted || attempt!=generation)return;
+        closeMicrophone();recovery.stable();state(reason);int next=generation;
+        handler.postDelayed(()->{if(active && wanted && next==generation)openMicrophone();},300);
     }
     private void end(String reason){
         active=false;wanted=false;closeMicrophone();
