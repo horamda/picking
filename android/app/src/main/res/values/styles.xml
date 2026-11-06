@@ -1,0 +1,9 @@
+<resources>
+    <style name="PickearYaTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/pickearya_green</item>
+        <item name="android:windowBackground">@drawable/pickear_ya_launch</item>
+        <item name="android:navigationBarColor">@color/pickearya_purple_dark</item>
+        <item name="android:statusBarColor">@color/pickearya_purple_dark</item>
+    </style>
+</resources>

@@ -63,7 +63,7 @@ public final class VoiceSessionService extends Service {
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_CLEAR_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,VoiceSessionService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,CHANNEL).setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Del Palacio · Voz activa").setContentText(text).setContentIntent(open)
+            .setContentTitle("PickearYa · Voz activa").setContentText(text).setContentIntent(open)
             .setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PRIVATE)
             .addAction(new Notification.Action.Builder(null,"Parar voz",stop).build()).build();
     }

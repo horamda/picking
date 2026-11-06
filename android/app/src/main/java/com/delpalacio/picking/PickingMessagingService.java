@@ -36,7 +36,7 @@ public final class PickingMessagingService extends FirebaseMessagingService {
         PendingIntent action = PendingIntent.getActivity(this, 20, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Del Palacio · Picking")
+            .setContentTitle("PickearYa · Nueva tarea")
             .setContentText("Hay un aviso de trabajo. Abrí la app y actualizá tus tareas.")
             .setContentIntent(action).setAutoCancel(true)
             .setVisibility(Notification.VISIBILITY_PRIVATE).build();

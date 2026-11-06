@@ -56,7 +56,7 @@ export default function WarehousePage({ section = 'overview', supervision = fals
     const state = p => p.status
     const supervisorArea = supervision || section === 'overview' || !admin
     return <div className="mx-auto max-w-6xl space-y-5 p-4 pb-20 sm:p-8">
-        <header><p className="text-sm text-brand-600">Del Palacio · {supervisorArea ? 'Supervisión' : 'Administración'}</p><h1 className="mt-1 text-2xl font-bold">{{ overview: 'Depósito en vivo', team: 'Equipo y canchas', settings: 'Camiones y capacidad' }[section]}</h1></header>
+        <header><p className="text-sm font-semibold text-brand-600">PickearYa · {supervisorArea ? 'Supervisión' : 'Administración'}</p><h1 className="mt-1 text-2xl font-bold">{{ overview: 'Depósito en vivo', team: 'Equipo y canchas', settings: 'Camiones y capacidad' }[section]}</h1></header>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</p>}
         {section === 'overview' && <>

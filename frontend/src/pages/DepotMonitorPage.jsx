@@ -59,7 +59,7 @@ export default function DepotMonitorPage() {
 
     return <div className="min-h-screen bg-slate-950 p-3 text-white sm:p-4">
         <header className="grid gap-2 border-b border-slate-800 pb-2 lg:grid-cols-[minmax(190px,1fr)_auto] lg:items-end">
-            <div><p className="text-[11px] uppercase tracking-widest text-slate-400">Del Palacio · Depósito</p><h1 className="text-xl font-bold leading-tight sm:text-2xl">Armado en vivo</h1></div>
+            <div><p className="text-[11px] font-semibold uppercase tracking-widest text-[#00ed45]">PickearYa · Depósito</p><h1 className="text-xl font-bold leading-tight sm:text-2xl">Armado en vivo</h1></div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end"><label className="text-xs text-slate-300">Fecha<input aria-label="Fecha del monitor" type="date" value={date} onChange={event => event.target.value && setDate(event.target.value)} className="ml-2 min-h-8 rounded-lg bg-slate-800 px-2 py-1 text-white" /></label><button className="min-h-8 rounded-lg border border-slate-600 px-3 text-xs" onClick={() => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => setError('El navegador no permite pantalla completa.'))}>Pantalla completa</button><Link to="/supervision" className="px-2 py-1 text-xs underline">Supervisión</Link></div>
         </header>
         <section className="my-2 grid gap-2 xl:grid-cols-[minmax(260px,.8fr)_minmax(640px,2.2fr)]">

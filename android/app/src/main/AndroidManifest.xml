@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <application android:label="Del Palacio · Picking" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
+    <application android:label="PickearYa" android:icon="@drawable/pickearya_icon" android:roundIcon="@drawable/pickearya_icon" android:theme="@style/PickearYaTheme" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="picking_tasks" />
         <service android:name=".PickingMessagingService" android:exported="false">
             <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>

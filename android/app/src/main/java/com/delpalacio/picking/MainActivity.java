@@ -36,15 +36,16 @@ public final class MainActivity extends Activity {
     private Button voiceButton;
     private EditText shortageB, shortageU;
     private String lastHeard="";
-    private int INK=0xff0f172a, MUTED=0xff607493, BORDER=0xffdce5ef, BG=0xfff0f5f9, SURFACE=Color.WHITE;
+    private static final int BRAND_PURPLE=0xff3b005b, BRAND_PURPLE_DARK=0xff210033, BRAND_GREEN=0xff00ed45;
+    private int INK=BRAND_PURPLE, MUTED=0xff6f6177, BORDER=0xffe3d8e8, BG=0xfff8f5fa, SURFACE=Color.WHITE;
     private static final int GREEN=0xff059669, RED=0xffb91c1c;
     private boolean dark;
     private void applyTheme(){
         dark=getPreferences(0).getBoolean("dark",false);
-        setTheme(dark?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
-        INK=dark?0xffe2e8f0:0xff0f172a;MUTED=dark?0xffadbed3:0xff607493;
-        BORDER=dark?0xff3b4b63:0xffdce5ef;BG=dark?0xff0b1220:0xfff0f5f9;SURFACE=dark?0xff182235:Color.WHITE;
-        getWindow().setStatusBarColor(SURFACE);getWindow().setNavigationBarColor(SURFACE);
+        setTheme(dark?android.R.style.Theme_Material_NoActionBar:R.style.PickearYaTheme);
+        INK=dark?0xfff3e8f7:BRAND_PURPLE;MUTED=dark?0xffc8b6d0:0xff6f6177;
+        BORDER=dark?0xff5a3768:0xffe3d8e8;BG=dark?0xff12001d:0xfff8f5fa;SURFACE=dark?0xff260b36:Color.WHITE;
+        getWindow().setStatusBarColor(BRAND_PURPLE_DARK);getWindow().setNavigationBarColor(dark?BRAND_PURPLE_DARK:SURFACE);
         getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     }
     private void inputs(View v,List<EditText> fields){
@@ -181,7 +182,10 @@ public final class MainActivity extends Activity {
             ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(Math.max(1,products.length()));progress.setProgress(check.optJSONObject("answers").length());
             progress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(BORDER));header.addView(progress,new LinearLayout.LayoutParams(-1,dp(6)));
         }else{
-            header.addView(label("DEL PALACIO",11,GREEN,true));header.addView(label(title,22,INK,true));
+            LinearLayout brand=row();header.addView(brand);
+            ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.pickearya_icon);logo.setScaleType(ImageView.ScaleType.CENTER_CROP);brand.addView(logo,new LinearLayout.LayoutParams(dp(38),dp(38)));
+            TextView brandName=label("PickearYa",18,dark?BRAND_GREEN:BRAND_PURPLE,true);brandName.setPadding(dp(10),0,0,0);brand.addView(brandName);
+            header.addView(label(title,22,INK,true));
             header.addView(label(user==null?"Operación de depósito":"Usuario: "+user.optString("username")+" · "+roleLabel(),13,MUTED,false));
         }
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();content=body;
@@ -634,7 +638,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.25.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("PickearYa · Android 0.25.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -1227,7 +1231,7 @@ public final class MainActivity extends Activity {
         if(currentScreen.equals("full_pallet_board")){controlTruck=null;pallet=null;listLoads();return;}
         if(currentScreen.equals("courts")){listLoads();return;}
         new AlertDialog.Builder(this).setTitle("Salir de la app")
-            .setMessage("¿Querés salir de Del Palacio Picking?")
+            .setMessage("¿Querés salir de PickearYa?")
             .setNegativeButton("Quedarme",null).setPositiveButton("Salir",(d,w)->finish()).show();
     }
     @Override protected void onDestroy(){requestVersion++;voice=false;stopAudio();if(tts!=null)tts.shutdown();handler.removeCallbacksAndMessages(null);network.shutdown();super.onDestroy();}

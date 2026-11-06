@@ -27,22 +27,17 @@ function LoginPage() {
     }
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#210033] via-[#3b005b] to-[#24106b] px-4">
+            <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#00ed45]/10 blur-3xl" />
+            <div className="pointer-events-none absolute -right-24 bottom-20 h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl" />
             <div className="w-full max-w-sm">
-                <div className="mb-8 flex items-center justify-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
-                        </svg>
-                    </div>
-                    <div>
-                        <p className="text-base font-semibold leading-none text-white">Picking Analytics</p>
-                        <p className="mt-0.5 text-xs text-slate-400">Control logistico</p>
-                    </div>
+                <div className="relative mb-6 flex justify-center">
+                    <img src="/brand/pickearya-horizontal.png" alt="PickearYa" className="h-20 w-auto rounded-2xl bg-white px-4 py-2 shadow-xl" />
                 </div>
 
-                <div className="rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-white/10">
-                    <h1 className="mb-6 text-xl font-semibold text-slate-900">Ingresar al sistema</h1>
+                <div className="relative rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-white/20">
+                    <p className="text-xs font-bold uppercase tracking-[.2em] text-[#6f0a91]">Picking por voz</p>
+                    <h1 className="mb-6 mt-1 text-2xl font-semibold text-slate-900">Ingresar a PickearYa</h1>
 
                     {error && (
                         <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">

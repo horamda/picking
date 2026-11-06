@@ -49,7 +49,7 @@ function App() {
                                     />
                                 )}
                                 <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-                                    {worker && <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2"><div><p className="font-semibold">Del Palacio · {user.role === 'controlador' ? 'Control de cargas' : user.role === 'palletizador' ? 'Pallets completos' : 'Mi picking'}</p><p className="text-sm text-slate-500">{user.username}</p></div><button className="min-h-12 rounded-xl border px-4" onClick={() => { clearAuthSession(); navigate('/login', { replace: true }) }}>Cerrar sesión</button></header>}
+                                    {worker && <header className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-800 bg-brand-900 px-4 py-2 text-white"><div className="flex items-center gap-3"><img src="/brand/pickearya-icon.png" alt="" className="h-10 w-10 rounded-xl" /><div><p className="font-semibold">PickearYa · {user.role === 'controlador' ? 'Control de cargas' : user.role === 'palletizador' ? 'Pallets completos' : 'Mi picking'}</p><p className="text-sm text-white/60">{user.username}</p></div></div><button className="min-h-12 rounded-xl border border-white/25 px-4" onClick={() => { clearAuthSession(); navigate('/login', { replace: true }) }}>Cerrar sesión</button></header>}
                                     <header className={`${monitor || worker ? "hidden" : "flex"} items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 xl:hidden`}>
                                         <button
                                             type="button"
@@ -61,7 +61,7 @@ function App() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                                             </svg>
                                         </button>
-                                        <Link to={homeForRole(user?.role)} className="text-base font-semibold text-slate-900">Picking Analytics · Inicio</Link>
+                                        <Link to={homeForRole(user?.role)} className="flex items-center gap-2 text-base font-semibold text-slate-900"><img src="/brand/pickearya-icon.png" alt="" className="h-8 w-8 rounded-lg" />PickearYa · Inicio</Link>
                                     </header>
                                     <main className="min-w-0 flex-1">
                                         {runtime?.mode === 'prueba' && runtime.shared_database && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">Modo prueba: conectado a la base de Railway. Los cambios se guardan en los datos compartidos.</div>}
