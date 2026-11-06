@@ -47,10 +47,10 @@ def queue_for(trucks, courts, stage, user_id, products):
         return False
     ordered = sorted((t for t in trucks if not t.state.get('released_at')),
         key=lambda t: (t.load_date, t.state.get('dispatch', {}).get('position', 0), t.branch, t.id))
-    owned = [t for t in ordered if any(c.get('stage') == stage and c.get('status') == 'active'
+    owned = [t for t in ordered if pending(t) and any(c.get('stage') == stage and c.get('status') == 'active'
         and c.get('user_id') == user_id and (not c.get('day') or usable(c))
         for cs in t.state.get('courts', {}).values() for c in list(cs.get('checks', {}).values()) + helpers(cs))]
-    assisted = [t for t in ordered if any(h['user_id'] == user_id and h['stage'] == stage and h['status'] == 'active' and usable(h)
+    assisted = [t for t in ordered if pending(t) and any(h['user_id'] == user_id and h['stage'] == stage and h['status'] == 'active' and usable(h)
         for cs in t.state.get('courts', {}).values() for h in helpers(cs))]
     return owned or assisted or [t for t in ordered if t.state.get('dispatch', {}).get('load_ids') and pending(t)]
 

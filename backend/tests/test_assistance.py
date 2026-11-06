@@ -2,9 +2,10 @@ from test_load_control import ControlFlowTest, db, tearDownModule
 from models import User, Role
 from auth import AuthService
 from services.load_control import ControlTruck
-from services.assistance import pause_expired
+from services.assistance import pause_expired, queue_for
 from services.push import available_tasks
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
 
@@ -97,6 +98,39 @@ class AssistanceTest(Fixture):
         self.call('post',f'/trucks/{self.truck_id}/planning/approve',data=dict(plan,physical_review=True),expected=409)
         tasks=available_tasks(User.query.filter_by(username='helper').one(),ControlTruck.query.all())
         self.assertEqual(tasks,[f'{self.load_id}:1:0'])
+
+    def test_stale_active_marker_does_not_hide_next_truck_with_real_work(self):
+        def truck(truck_id, load_date, sku, court_state):
+            load = SimpleNamespace(id=truck_id * 10, content={'canchas': [
+                {'numero': 1, 'productos': [{'sku': sku}]}
+            ]})
+            result = SimpleNamespace(id=truck_id, load_date=load_date, branch='Central', loads=[load], state={
+                'dispatch': {'load_ids': [load.id], 'position': truck_id},
+                'courts': {f'{load.id}:1': court_state},
+            })
+            load.truck = result
+            return result
+
+        # The old truck still has an active primary marker, but its only SKU was
+        # delegated away. It must not pin the worker ahead of newer real work.
+        old = truck(1, '2026-11-03', 'OLD', {
+            'checks': {'0': {'stage': 0, 'status': 'active', 'user_id': 7}},
+            'helpers': [{'stage': 0, 'status': 'active', 'user_id': 8,
+                         'day': date.today().isoformat(), 'skus': ['OLD']}],
+        })
+        current = truck(2, '2026-11-05', 'NEW', {'checks': {}, 'helpers': []})
+        products = lambda load, court, stage: court['productos']
+
+        self.assertEqual(queue_for([old, current], [1], 0, 7, products), [current])
+
+        # The same rule applies to temporary helpers whose delegated SKUs no
+        # longer exist in the current plan.
+        stale_helper = truck(3, '2026-11-03', 'OLD', {
+            'checks': {},
+            'helpers': [{'stage': 0, 'status': 'active', 'user_id': 7,
+                         'day': date.today().isoformat(), 'skus': ['REMOVED']}],
+        })
+        self.assertEqual(queue_for([stale_helper, current], [1], 0, 7, products), [current])
 
 
 def load_tests(loader,tests,pattern):
