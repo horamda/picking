@@ -32,6 +32,7 @@ public final class VoiceSessionService extends Service {
     private int generation;
     private long lastEvent;
     private String state="Preparando voz…";
+    private String grammar=VoiceCommands.grammar();
     private final Runnable watchdog=new Runnable(){public void run(){
         if(!active || !wanted || microphone==null)return;
         // Vosk emits partial callbacks even during silence. Only a stalled recorder is restarted.
@@ -85,6 +86,10 @@ public final class VoiceSessionService extends Service {
     void suspendListening(){
         wanted=false;closeMicrophone();if(active)state("Voz activa · Esperando indicación");
     }
+    void configureGrammar(String value){
+        if(value==null||value.isEmpty()||value.equals(grammar))return;
+        boolean resume=wanted;wanted=false;closeMicrophone();grammar=value;if(resume){wanted=true;openMicrophone();}
+    }
     private void closeMicrophone(){
         generation++;handler.removeCallbacksAndMessages(null);
         if(microphone!=null){microphone.cancel();microphone.shutdown();microphone=null;}
@@ -95,7 +100,7 @@ public final class VoiceSessionService extends Service {
         closeMicrophone();int attempt=generation;
         try{
             if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Permiso de micrófono revocado.");
-            recognizer=new Recognizer(model,16000,VoiceCommands.grammar());microphone=new SpeechService(recognizer,16000);
+            recognizer=new Recognizer(model,16000,grammar);microphone=new SpeechService(recognizer,16000);
             boolean started=microphone.startListening(new RecognitionListener(){
                 @Override public void onPartialResult(String json){handler.post(()->{if(attempt==generation)lastEvent=SystemClock.elapsedRealtime();});}
                 @Override public void onResult(String json){handler.post(()->{

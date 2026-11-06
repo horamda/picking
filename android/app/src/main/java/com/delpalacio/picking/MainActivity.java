@@ -62,6 +62,8 @@ public final class MainActivity extends Activity {
     private JSONObject user, load, court, check, activeTruck, controlTruck, pallet;
     private JSONObject voiceTemplates = new JSONObject();
     private JSONObject voiceSettings = new JSONObject();
+    private JSONObject voiceCommands = new JSONObject();
+    private float speechRate=1f;
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
     private final Set<String> automaticallySpokenProducts = new HashSet<>();
@@ -76,10 +78,14 @@ public final class MainActivity extends Activity {
     private Set<String> knownTasks;
     private String queueVersion="";
     private boolean refreshing;
+    private int voiceNextLoadId,voiceNextCourt;
+    private JSONObject voiceCourtCandidate;
+    private boolean voiceConfirmFinish;
+    private Runnable voiceShortageSubmit;
     private JSONObject fetchQueue() throws Exception {
         JSONObject response=obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
         if(isController())response.put("operators",new JSONArray(api.request("GET","/load-control/operators",null)));
-        try{JSONObject runtime=json("GET","/voice-templates/runtime",null);response.put("voice_templates",runtime.getJSONObject("templates"));response.put("voice_settings",runtime.optJSONObject("settings"));}catch(Exception ignored){ }
+        try{JSONObject runtime=json("GET","/voice-templates/runtime",null);response.put("voice_templates",runtime.getJSONObject("templates"));response.put("voice_settings",runtime.optJSONObject("settings"));response.put("voice_commands",runtime.optJSONObject("commands"));response.put("speech_rate",runtime.optDouble("speech_rate",1));}catch(Exception ignored){ }
         return response;
     }
     private String queueVersion(JSONObject response) throws Exception {
@@ -109,6 +115,7 @@ public final class MainActivity extends Activity {
             voiceSession=((VoiceSessionService.LocalBinder)binder).service();
             if(!voice || isDestroyed()){stopVoiceSession();return;}
             voiceSession.attach(voiceListener);
+            voiceSession.configureGrammar(VoiceCommands.grammar(voiceCommands));
         }
         public void onServiceDisconnected(ComponentName name){
             voiceSession=null;voice=false;stopAudio();updateVoiceUi("Voz detenida");
@@ -351,7 +358,7 @@ public final class MainActivity extends Activity {
                 try{
                     JSONObject runtime=json("GET","/voice-templates/runtime",null);JSONObject downloaded=runtime.getJSONObject("templates");
                     getPreferences(0).edit().putString(voiceTemplatesKey(api.base),downloaded.toString()).apply();
-                    voiceTemplates=downloaded;voiceSettings=runtime.optJSONObject("settings");if(voiceSettings==null)voiceSettings=new JSONObject();
+                    voiceTemplates=downloaded;voiceSettings=runtime.optJSONObject("settings");if(voiceSettings==null)voiceSettings=new JSONObject();voiceCommands=runtime.optJSONObject("commands");if(voiceCommands==null)voiceCommands=new JSONObject();speechRate=(float)runtime.optDouble("speech_rate",1);
                 }catch(Exception ignored){ }
                 return person;
             }, person -> {
@@ -362,7 +369,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.21.5 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.22.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -485,11 +492,12 @@ public final class MainActivity extends Activity {
     }
     private void listLoads() {
         if(!demo && api!=null && user!=null)PushRegistration.sync(this,api);
-        currentScreen = "loads"; voice=false; check = null; court = null;
+        currentScreen = "loads"; check = null; court = null;voiceNextLoadId=0;voiceNextCourt=0;voiceCourtCandidate=null;voiceConfirmFinish=false;
         stopAudio(); check=null; screen("Tu próximo trabajo");
         content=card(BORDER);text("Hola, "+user.optString("username"),22);
         List<Integer> sortedCourts=new ArrayList<>(assigned);Collections.sort(sortedCourts);
         TextView assignments=text("Tus canchas: " + sortedCourts,14);content=body;
+        if(!isController())voicePanel();
         pendingControls();
         task(this::fetchQueue, response -> {
             queueVersion=queueVersion(response);
@@ -498,6 +506,8 @@ public final class MainActivity extends Activity {
                 getPreferences(0).edit().putString(voiceTemplatesKey(api.base),voiceTemplates.toString()).apply();
             }
             if(response.has("voice_settings") && !response.isNull("voice_settings"))voiceSettings=response.getJSONObject("voice_settings");
+            if(response.has("voice_commands") && !response.isNull("voice_commands")){voiceCommands=response.getJSONObject("voice_commands");if(voiceSession!=null)voiceSession.configureGrammar(VoiceCommands.grammar(voiceCommands));}
+            speechRate=(float)response.optDouble("speech_rate",speechRate);
             operators=response.optJSONArray("operators");if(operators==null)operators=new JSONArray();
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
@@ -564,6 +574,7 @@ public final class MainActivity extends Activity {
                 }
                 if(nextLoad!=null && !truck.optString("planning_status").equals("pending")){
                     final int loadId=nextLoad.optInt("id"),courtNumber=nextCourt.optInt("numero");
+                    if(voiceNextLoadId==0){voiceNextLoadId=loadId;voiceNextCourt=courtNumber;}
                     text("Próxima tarea: reparto "+nextLoad.optString("reparto")+" · Cancha "+courtNumber,16);
                     styledButton(isController()?"Continuar control →":"Continuar picking →",GREEN,Color.WHITE,GREEN,()->{filter="Todos";openLoad(loadId,courtNumber);});
                 }else text(truck.optString("planning_status").equals("pending")?"Esperando aprobación del supervisor":"Sin tareas pendientes en este camión",16);
@@ -607,7 +618,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.21.3",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.22.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -679,6 +690,7 @@ public final class MainActivity extends Activity {
         task(() -> json("GET","/load-control/loads/"+id,null), result -> {
             currentScreen = "courts"; check = null; court = null;
             load=result; screen("Reparto " + load.optString("reparto")); button("Volver a cargas",this::listLoads);
+            if(!isController())voicePanel();voiceCourtCandidate=null;
             if(load.optBoolean("separate_reparto"))text(ProductSpeech.separation(load.optString("reparto"),load.optString("assembly_mode").equals("compact"),true),17);
             JSONObject loadPlan=load.optJSONObject("load_plan");
             if(loadPlan!=null)text("Este reparto ocupa "+loadPlan.optInt("total_pallets")+" pallets: "+loadPlan.optInt("full_count")+" completos + "+loadPlan.optInt("mixed_count")+" de picking.",16);
@@ -686,6 +698,7 @@ public final class MainActivity extends Activity {
             content=disclosure("Ver resumen del camión");truckSummary(load.optJSONObject("truck_summary"),false);
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
+                if(voiceCourtCandidate==null && !processState(c).equals("Finalizados") && c.optJSONArray("productos").length()>0 && c.optBoolean("can_prepare",true))voiceCourtCandidate=c;
                 content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
                 if(c.optBoolean("assistance",false))text("Refuerzo de hoy · Tu asignación semanal no cambia",14);
                 if(stage()==0 && c.optInt("full_pallet_count")>0){
@@ -869,7 +882,7 @@ public final class MainActivity extends Activity {
     }
     private void afterAnswer() {
         if(index<products.length()-1) {index++;product();}
-        else {voice=false;product();if(!isController())speak(voiceText("last_product","Último producto registrado. Revisá el avance y tocá finalizar picking."));}
+        else {product();if(!isController())speak(voiceText("last_product","Último producto registrado. Revisá el avance y decí finalizar picking."));}
     }
     private void shortage() {
         stopAudio();
@@ -961,7 +974,7 @@ public final class MainActivity extends Activity {
             public void afterTextChanged(android.text.Editable s){}
         };
         shortageB.addTextChangedListener(watcher);shortageU.addTextChangedListener(watcher);watcher.onTextChanged("",0,0,0);
-        styledButton("Registrar faltante",RED,Color.WHITE,RED,() -> {
+        voiceShortageSubmit=() -> {
             try {
                 String validation=ShortageAmounts.error(shortageB.getText().toString(),shortageU.getText().toString(),p.optInt("bultos"),p.optInt("unidades"));
                 if(!validation.isEmpty()){shortageFeedback.setText(validation);return;}
@@ -969,20 +982,21 @@ public final class MainActivity extends Activity {
                 int responsible=demo?0:user.getInt("id");
                 answer(obj("result","shortage","physical_b",physicalB,"physical_u",physicalU,"responsible_user_id",responsible,"origin","picking","shortage_reason",reasonValues[reason.getSelectedItemPosition()],"note",note.getText().toString()));
             } catch(Exception e) {error(e);}
-        });
+        };
+        styledButton("Registrar faltante",RED,Color.WHITE,RED,voiceShortageSubmit);
         button("Cancelar",()->{stopAudio();product();});content=body;
-        text("El faltante se confirma con un toque. La voz solo completa las cantidades; revisalas antes de guardar.",12);
-        if(voice)speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y confirmá con el botón."));
+        text("Revisá las cantidades y tocá Registrar faltante o decí registrar faltante.",12);
+        if(voice)speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y decí registrar faltante."));
     }
     private void pauseAndLeave() {
-        voice=false;stopAudio();
+        stopAudio();
         if(demo){login();return;}
         filter="Todos";
         if(check.isNull("timer_started_at")){if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id"));return;}
         task(() -> json("POST",path()+"/pause",obj()), result -> { check=result;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else openLoad(load.optInt("id")); });
     }
     private void finishPicking() {
-        voice=false;stopAudio();
+        stopAudio();voiceConfirmFinish=false;
         if(demo){login();message("Demostración finalizada. No se guardaron datos.");return;}
         task(() -> json("POST",path()+"/finish",obj()), result -> {filter="Todos";announceQueue=true;if(isController()&&controlTruck!=null)openControlTruck(controlTruck);else listLoads();});
     }
@@ -1032,7 +1046,9 @@ public final class MainActivity extends Activity {
     }
     private void activateVoice(){
         updateVoiceUi("Leyendo…");
-        if(currentScreen.equals("shortage"))speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y confirmá con el botón."));
+        if(currentScreen.equals("shortage"))speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y decí registrar faltante."));
+        else if(currentScreen.equals("loads"))speak(voiceNextLoadId>0?"Voz activa. Decí continuar para abrir tu próxima tarea, o actualizar tareas.":"Voz activa. No hay tareas disponibles. Podés decir actualizar tareas.");
+        else if(currentScreen.equals("courts"))speak(voiceCourtCandidate!=null?"Decí iniciar cancha para comenzar.":"No hay canchas disponibles en este reparto.");
         else speakProductOnce();
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
@@ -1051,6 +1067,7 @@ public final class MainActivity extends Activity {
     private void speak(String value) {
         stopAudio();
         if(!ttsReady){speechFailed(speechVersion);return;}
+        tts.setSpeechRate(Math.max(0.6f,Math.min(1.6f,speechRate)));
         int generation=++speechVersion;
         updateVoiceUi("Leyendo…");
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
@@ -1061,28 +1078,52 @@ public final class MainActivity extends Activity {
         if(tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"product-"+generation)==TextToSpeech.ERROR)speechFailed(generation);
     }
     private void startMic() {
-        if(!voice || voiceSession==null || check==null || check.isNull("timer_started_at"))return;
+        if(!voice || voiceSession==null)return;
+        if((currentScreen.equals("product")||currentScreen.equals("shortage")) && (check==null||check.isNull("timer_started_at")))return;
+        if(!currentScreen.equals("loads")&&!currentScreen.equals("courts")&&!currentScreen.equals("product")&&!currentScreen.equals("shortage"))return;
         voiceSession.listen();
     }
     private void command(String text) {
         if(text.trim().isEmpty())return;
         lastHeard=text;if(heardView!=null)heardView.setText("Escuché: “"+text+"”");
+        String action=VoiceCommands.parse(text,voiceCommands);
+        if(voiceConfirmFinish){
+            if(action.equals("confirm")){voiceConfirmFinish=false;finishPicking();}
+            else if(action.equals("cancel")){voiceConfirmFinish=false;speak("Finalización cancelada. Continuá con el picking.");}
+            else speak("Decí confirmar para finalizar o cancelar para continuar.");
+            return;
+        }
+        if(currentScreen.equals("loads")){
+            if(action.equals("continue") && voiceNextLoadId>0)openLoad(voiceNextLoadId,voiceNextCourt);
+            else if(action.equals("refresh"))listLoads();
+            else message("Decí continuar o actualizar tareas.");
+            return;
+        }
+        if(currentScreen.equals("courts")){
+            if(action.equals("start") && voiceCourtCandidate!=null)startCourt(voiceCourtCandidate,stage());
+            else if(action.equals("cancel"))listLoads();
+            else message("Decí iniciar cancha o cancelar.");
+            return;
+        }
         if(currentScreen.equals("shortage")){
+            if(action.equals("register") && voiceShortageSubmit!=null){voiceShortageSubmit.run();return;}
+            if(action.equals("cancel")){stopAudio();product();return;}
             Integer[] values=VoiceQuantities.parse(text);
-            if(values==null){message("Decí cantidades, por ejemplo: dos bultos tres unidades. Para guardar usá el botón.");return;}
+            if(values==null){message("Decí cantidades o registrar faltante.");return;}
             JSONObject p=products.optJSONObject(index);
             if((values[0]!=null && values[0]>p.optInt("bultos")) || (values[1]!=null && values[1]>p.optInt("unidades"))){message("La cantidad dictada supera la planilla. Repetila o corregila a mano.");return;}
             if(values[0]!=null){shortageB.setText(values[0].toString());shortageB.setBackground(shape(Color.WHITE,GREEN,12));bHint.setText("Completado por voz");bHint.setTextColor(GREEN);}
             if(values[1]!=null){shortageU.setText(values[1].toString());shortageU.setBackground(shape(Color.WHITE,GREEN,12));uHint.setText("Completado por voz");uHint.setTextColor(GREEN);}
-            message("Revisá las cantidades y tocá Registrar faltante.");return;
+            message("Revisá las cantidades y decí registrar faltante.");return;
         }
         if(!currentScreen.equals("product"))return;
-        switch(VoiceCommands.parse(text)){
+        switch(action){
             case "ok" -> answer(obj("result","ok"));
             case "shortage" -> shortage();
             case "repeat" -> speak(prompt());
             case "next" -> {if(index<products.length()-1){index++;product();}}
             case "prev" -> {if(index>0){index--;product();}}
+            case "finish" -> {voiceConfirmFinish=true;speak("¿Confirmás finalizar esta cancha? Decí confirmar o cancelar.");}
             default -> message(voiceText("unknown_command","No entendí. Decí correcto, faltante o repetir."));
         }
     }

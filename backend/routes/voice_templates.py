@@ -4,8 +4,9 @@ from flask import Blueprint, g, jsonify, request
 
 from auth import auth_required, roles_required
 from models import LogEntry
-from services.voice_templates import (VoiceTemplate, DEFINITIONS, SETTING_DEFINITIONS, catalog,
-                                      runtime_settings, runtime_templates, settings_catalog, validate_text)
+from services.voice_templates import (VoiceTemplate, DEFINITIONS, SETTING_DEFINITIONS, COMMAND_DEFINITIONS, catalog,
+                                      command_catalog, runtime_commands, runtime_settings, runtime_templates,
+                                      settings_catalog, speech_rate, validate_aliases, validate_text)
 from utils.db import db
 
 
@@ -15,14 +16,56 @@ voice_templates_bp = Blueprint('voice_templates', __name__)
 @voice_templates_bp.get('/runtime')
 @auth_required
 def runtime():
-    return jsonify(templates=runtime_templates(), settings=runtime_settings(), version=max(
+    return jsonify(templates=runtime_templates(), settings=runtime_settings(), commands=runtime_commands(),
+        speech_rate=speech_rate(), version=max(
         (row.updated_at.isoformat() for row in VoiceTemplate.query.all()), default='defaults'))
 
 
 @voice_templates_bp.get('')
 @roles_required('administrador')
 def list_templates():
-    return jsonify(templates=catalog(), settings=settings_catalog())
+    return jsonify(templates=catalog(), settings=settings_catalog(), commands=command_catalog(), speech_rate=speech_rate())
+
+
+@voice_templates_bp.put('/commands/<key>')
+@roles_required('administrador')
+def update_command(key):
+    data = request.get_json(silent=True) or {}
+    try:
+        aliases = validate_aliases(key, data.get('aliases'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    row = db.session.get(VoiceTemplate, f'command_{key}')
+    before = row.text if row else ','.join(COMMAND_DEFINITIONS[key]['aliases'])
+    if not row:
+        row = VoiceTemplate(key=f'command_{key}', enabled=True)
+        db.session.add(row)
+    row.text, row.updated_by = ','.join(aliases), g.current_user.id
+    db.session.add(LogEntry(user_id=g.current_user.id, entity='voice_command', action='editar_comando_voz',
+        details=json.dumps(dict(key=key, before=before, after=row.text), ensure_ascii=False)))
+    db.session.commit()
+    return jsonify(next(item for item in command_catalog() if item['key'] == key))
+
+
+@voice_templates_bp.put('/speech-rate')
+@roles_required('administrador')
+def update_speech_rate():
+    try:
+        value = float((request.get_json(silent=True) or {}).get('value'))
+    except (TypeError, ValueError):
+        return jsonify(error='Indicá una velocidad válida.'), 400
+    if not 0.6 <= value <= 1.6:
+        return jsonify(error='La velocidad debe estar entre 0,6 y 1,6.'), 400
+    row = db.session.get(VoiceTemplate, 'speech_rate')
+    before = speech_rate()
+    if not row:
+        row = VoiceTemplate(key='speech_rate', enabled=True)
+        db.session.add(row)
+    row.text, row.updated_by = f'{value:.2f}', g.current_user.id
+    db.session.add(LogEntry(user_id=g.current_user.id, entity='voice_setting', action='editar_velocidad_voz',
+        details=json.dumps(dict(before=before, after=value))))
+    db.session.commit()
+    return jsonify(value=value)
 
 
 @voice_templates_bp.put('/settings/<key>')

@@ -9,7 +9,7 @@ import { groupControlTrucks } from '../utils/controlTrucks'
 import ControlTruckCard from '../components/ControlTruckCard'
 import PalletPlanning from '../components/PalletPlanning'
 import VoiceControl from '../components/VoiceControl'
-import { speak } from '../voice/speech'
+import { speak, setSpeechRate } from '../voice/speech'
 
 import { voicePrompt } from '../voice/productPrompt'
 import FullPalletInfo from '../components/FullPalletInfo'
@@ -67,6 +67,7 @@ export default function LoadControlPage({ pickingOnly = false, controlsOnly = fa
         setTrucks(t.data); setSources(s.data); setOperators(o.data); setTypes(a.data); setLoaded(true)
         if (picker) api.get('/voice-templates/runtime').then(r => {
             setVoiceTemplates({ ...(r.data.templates || {}), __settings: r.data.settings || {} })
+            setSpeechRate(r.data.speech_rate)
         }).catch(() => {})
     }
     async function act(fn) {

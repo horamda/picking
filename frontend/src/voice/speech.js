@@ -1,6 +1,10 @@
 // Lectura en voz alta de la instrucción al operador (síntesis del sistema, en español).
 // Vive aparte del motor de reconocimiento para no cargar Vosk en todas las pantallas.
 let quietUntil = 0
+let configuredRate = 1
+export function setSpeechRate(value) {
+  configuredRate = Math.max(0.6, Math.min(1.6, Number(value) || 1))
+}
 export function isSpeaking() {
   return typeof window !== 'undefined' && Boolean(window.speechSynthesis?.speaking || window.speechSynthesis?.pending || Date.now() < quietUntil)
 }
@@ -20,7 +24,7 @@ export function speak(text, onError) {
   utterance.lang = 'es-AR'
   const voices = window.speechSynthesis.getVoices()
   utterance.voice = voices.find(v => v.lang === 'es-AR') || voices.find(v => v.lang.startsWith('es')) || null
-  utterance.rate = 1
+  utterance.rate = configuredRate
   utterance.onend = () => { quietUntil = Date.now() + 400 }
   utterance.onerror = event => {
     quietUntil = Date.now() + 400
