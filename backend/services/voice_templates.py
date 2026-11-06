@@ -40,6 +40,7 @@ DEFINITIONS = {
 SETTING_DEFINITIONS = {
     'speak_freshness_picking': dict(name='Leer frescura en picking', default=True),
     'speak_freshness_full_pallets': dict(name='Leer frescura en pallets completos', default=True),
+    'block_expired_products': dict(name='Bloquear productos con frescura vencida', default=True),
 }
 
 COMMAND_DEFINITIONS = {
@@ -57,6 +58,7 @@ COMMAND_DEFINITIONS = {
     'register': dict(name='Registrar faltante', aliases=('registrar faltante', 'guardar faltante')),
 }
 SPEECH_RATE_DEFAULT = 1.0
+FRESHNESS_WARNING_DAYS_DEFAULT = 30
 
 
 def command_catalog():
@@ -76,6 +78,14 @@ def speech_rate():
         return max(0.6, min(1.6, float(row.text))) if row else SPEECH_RATE_DEFAULT
     except (TypeError, ValueError):
         return SPEECH_RATE_DEFAULT
+
+
+def freshness_warning_days():
+    row = db.session.get(VoiceTemplate, 'freshness_warning_days')
+    try:
+        return max(0, min(365, int(row.text))) if row else FRESHNESS_WARNING_DAYS_DEFAULT
+    except (TypeError, ValueError):
+        return FRESHNESS_WARNING_DAYS_DEFAULT
 
 
 def validate_aliases(key, aliases):

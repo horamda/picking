@@ -6,7 +6,7 @@ from auth import auth_required, roles_required
 from models import LogEntry
 from services.voice_templates import (VoiceTemplate, DEFINITIONS, SETTING_DEFINITIONS, COMMAND_DEFINITIONS, catalog,
                                       command_catalog, runtime_commands, runtime_settings, runtime_templates,
-                                      settings_catalog, speech_rate, validate_aliases, validate_text)
+                                      freshness_warning_days, settings_catalog, speech_rate, validate_aliases, validate_text)
 from utils.db import db
 
 
@@ -17,14 +17,15 @@ voice_templates_bp = Blueprint('voice_templates', __name__)
 @auth_required
 def runtime():
     return jsonify(templates=runtime_templates(), settings=runtime_settings(), commands=runtime_commands(),
-        speech_rate=speech_rate(), version=max(
+        speech_rate=speech_rate(), freshness_warning_days=freshness_warning_days(), version=max(
         (row.updated_at.isoformat() for row in VoiceTemplate.query.all()), default='defaults'))
 
 
 @voice_templates_bp.get('')
 @roles_required('administrador')
 def list_templates():
-    return jsonify(templates=catalog(), settings=settings_catalog(), commands=command_catalog(), speech_rate=speech_rate())
+    return jsonify(templates=catalog(), settings=settings_catalog(), commands=command_catalog(),
+        speech_rate=speech_rate(), freshness_warning_days=freshness_warning_days())
 
 
 @voice_templates_bp.put('/commands/<key>')
@@ -63,6 +64,27 @@ def update_speech_rate():
         db.session.add(row)
     row.text, row.updated_by = f'{value:.2f}', g.current_user.id
     db.session.add(LogEntry(user_id=g.current_user.id, entity='voice_setting', action='editar_velocidad_voz',
+        details=json.dumps(dict(before=before, after=value))))
+    db.session.commit()
+    return jsonify(value=value)
+
+
+@voice_templates_bp.put('/freshness-warning-days')
+@roles_required('administrador')
+def update_freshness_warning_days():
+    try:
+        value = int((request.get_json(silent=True) or {}).get('value'))
+    except (TypeError, ValueError):
+        return jsonify(error='Indicá una cantidad de días válida.'), 400
+    if not 0 <= value <= 365:
+        return jsonify(error='La anticipación debe estar entre 0 y 365 días.'), 400
+    row = db.session.get(VoiceTemplate, 'freshness_warning_days')
+    before = freshness_warning_days()
+    if not row:
+        row = VoiceTemplate(key='freshness_warning_days', enabled=True)
+        db.session.add(row)
+    row.text, row.updated_by = str(value), g.current_user.id
+    db.session.add(LogEntry(user_id=g.current_user.id, entity='freshness_setting', action='editar_aviso_frescura',
         details=json.dumps(dict(before=before, after=value))))
     db.session.commit()
     return jsonify(value=value)

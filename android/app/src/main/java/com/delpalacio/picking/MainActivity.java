@@ -64,6 +64,7 @@ public final class MainActivity extends Activity {
     private JSONObject voiceSettings = new JSONObject();
     private JSONObject voiceCommands = new JSONObject();
     private float speechRate=1f;
+    private int freshnessWarningDays=30;
     private JSONArray products = new JSONArray(), operators = new JSONArray();
     private Set<Integer> assigned = new HashSet<>();
     private final Set<String> automaticallySpokenProducts = new HashSet<>();
@@ -85,7 +86,7 @@ public final class MainActivity extends Activity {
     private JSONObject fetchQueue() throws Exception {
         JSONObject response=obj("permissions",json("GET","/load-control/my-courts",null),"trucks",new JSONArray(api.request("GET","/load-control/trucks",null)));
         if(isController())response.put("operators",new JSONArray(api.request("GET","/load-control/operators",null)));
-        try{JSONObject runtime=json("GET","/voice-templates/runtime",null);response.put("voice_templates",runtime.getJSONObject("templates"));response.put("voice_settings",runtime.optJSONObject("settings"));response.put("voice_commands",runtime.optJSONObject("commands"));response.put("speech_rate",runtime.optDouble("speech_rate",1));}catch(Exception ignored){ }
+        try{JSONObject runtime=json("GET","/voice-templates/runtime",null);response.put("voice_templates",runtime.getJSONObject("templates"));response.put("voice_settings",runtime.optJSONObject("settings"));response.put("voice_commands",runtime.optJSONObject("commands"));response.put("speech_rate",runtime.optDouble("speech_rate",1));response.put("freshness_warning_days",runtime.optInt("freshness_warning_days",30));}catch(Exception ignored){ }
         return response;
     }
     private String queueVersion(JSONObject response) throws Exception {
@@ -142,6 +143,7 @@ public final class MainActivity extends Activity {
             if(color==Color.WHITE)color=SURFACE;
             if(color==0xffd1fae5 || color==0xffecfdf5)color=0xff10382e;
             if(color==0xfffff1f2)color=0xff451c2b;
+            if(color==0xfffffbeb)color=0xff3f2d12;
             if(border==0xffcbd5e1)border=BORDER;
         }
         GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));d.setStroke(dp(1),border);return d;
@@ -161,8 +163,8 @@ public final class MainActivity extends Activity {
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     private void gap(int height){View v=new View(this);content.addView(v,new LinearLayout.LayoutParams(1,dp(height)));}
     private LinearLayout card(int border){
-        LinearLayout v=column();v.setPadding(dp(14),dp(12),dp(14),dp(12));v.setBackground(shape(Color.WHITE,border,16));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(12);content.addView(v,lp);return v;
+        LinearLayout v=column();v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setBackground(shape(Color.WHITE,border,14));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(8);content.addView(v,lp);return v;
     }
     private void screen(String title) {
         voiceStatus=null;heardView=null;voiceButton=null;clockView=null;shortageB=null;shortageU=null;shortageFeedback=null;
@@ -179,11 +181,11 @@ public final class MainActivity extends Activity {
             ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(Math.max(1,products.length()));progress.setProgress(check.optJSONObject("answers").length());
             progress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(BORDER));header.addView(progress,new LinearLayout.LayoutParams(-1,dp(6)));
         }else{
-            header.addView(label("DEL PALACIO",12,GREEN,true));header.addView(label(title,26,INK,true));
+            header.addView(label("DEL PALACIO",11,GREEN,true));header.addView(label(title,22,INK,true));
             header.addView(label(user==null?"Operación de depósito":"Usuario: "+user.optString("username")+" · "+roleLabel(),13,MUTED,false));
         }
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();content=body;
-        content.setPadding(dp(16),dp(16),dp(16),dp(20));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        content.setPadding(dp(12),dp(12),dp(12),dp(16));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         status=label("",14,INK,false);status.setVisibility(View.GONE);content.addView(status);
         if(currentScreen.equals("login") || currentScreen.equals("loads"))button(dark?"Modo claro":"Modo oscuro",this::toggleTheme);
         setContentView(root);
@@ -203,9 +205,9 @@ public final class MainActivity extends Activity {
     private Button styledButton(String title,int fill,int ink,int border,Runnable action){
         if(dark && fill==INK && ink==Color.WHITE)ink=BG;
         if(dark && fill==0xfffff1f2)ink=0xfffda4af;
-        Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(16);b.setTextColor(ink);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setMinHeight(dp(52));b.setMinimumHeight(dp(52));
-        b.setPadding(dp(12),dp(12),dp(12),dp(12));b.setBackground(shape(fill,border,12));b.setStateListAnimator(null);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(10);content.addView(b,lp);b.setOnClickListener(v->{if(!busy)action.run();});return b;
+        Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(15);b.setTextColor(ink);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));
+        b.setPadding(dp(10),dp(8),dp(10),dp(8));b.setBackground(shape(fill,border,12));b.setStateListAnimator(null);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(8);content.addView(b,lp);b.setOnClickListener(v->{if(!busy)action.run();});return b;
     }
     private void message(String value) { if (status != null) {status.setText(value);status.setVisibility(value.isEmpty()?View.GONE:View.VISIBLE);} }
     private void updateClock(){
@@ -358,7 +360,7 @@ public final class MainActivity extends Activity {
                 try{
                     JSONObject runtime=json("GET","/voice-templates/runtime",null);JSONObject downloaded=runtime.getJSONObject("templates");
                     getPreferences(0).edit().putString(voiceTemplatesKey(api.base),downloaded.toString()).apply();
-                    voiceTemplates=downloaded;voiceSettings=runtime.optJSONObject("settings");if(voiceSettings==null)voiceSettings=new JSONObject();voiceCommands=runtime.optJSONObject("commands");if(voiceCommands==null)voiceCommands=new JSONObject();speechRate=(float)runtime.optDouble("speech_rate",1);
+                    voiceTemplates=downloaded;voiceSettings=runtime.optJSONObject("settings");if(voiceSettings==null)voiceSettings=new JSONObject();voiceCommands=runtime.optJSONObject("commands");if(voiceCommands==null)voiceCommands=new JSONObject();speechRate=(float)runtime.optDouble("speech_rate",1);freshnessWarningDays=runtime.optInt("freshness_warning_days",30);
                 }catch(Exception ignored){ }
                 return person;
             }, person -> {
@@ -369,7 +371,7 @@ public final class MainActivity extends Activity {
         content=body;
         content=card(BORDER);text("Probá antes de empezar",18);text("Conocé los comandos y comprobá el audio sin modificar las cargas.",14);
         button("Probar voz sin guardar datos", this::demo);
-        content=body;text("Versión 0.22.0 · Para guardar necesitás conexión.",12);
+        content=body;text("Versión 0.23.0 · Para guardar necesitás conexión.",12);
     }
     private void demo() {
         demo = true; user = obj("id",0,"username","Demostración"); load = obj("id",0,"reparto","DEMO","camion","12");lastHeard="";
@@ -508,6 +510,7 @@ public final class MainActivity extends Activity {
             if(response.has("voice_settings") && !response.isNull("voice_settings"))voiceSettings=response.getJSONObject("voice_settings");
             if(response.has("voice_commands") && !response.isNull("voice_commands")){voiceCommands=response.getJSONObject("voice_commands");if(voiceSession!=null)voiceSession.configureGrammar(VoiceCommands.grammar(voiceCommands));}
             speechRate=(float)response.optDouble("speech_rate",speechRate);
+            freshnessWarningDays=response.optInt("freshness_warning_days",freshnessWarningDays);
             operators=response.optJSONArray("operators");if(operators==null)operators=new JSONArray();
             assigned.clear(); JSONArray permissions=response.getJSONObject("permissions").getJSONArray("courts");
             for(int i=0;i<permissions.length();i++) assigned.add(permissions.getInt(i));
@@ -551,12 +554,12 @@ public final class MainActivity extends Activity {
             int found=0;
             for(int t=0;t<trucks.length();t++) { JSONObject truck=trucks.getJSONObject(t); JSONArray loads=truck.getJSONArray("loads");
                 JSONObject controlProgress=truck.optJSONObject("control_progress");boolean controlDone=isController()&&controlProgress!=null&&controlProgress.optBoolean("completed");
-                LinearLayout truckCard=card(controlDone?0xff64748b:BORDER);if(controlDone)truckCard.setAlpha(0.58f);content=truckCard;text("Camión actual: "+truck.optString("truck"),22);
-                text(truck.optString("load_date")+" · "+loads.length()+" cargas",15);
+                LinearLayout truckCard=card(controlDone?0xff64748b:BORDER);if(controlDone)truckCard.setAlpha(0.58f);content=truckCard;text("Camión "+truck.optString("truck"),19);
+                text(truck.optString("load_date")+" · "+loads.length()+" cargas",13);
                 JSONObject summary=truck.optJSONObject("summary"), mine=summary==null?null:summary.optJSONObject("mine");
                 if(mine!=null && !summary.isNull("pallets"))text(mine.optInt("finished_tasks")+" de "+mine.optInt("tasks")+" tareas finalizadas",18);
                 if(isController()){
-                    if(controlProgress!=null)text(controlProgress.optString("label"),18);
+                    if(controlProgress!=null)text(controlProgress.optString("label"),16);
                     text(controlDone?"Tu trabajo en este camión ya terminó. Podés consultar el resultado.":"Elegí este camión para ver sus pallets y el avance de ambos controles.",14);
                     styledButton(controlDone?"Ver resultado":"Ver pallets del camión →",controlDone?SURFACE:GREEN,controlDone?MUTED:Color.WHITE,controlDone?BORDER:GREEN,()->openControlTruck(truck));
                     content=body;
@@ -618,7 +621,7 @@ public final class MainActivity extends Activity {
             }
             message(trucks.length()==0 ? "No tenés camiones habilitados pendientes. Actualizá o consultá al supervisor." : "");
             button("Actualizar trabajo",this::listLoads);
-            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.22.0",12);content=body;
+            content=disclosure("Mi sesión");if(!isController())button("Notificaciones · Probar Firebase", () -> PushDiagnostics.show(this));button("Cerrar sesión", this::login);text("Del Palacio · Android 0.23.0",12);content=body;
         });
     }
     private void openLoad(int id) {
@@ -658,10 +661,10 @@ public final class MainActivity extends Activity {
             JSONObject item=pallets.optJSONObject(i),controls=item.optJSONObject("controls");
             JSONObject first=controls==null?null:controls.optJSONObject("1"),second=controls==null?null:controls.optJSONObject("2");
             content=card(item.optBoolean("assembly_done")?BORDER:0xff64748b);
-            text("Pallet "+item.optString("id")+" · Reparto "+item.optString("reparto"),20);
-            text("Cancha responsable "+item.optInt("owner_court")+" · "+item.optJSONArray("items").length()+" productos",14);
-            text("Control 1: "+palletControlStatus(first)+(first!=null&&!first.optString("username").isEmpty()?" · "+first.optString("username"):""),14);
-            text("Control 2: "+palletControlStatus(second)+(second!=null&&!second.optString("username").isEmpty()?" · "+second.optString("username"):""),14);
+            text("Pallet "+item.optString("id")+" · Reparto "+item.optString("reparto"),18);
+            text("Cancha "+item.optInt("owner_court")+" · "+item.optJSONArray("items").length()+" productos",13);
+            text("Control 1: "+palletControlStatus(first)+(first!=null&&!first.optString("username").isEmpty()?" · "+first.optString("username"):""),13);
+            text("Control 2: "+palletControlStatus(second)+(second!=null&&!second.optString("username").isEmpty()?" · "+second.optString("username"):""),13);
             if(!item.optBoolean("assembly_done"))text("Todavía en armado",14);
             else if(controlStage==1 && item.optBoolean("control1_available"))styledButton("Controlar pallet →",GREEN,Color.WHITE,GREEN,()->startPallet(item,1));
             else if(controlStage==2 && item.optBoolean("control2_available"))styledButton("Controlar pallet →",GREEN,Color.WHITE,GREEN,()->startPallet(item,2));
@@ -699,7 +702,7 @@ public final class MainActivity extends Activity {
             JSONArray courts=load.getJSONArray("canchas"); int count=0;
             for(int i=0;i<courts.length();i++) { JSONObject c=courts.getJSONObject(i); if(!matches(c) || (selectedCourt>0 && selectedCourt!=c.optInt("numero"))) continue; count++;
                 if(voiceCourtCandidate==null && !processState(c).equals("Finalizados") && c.optJSONArray("productos").length()>0 && c.optBoolean("can_prepare",true))voiceCourtCandidate=c;
-                content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),22);text(state+" · "+c.optJSONArray("productos").length()+" productos",14);
+                content=card(BORDER);String state=processState(c); text("Cancha " + c.optInt("numero"),19);text(state+" · "+c.optJSONArray("productos").length()+" productos",13);
                 if(c.optBoolean("assistance",false))text("Refuerzo de hoy · Tu asignación semanal no cambia",14);
                 if(stage()==0 && c.optInt("full_pallet_count")>0){
                     text("Pallets completos · Información",16);
@@ -770,6 +773,25 @@ public final class MainActivity extends Activity {
         try{return java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));}
         catch(Exception ignored){return value;}
     }
+    private java.time.LocalDate freshnessDate(JSONObject product){
+        String value=product.optString("fecha_frescura","");
+        if(value.isEmpty()||value.equalsIgnoreCase("null")||value.equalsIgnoreCase("none"))return null;
+        try{return java.time.LocalDate.parse(value);}catch(Exception ignored){return null;}
+    }
+    private boolean freshnessExpired(JSONObject product){
+        java.time.LocalDate date=freshnessDate(product);return date!=null&&date.isBefore(java.time.LocalDate.now());
+    }
+    private void freshnessBadge(JSONObject product){
+        java.time.LocalDate date=freshnessDate(product);
+        TextView badge;
+        if(date==null){badge=text("Frescura no informada",14);badge.setTextColor(dark?0xfffcd34d:0xff92400e);badge.setBackground(shape(0xfffffbeb,0xfffcd34d,10));}
+        else {long days=java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(),date);String label="Frescura "+freshnessText(date.toString());int fill=0xffecfdf5,border=0xff6ee7b7,color=0xff047857;
+            if(days<0){label+=" · VENCIDA";fill=0xfffff1f2;border=0xfffda4af;color=RED;}
+            else if(freshnessWarningDays>0&&days<=freshnessWarningDays){label+=" · vence en "+days+" días";fill=0xfffffbeb;border=0xfffcd34d;color=0xff92400e;}
+            badge=text(label,14);badge.setTextColor(dark&&color==0xff047857?0xff6ee7b7:color);badge.setBackground(shape(fill,border,10));
+        }
+        badge.setPadding(dp(10),dp(8),dp(10),dp(8));
+    }
     private String productKey(JSONObject product){
         if(product==null)return "";
         String sku=product.optString("sku","");
@@ -793,8 +815,8 @@ public final class MainActivity extends Activity {
         if(p.optBoolean("separate_reparto"))text(ProductSpeech.separation(p.optString("reparto"),p.optString("assembly_mode").equals("compact"),true),16);
         content=card(BORDER);
         text("SKU " + p.optString("sku")+(p.optString("almacen").isEmpty()?"":" · "+p.optString("almacen")),12);
-        text(p.optString("descripcion"),24);
-        String freshness=freshnessText(p.optString("fecha_frescura"));if(!freshness.isEmpty())text("Frescura exacta: "+freshness,18);
+        TextView productName=text(p.optString("descripcion"),21);productName.setMaxLines(2);productName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        freshnessBadge(p);
         String destination=destinations(p);
         if(!destination.isEmpty())text(destination,17);
         if(stage() == 4) text(p.optInt("pallets") + " PALLETS COMPLETOS", 28);
@@ -803,7 +825,7 @@ public final class MainActivity extends Activity {
             LinearLayout box=column();box.setGravity(Gravity.CENTER);box.setPadding(dp(8),dp(8),dp(8),dp(8));box.setBackground(shape(BG,BG,12));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);if(i==0)lp.rightMargin=dp(10);amounts.addView(box,lp);
             TextView caption=label(i==0?"BULTOS DE LA\nPLANILLA":"UNIDADES DE LA\nPLANILLA",10,MUTED,false);caption.setGravity(Gravity.CENTER);box.addView(caption);
-            TextView amount=label(String.valueOf(p.optInt(i==0?"bultos":"unidades")),40,INK,true);amount.setGravity(Gravity.CENTER);box.addView(amount);
+            TextView amount=label(String.valueOf(p.optInt(i==0?"bultos":"unidades")),34,INK,true);amount.setGravity(Gravity.CENTER);box.addView(amount);
         }
         gap(8);LinearLayout palletData=row();content.addView(palletData);
         String[] metricLabels={"Bultos por piso","Pisos","Bultos por pallet"};String[] metricKeys={"bultos_por_piso","pisos_por_pallet","bultos_por_pallet"};
@@ -831,7 +853,11 @@ public final class MainActivity extends Activity {
         pendingControls();
         boolean paused=check.isNull("timer_started_at");
         if(paused) { message("Proceso pausado. Reanudalo antes de registrar."); button("Reanudar "+stageLabel(), () -> startCourt(court,stage())); }
-        else if(!pendingAnswer()) {
+        else if(freshnessExpired(p) && voiceSettings.optBoolean("block_expired_products",true)) {
+            message("Producto bloqueado: la frescura está vencida. Informá al supervisor o registrá la diferencia correspondiente.");
+            if(isController())styledButton("Registrar diferencia de frescura",0xfffffbeb,0xff92400e,0xfffcd34d,()->showIncident("corrected"));
+            styledButton("Registrar faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage);
+        } else if(!pendingAnswer()) {
             styledButton("Correcto →",GREEN,Color.WHITE,GREEN, () -> answer(obj("result","ok")));
             if(isController())styledButton("Error corregido",0xfffffbeb,0xff92400e,0xfffcd34d,()->showIncident("corrected"));
             styledButton("Faltante real",0xfffff1f2,RED,0xfffda4af,this::shortage);
