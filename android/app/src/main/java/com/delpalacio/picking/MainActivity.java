@@ -224,7 +224,11 @@ public final class MainActivity extends Activity {
         });voiceButton.setLayoutParams(new LinearLayout.LayoutParams(dp(112),-2));
         voiceStatus=label(voice?"Preparando…":"Voz desactivada",13,MUTED,false);voiceStatus.setPadding(dp(12),0,0,0);controls.addView(voiceStatus,new LinearLayout.LayoutParams(0,-2,1));content=panel;
         gap(10);heardView=text(lastHeard.isEmpty()?"Todavía no escuché un comando":"Escuché: “"+lastHeard+"”",14);heardView.setTextColor(dark?0xff6ee7b7:0xff047857);heardView.setPadding(dp(12),dp(10),dp(12),dp(10));heardView.setBackground(shape(0xffecfdf5,0xffa7f3d0,8));
-        text(currentScreen.equals("shortage")?"Decí, por ejemplo: un bulto y luego dos unidades.":"Comandos: correcto, faltante, anterior, siguiente y repetir.",12);content=parent;
+        String guidance=currentScreen.equals("shortage")?"Decí, por ejemplo: un bulto y luego dos unidades.":
+            currentScreen.equals("loads")?"Comandos: iniciar, continuar o actualizar tareas.":
+            currentScreen.equals("courts")?"Comandos: iniciar cancha o cancelar.":
+            "Comandos: correcto, faltante, anterior, siguiente y repetir.";
+        text(guidance,12);content=parent;
     }
     private void updateVoiceUi(String state){if(voiceButton!=null)voiceButton.setText(voice?"Parar voz":"Activar voz");if(voiceStatus!=null)voiceStatus.setText(state);}
     private interface Work<T> { T run() throws Exception; }
@@ -1119,7 +1123,7 @@ public final class MainActivity extends Activity {
     private void activateVoice(){
         updateVoiceUi("Leyendo…");
         if(currentScreen.equals("shortage"))speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y decí registrar faltante."));
-        else if(currentScreen.equals("loads"))speak(voiceNextLoadId>0?"Voz activa. Decí continuar para abrir tu próxima tarea, o actualizar tareas.":"Voz activa. No hay tareas disponibles. Podés decir actualizar tareas.");
+        else if(currentScreen.equals("loads"))speak(voiceNextLoadId>0?"Voz activa. Decí iniciar o continuar para abrir tu próxima tarea, o actualizar tareas.":"Voz activa. No hay tareas disponibles. Podés decir actualizar tareas.");
         else if(currentScreen.equals("courts"))speak(voiceCourtCandidate!=null?"Decí iniciar cancha para comenzar.":"No hay canchas disponibles en este reparto.");
         else speakProductOnce();
     }
@@ -1166,9 +1170,10 @@ public final class MainActivity extends Activity {
             return;
         }
         if(currentScreen.equals("loads")){
-            if(action.equals("continue") && voiceNextLoadId>0)openLoad(voiceNextLoadId,voiceNextCourt);
+            if((action.equals("start") || action.equals("continue")) && voiceNextLoadId>0)openLoad(voiceNextLoadId,voiceNextCourt);
             else if(action.equals("refresh"))listLoads();
-            else invalidVoiceCommand("Decí continuar o actualizar tareas.");
+            else if((action.equals("start") || action.equals("continue")))invalidVoiceCommand("Todavía no hay una tarea habilitada. Decí actualizar tareas.");
+            else invalidVoiceCommand("Decí iniciar, continuar o actualizar tareas.");
             return;
         }
         if(currentScreen.equals("courts")){
