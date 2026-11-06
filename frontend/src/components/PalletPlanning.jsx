@@ -48,6 +48,7 @@ export default function PalletPlanning({ truck, onClose }) {
     const button = 'min-h-12 rounded-xl border border-slate-300 bg-white px-4 py-2 font-medium disabled:opacity-40'
     const capacityMatches = configuredCapacity !== null && result?.capacity === configuredCapacity
     const loadPlanTotal = result?.load_plans?.reduce((sum, plan) => sum + plan.total_pallets, 0) || 0
+    const phase = approved || locked ? 3 : result ? 2 : 1
     async function simulate(event) {
         event.preventDefault(); setBusy(true); setError(''); setMessage(''); setResult(null); setReviewed(false); setApproved(false)
         try {
@@ -77,12 +78,15 @@ export default function PalletPlanning({ truck, onClose }) {
                 fits_estimate: total <= current.capacity, load_plans: loadPlans, manual_edition: true }
         })
     }
-    return <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-5" aria-label="Simulación de pallets">
-        <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">Planificar pallets · {truck.truck}</h2><button className={button} onClick={onClose}>Cerrar</button></div>
-        <p>Revisá el armado y aprobalo para entregar las tareas a los operarios.</p>
-        <p className="rounded-xl bg-white p-3 font-semibold">Cada reparto se arma separado. Ningún pallet puede contener mercadería de otro reparto ni de otro camión.</p>
+    return <section className="space-y-5 rounded-2xl border bg-white p-4 sm:p-6" aria-label="Simulación de pallets">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4"><div><button className="mb-3 text-sm font-semibold text-brand-600 hover:underline" onClick={onClose}>← Volver a selección de cargas</button><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Camión {truck.truck} · {truck.branch}</p><h2 className="mt-1 text-2xl font-bold">Planificación y aprobación de pallets</h2><p className="mt-1 text-sm text-slate-600">Configurá el armado, revisá la simulación y recién después enviala al equipo.</p></div><button className={button} onClick={onClose}>Salir</button></header>
+        <ol className="grid gap-2 sm:grid-cols-3" aria-label="Etapas de planificación">{[['1', 'Configurar'], ['2', 'Revisar pallets'], ['3', 'Aprobar y enviar']].map(([number, label], index) => { const step=index+1, active=phase===step, complete=phase>step; return <li key={number} className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2 ${active ? 'border-brand-500 bg-brand-50' : complete ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${active ? 'bg-brand-500 text-white' : complete ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{complete ? '✓' : number}</span><span className="font-semibold">{label}</span></li>})}</ol>
+        <p className="rounded-xl border border-blue-200 bg-blue-50 p-3 font-semibold">Regla fija: cada reparto se arma separado. Ningún pallet puede contener mercadería de otro reparto ni de otro camión.</p>
         {locked && result?.separation_policy !== 'reparto_v1' && <p role="alert" className="rounded-xl bg-amber-100 p-3">Plan anterior ya iniciado: revisar físicamente la separación entre repartos. Sus instrucciones no se reemplazan durante el armado.</p>}
         {locked && <p className="rounded-xl bg-amber-100 p-3">El trabajo ya comenzó. Se conserva el plan aprobado y no se pueden cambiar sus cantidades.</p>}
+        <details open={!result} className="rounded-2xl border border-slate-200 bg-slate-50">
+            <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-3 px-4 py-3 font-semibold"><span>1. Configuración del armado</span>{result && <span className="text-sm font-normal text-slate-500">{loads.length} repartos · capacidad {capacity} pallets</span>}</summary>
+            <div className="space-y-4 border-t border-slate-200 p-4">
         <form className="flex flex-wrap items-end gap-4" onSubmit={simulate}>
             <fieldset disabled={busy || locked} className="min-w-0 w-full space-y-3"><legend className="mb-2 font-semibold">Tipo de armado de cada reparto</legend>
                 {loads.map(l => <div key={l.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3"><b>Reparto {l.reparto}</b><div className="flex flex-wrap items-center gap-4"><select aria-label={`Armado del reparto ${l.reparto}`} className="min-h-12 min-w-0 rounded-xl border p-2 text-sm" value={compact.includes(l.id) ? 'compact' : 'normal'} onChange={e => { const enabled = e.target.value === 'compact'; setCompact(current => enabled ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setMergeAllowed(current => enabled ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setResult(null); setReviewed(false); setApproved(false) }}><option value="normal">Normal · por canchas</option><option value="compact">Supermercado / autoelevador · reducir pallets</option></select><label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={mergeAllowed.includes(l.id)} onChange={e => { setMergeAllowed(current => e.target.checked ? [...current.filter(n => n !== l.id), l.id] : current.filter(n => n !== l.id)); setResult(null); setReviewed(false) }} />Permitir unir pallets</label></div></div>)}
@@ -97,6 +101,8 @@ export default function PalletPlanning({ truck, onClose }) {
             <p className="text-sm">Depósito {truck.branch} · Camión {truck.truck}. Usá su capacidad física real; no la cantidad de pallets calculada para esta carga.</p>
             {admin ? <p>El botón «Guardar capacidad y calcular armado» registra este valor en el depósito de la carga. <Link className="underline" to="/configuracion">Ver configuración</Link></p> : <p>Si falta la capacidad o es incorrecta, pedile al administrador que la registre en «Camiones y capacidad».</p>}
         </div>}
+            </div>
+        </details>
         {message && <p role="status" className="rounded-xl bg-emerald-100 p-4">{message}</p>}
         {error && <p role="alert" className="text-red-800">{error}</p>}
         {approved && !locked && <p role="status" className="rounded-xl bg-emerald-100 p-4">Carga aprobada. Cada operario la verá cuando le corresponda en la cola de camiones; primero debe terminar sus tareas anteriores.</p>}
