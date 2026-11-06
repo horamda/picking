@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api/axiosClient'
 import DispatchPreview from './DispatchPreview'
 const button = 'min-h-12 rounded-xl border bg-white px-4 py-2 disabled:opacity-40'
+const primary = 'min-h-12 rounded-xl bg-brand-500 px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40'
 export default function DispatchBoard({ date, onSaved, onPlan }) {
     const [board, setBoard] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), [dirty, setDirty] = useState(false)
     useEffect(() => {
@@ -25,29 +26,38 @@ export default function DispatchBoard({ date, onSaved, onPlan }) {
         } catch (e) { setError(e.response?.data?.error || 'No se pudo guardar la cola. Actualizá la página y reintentá.') }
         finally { setBusy(false) }
     }
-    return <section className="space-y-4 rounded-2xl border bg-white p-4 sm:p-6">
-        <h2 className="text-xl font-bold">Cargas del día por camión</h2>
-        <p className="text-sm text-slate-600">Cada camión reúne todos sus repartos de la fecha seleccionada, aunque estén intercalados en el PDF. Marcá las cargas a preparar, ordená los camiones y aprobá el armado consolidado.</p>
-        {board && <p className="rounded-lg bg-slate-100 p-3 text-sm"><b>{date.split('-').reverse().join('/')}</b> · {board.groups.length} camiones · {board.groups.reduce((n, g) => n + g.sources.length, 0)} cargas / repartos</p>}
+    const groups = board?.groups || []
+    const selectedSources = groups.flatMap(g => g.sources.filter(s => s.selected))
+    const selectedTrucks = groups.filter(g => g.sources.some(s => s.selected)).length
+    const selectedBultos = selectedSources.reduce((n, s) => n + s.totals.bultos, 0)
+    const selectedUnits = selectedSources.reduce((n, s) => n + s.totals.unidades, 0)
+    return <section className="space-y-4 rounded-2xl border bg-white p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Planificación del día</p><h2 className="mt-1 text-xl font-bold">Seleccionar cargas y ordenar camiones</h2><p className="mt-1 max-w-3xl text-sm text-slate-600">1. Marcá las cargas · 2. Ordená los camiones · 3. Guardá los cambios · 4. Revisá y aprobá los pallets.</p></div>
+            {board && <div className="rounded-xl bg-slate-100 px-4 py-2 text-right text-sm"><b className="block text-base">{date.split('-').reverse().join('/')}</b><span className="text-slate-600">{groups.length} camiones · {groups.reduce((n, g) => n + g.sources.length, 0)} cargas</span></div>}
+        </div>
         {!date && <p>Seleccioná la fecha de reparto del PDF.</p>}
         {error && <p role="alert" className="text-red-700">{error}</p>}
-        {board?.groups.length === 0 && <p>No hay cargas para esta fecha. Usá la fecha de reparto del PDF, que puede diferir de la fecha de subida.</p>}
-        {board?.groups.map((g, index) => {
+        {groups.length === 0 && board && <p className="rounded-xl bg-slate-50 p-4">No hay cargas para esta fecha. Usá la fecha de reparto del PDF, que puede diferir de la fecha de subida.</p>}
+        {groups.map((g, index) => {
             const selected = g.sources.filter(s => s.selected), bultos = selected.reduce((n, s) => n + s.totals.bultos, 0), units = selected.reduce((n, s) => n + s.totals.unidades, 0)
-            return <article key={`${g.branch}/${g.truck}`} className="rounded-xl border p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3"><label className="flex min-h-12 items-center gap-3 font-bold"><input type="checkbox" disabled={busy || g.locked} checked={g.sources.every(s => s.selected)} onChange={e => toggle(index, null, e.target.checked)} className="h-5 w-5" />Camión {g.truck} · {g.branch}</label><div className="flex gap-2"><button className={button} disabled={busy || g.locked || index === 0 || board.groups[index - 1]?.locked} aria-label={`Adelantar camión ${g.truck}`} onClick={() => move(index, -1)}>↑</button><button className={button} disabled={busy || g.locked || index === board.groups.length - 1 || board.groups[index + 1]?.locked} aria-label={`Retrasar camión ${g.truck}`} onClick={() => move(index, 1)}>↓</button></div></div>
-                {g.locked && <p className="text-sm text-amber-800">Trabajo iniciado: selección y orden fijados.</p>}
-                <p className="my-2 text-sm font-semibold">{g.sources.length} cargas de este camión · {selected.length} seleccionadas</p>
-                <div className="space-y-2 border-l-2 border-blue-200 pl-3 sm:pl-5">
-                    {g.sources.map(s => <label key={s.id} className={`flex min-h-12 items-start gap-3 rounded-lg border p-3 ${s.selected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}><input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={busy || g.locked || !!s.error} checked={s.selected} onChange={e => toggle(index, s.id, e.target.checked)} /><span className="min-w-0"><b className="block">Carga · Reparto {s.reparto}</b>{s.error ? <span className="text-red-700">{s.error}</span> : <><span className="block text-sm">Canchas: {s.court_numbers?.join(', ') || 'Sin detalle'}</span><span className="block text-sm text-slate-600">{s.totals.bultos} bultos + {s.totals.unidades} unidades</span></>}</span></label>)}
+            const allSelected = g.sources.length > 0 && selected.length === g.sources.length
+            return <article key={`${g.branch}/${g.truck}`} className={`overflow-hidden rounded-2xl border-2 ${selected.length ? 'border-brand-200' : 'border-slate-200'}`}>
+                <header className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${selected.length ? 'bg-brand-50' : 'bg-slate-50'}`}>
+                    <label className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-3"><input type="checkbox" disabled={busy || g.locked} checked={allSelected} onChange={e => toggle(index, null, e.target.checked)} className="h-5 w-5 shrink-0" /><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{index + 1}</span><span className="min-w-0"><b className="block truncate text-base">Camión {g.truck}</b><span className="block truncate text-xs text-slate-500">{g.branch} · {selected.length} de {g.sources.length} cargas seleccionadas</span></span></label>
+                    <div className="flex items-center gap-2">{g.locked && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Trabajo iniciado</span>}<button className={`${button} min-h-10 px-3`} disabled={busy || g.locked || index === 0 || groups[index - 1]?.locked} aria-label={`Adelantar camión ${g.truck}`} title="Mover antes" onClick={() => move(index, -1)}>↑</button><button className={`${button} min-h-10 px-3`} disabled={busy || g.locked || index === groups.length - 1 || groups[index + 1]?.locked} aria-label={`Retrasar camión ${g.truck}`} title="Mover después" onClick={() => move(index, 1)}>↓</button></div>
+                </header>
+                <div className="p-4">
+                {g.locked && <p className="mb-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">La preparación ya comenzó. La selección y el orden no se pueden modificar.</p>}
+                <div className="grid gap-2 md:grid-cols-2">
+                    {g.sources.map(s => <label key={s.id} className={`flex min-h-20 cursor-pointer items-start gap-3 rounded-xl border-2 p-3 transition-colors ${s.selected ? 'border-brand-400 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'} ${s.error ? 'cursor-not-allowed border-red-200' : ''}`}><input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={busy || g.locked || !!s.error} checked={s.selected} onChange={e => toggle(index, s.id, e.target.checked)} /><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center justify-between gap-2"><b>Reparto {s.reparto}</b>{s.selected && <span className="rounded-full bg-brand-500 px-2 py-0.5 text-[11px] font-semibold text-white">Incluido</span>}</span>{s.error ? <span className="text-sm text-red-700">{s.error}</span> : <><span className="mt-1 block text-sm">Canchas {s.court_numbers?.join(', ') || 'sin detalle'}</span><span className="block text-sm text-slate-600">{s.totals.bultos} bultos · {s.totals.unidades} unidades</span></>}</span></label>)}
                 </div>
-                <h3 className="mt-4 font-bold">Total a preparar · Camión {g.truck}</h3>
-                <p className="text-sm">{selected.length} cargas seleccionadas · {bultos} bultos + {units} unidades</p>
-                {!selected.length && <p className="mt-2 text-sm text-slate-500">Seleccioná las cargas que querés incluir en el armado de este camión.</p>}
-                <DispatchPreview sourceIds={selected.map(s => s.id)} />
-                {g.truck_id && selected.length > 0 && <button className={`${button} mt-3`} disabled={busy || dirty} onClick={() => onPlan({ id: g.truck_id, truck: g.truck, branch: g.branch })}>Revisar pallets y aprobar{g.planning_status === 'approved' ? ' · Aprobado' : ''}</button>}
+                <div className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl p-3 ${selected.length ? 'bg-emerald-50' : 'bg-slate-100'}`}><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total a preparar</p><p className="font-bold">{selected.length} cargas · {bultos} bultos · {units} unidades</p></div>{!selected.length ? <p className="text-sm text-slate-500">Marcá al menos una carga.</p> : <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">Seleccionado</span>}</div>
+                {!!selected.length && <details className="mt-3 rounded-xl border border-slate-200"><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">Ver cálculo preliminar de pallets y HL</summary><div className="px-3 pb-1"><DispatchPreview sourceIds={selected.map(s => s.id)} /></div></details>}
+                {g.truck_id && selected.length > 0 && <div className="mt-3 flex flex-wrap items-center justify-end gap-3">{dirty && <span className="text-sm text-amber-700">Primero guardá los cambios de selección.</span>}<button className={g.planning_status === 'approved' ? button : primary} disabled={busy || dirty} onClick={() => onPlan({ id: g.truck_id, truck: g.truck, branch: g.branch })}>{g.planning_status === 'approved' ? 'Revisar planificación aprobada' : 'Revisar pallets y aprobar →'}</button></div>}
+                </div>
             </article>
         })}
-        {!!board?.groups.length && <button className="min-h-12 rounded-xl bg-brand-500 px-5 text-white disabled:opacity-40" disabled={busy} onClick={save}>{busy ? 'Guardando…' : 'Guardar selección y orden'}</button>}
+        {!!groups.length && <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-300 bg-white/95 p-3 shadow-lg backdrop-blur"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selección total</p><p className="text-sm"><b>{selectedSources.length} cargas en {selectedTrucks} camiones</b> · {selectedBultos} bultos · {selectedUnits} unidades</p></div><button className={primary} disabled={busy || !dirty} onClick={save}>{busy ? 'Guardando…' : dirty ? 'Guardar selección y orden' : 'Cambios guardados'}</button></div>}
     </section>
 }
