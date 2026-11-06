@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
 import { getStoredUser, clearAuthSession } from './utils/auth'
 import AdminPage from './pages/AdminPage'
 import TimingPage from './pages/TimingPage'
@@ -20,6 +20,7 @@ import ThemeSwitch from './components/ThemeSwitch'
 import VoiceTemplatesPage from './pages/VoiceTemplatesPage'
 import PalletRulesPage from './pages/PalletRulesPage'
 import PreviousLoadsPage from './pages/PreviousLoadsPage'
+import { homeForRole } from './utils/roleAccess'
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -60,7 +61,7 @@ function App() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                                             </svg>
                                         </button>
-                                        <span className="text-base font-semibold text-slate-900">Picking Analytics</span>
+                                        <Link to={homeForRole(user?.role)} className="text-base font-semibold text-slate-900">Picking Analytics · Inicio</Link>
                                     </header>
                                     <main className="min-w-0 flex-1">
                                         {runtime?.mode === 'prueba' && runtime.shared_database && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">Modo prueba: conectado a la base de Railway. Los cambios se guardan en los datos compartidos.</div>}

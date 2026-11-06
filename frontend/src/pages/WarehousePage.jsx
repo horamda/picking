@@ -55,10 +55,8 @@ export default function WarehousePage({ section = 'overview', supervision = fals
     const processes = overview?.processes || []
     const state = p => p.status
     const supervisorArea = supervision || section === 'overview' || !admin
-    const links = supervisorArea ? [['/supervision', 'Seguimiento'], ['/supervision/cargas', 'Planificar cargas'], ['/supervision/faltantes', 'Faltantes'], ['/supervision/equipo', 'Asignar recursos'], ['/tiempos', 'Tiempos'], ['/monitor', 'Pantalla en vivo']] : [['/administracion', 'Administración'], ['/equipo', 'Usuarios y canchas'], ['/configuracion', 'Camiones']]
     return <div className="mx-auto max-w-6xl space-y-5 p-4 pb-20 sm:p-8">
         <header><p className="text-sm text-brand-600">Del Palacio · {supervisorArea ? 'Supervisión' : 'Administración'}</p><h1 className="mt-1 text-2xl font-bold">{{ overview: 'Depósito en vivo', team: 'Equipo y canchas', settings: 'Camiones y capacidad' }[section]}</h1></header>
-        <nav className="flex gap-2 overflow-x-auto pb-2" aria-label="Secciones del panel">{links.map(([to, label]) => <Link key={to} to={to} className="min-h-12 shrink-0 rounded-xl border bg-white px-4 py-3 text-sm font-medium">{label}</Link>)}</nav>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-800">{message}</p>}
         {section === 'overview' && <>

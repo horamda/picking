@@ -1,24 +1,18 @@
 import { Link } from 'react-router-dom'
+import { NAVIGATION, ADMIN_GROUPS } from '../utils/navigation'
 
-const areas = [
-    ['/administracion/cargas-anteriores', 'Cargas anteriores', 'Estado de cargas anteriores a hoy y anulación auditada de armados incompletos.'],
-    ['/operacion?tab=picking-by-cancha', 'Reporte diario de picking por cancha', 'Bultos de picking, bultos de pallets y total por cancha. Elegí Hoy o un rango de fechas en el informe.'],
-    ['/equipo', 'Usuarios y canchas', 'Alta de personas, roles y asignación de una o varias canchas.'],
-    ['/configuracion', 'Camiones y capacidad', 'Posiciones físicas de pallets y configuración del depósito.'],
-    ['/articulos', 'Artículos y voz', 'Maestro activo, datos originales y descripción para voz.'],
-    ['/frases-voz', 'Frases de voz', 'Textos que pronuncian la web y Android durante el trabajo.'],
-    ['/reglas-pallets', 'Mezclador de pallets', 'Familias de calibre, bases y compatibilidades de apilado.'],
-    ['/importaciones', 'Importaciones', 'Consolidados PDF y maestro de artículos CSV.'],
-    ['/', 'Dashboard', 'Reportes anteriores de la operación.'],
-    ['/historial', 'Historial', 'Consulta de archivos y procesos anteriores.'],
-    ['/tiempos', 'Tiempos y auditoría', 'Actividad por persona, cancha y proceso.'],
-    ['/exclusiones', 'Exclusiones', 'Mantenimiento de las exclusiones del sistema.'],
-]
+const visibleGroups = ADMIN_GROUPS.filter(([title]) => title !== 'Inicio')
+const groupDescriptions = {
+    'Operación y supervisión': 'Trabajo diario del depósito y seguimiento en tiempo real.',
+    'Personas y configuración': 'Maestros y parámetros que definen cómo trabaja el sistema.',
+    'Carga de datos': 'Entrada de consolidados y catálogos externos.',
+    'Reportes e historial': 'Consultas de información registrada; no modifican el trabajo actual.',
+}
 
 export default function AdminPage() {
-    return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
-        <header><p className="text-sm text-brand-600">Del Palacio · Administración</p><h1 className="mt-1 text-2xl font-bold">Panel administrativo</h1><p className="mt-2 text-slate-600">Configuración, usuarios, catálogos e importaciones.</p></header>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{areas.map(([to, title, text]) => <Link key={to} to={to} className="rounded-2xl border bg-white p-5 hover:border-brand-500 focus:ring-2 focus:ring-brand-500"><h2 className="text-lg font-semibold">{title}</h2><p className="mt-2 text-sm text-slate-600">{text}</p></Link>)}</div>
-        <section className="rounded-2xl border bg-slate-100 p-5"><h2 className="font-semibold">Operación del depósito</h2><p className="mt-2 text-sm text-slate-600">El supervisor coordina y aprueba las cargas. Controladores y operarios ingresan con sus propios usuarios a su interfaz de trabajo.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/supervision" className="min-h-12 rounded-xl bg-brand-500 px-4 py-3 text-white">Abrir supervisión</Link><Link to="/monitor" className="min-h-12 rounded-xl border bg-white px-4 py-3">Pantalla en vivo</Link><a href="/downloads/del-palacio-picking-0.18.0.apk" className="min-h-12 rounded-xl border bg-white px-4 py-3">Descargar app Android</a></div></section>
+    return <div className="mx-auto max-w-7xl space-y-7 p-4 sm:p-8">
+        <header className="rounded-3xl border border-brand-100 bg-brand-50 p-5 sm:p-7"><p className="text-sm font-semibold text-brand-600">Del Palacio · Administración</p><h1 className="mt-1 text-3xl font-bold">Inicio del sistema</h1><p className="mt-2 max-w-3xl text-slate-600">Elegí una tarea. La operación diaria, la configuración y los reportes están separados para que siempre sepas dónde trabajar.</p><div className="mt-5 flex flex-wrap gap-3"><Link to="/supervision" className="min-h-12 rounded-xl bg-brand-500 px-5 py-3 font-semibold text-white">Abrir supervisión en vivo</Link><Link to="/supervision/cargas" className="min-h-12 rounded-xl border bg-white px-5 py-3 font-semibold">Planificar cargas</Link><Link to="/monitor" className="min-h-12 rounded-xl border bg-white px-5 py-3 font-semibold">Pantalla del depósito</Link></div></header>
+        {visibleGroups.map(([title, keys]) => <section key={title}><div className="mb-3"><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-slate-500">{groupDescriptions[title]}</p></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{keys.map(key => NAVIGATION[key]).map(item => <Link key={item.path} to={item.path} className="group rounded-2xl border bg-white p-4 transition hover:border-brand-500 hover:shadow-sm focus:ring-2 focus:ring-brand-500"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold group-hover:text-brand-600">{item.label}</h3><span aria-hidden="true" className="text-slate-400">→</span></div><p className="mt-2 text-sm leading-5 text-slate-600">{item.description}</p></Link>)}</div></section>)}
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-slate-100 p-4"><div><h2 className="font-semibold">Aplicación Android</h2><p className="text-sm text-slate-600">Interfaz móvil para pickeadores, pallets completos y controladores.</p></div><a href="/downloads/del-palacio-picking-0.18.0.apk" className="min-h-12 rounded-xl border bg-white px-4 py-3 font-semibold">Descargar APK</a></section>
     </div>
 }
