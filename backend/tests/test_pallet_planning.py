@@ -140,6 +140,23 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual([(item['sku'], item['bultos']) for item in plan['mixed_pallets'][0]['items']],
                          [('RET-A', 20), ('RET-B', 20)])
 
+    def test_975_and_1000_returnables_share_identical_geometry(self):
+        rows = [row(20, sku='RET-1000', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
+                row(20, sku='RET-975', calibre='975 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
+        plan = simulate_pallets(rows, 2)
+        self.assertEqual(plan['mixed_count'], 1)
+        self.assertEqual({item['sku'] for item in plan['mixed_pallets'][0]['items']}, {'RET-1000', 'RET-975'})
+
+    def test_same_court_is_completed_before_cross_court_mixing(self):
+        rows = [row(30, court=1, sku='A'), row(10, court=2, sku='C'), row(20, court=1, sku='B')]
+        plan = simulate_pallets(rows, 2, True)
+        first = plan['mixed_pallets'][0]
+        self.assertEqual(first['occupancy'], 1)
+        self.assertEqual(first['courts'], [1])
+        self.assertEqual({item['sku'] for item in first['items']}, {'A', 'B'})
+
     def test_different_liter_geometry_stays_separate(self):
         rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ'),

@@ -11,8 +11,10 @@ def prefers_complete_floors(reference):
 
 def same_physical_format(left, right):
     """Articles with identical layer geometry can share the same pallet base."""
-    fields = ('business_unit', 'calibre', 'bultos_por_piso', 'pisos_por_pallet', 'bultos_por_pallet')
-    return all(left.get(field) == right.get(field) for field in fields)
+    fields = ('business_unit', 'bultos_por_piso', 'pisos_por_pallet', 'bultos_por_pallet')
+    same_geometry = all(left.get(field) == right.get(field) for field in fields)
+    same_caliber = str(left.get('calibre') or '').strip().upper() == str(right.get('calibre') or '').strip().upper()
+    return same_geometry and (same_caliber or (prefers_complete_floors(left) and prefers_complete_floors(right)))
 
 
 def pallet_compatible(pallet, reference, mix_courts, compact):
@@ -118,14 +120,15 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             pieces.append((reference, field, amount, size))
     # Stable/heavy configured bases are allocated first. Picking tasks retain source order.
     pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('size_rank', 0), -p[0].get('base_priority', 0),
-        -p[3] if p[0]['load_id'] in compact else 0, p[0]['order']))
+        -p[3] if p[0]['load_id'] in compact else 0, p[0]['court'], p[0]['order']))
     for reference, field, amount, size in pieces:
         order = reference['order']
         while amount:
-            pallet = next((p for p in mixed
+            candidates = [p for p in mixed
                 if p['load_id'] == reference['load_id']
                 and pallet_compatible(p, reference, mix_courts, compact)
-                and 1-p['used'] >= size), None)
+                and 1-p['used'] >= size]
+            pallet = max(candidates, key=lambda p: (p['court'] == reference['court'], p['used']), default=None)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
                     assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
