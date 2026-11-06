@@ -24,19 +24,24 @@ def pallet_compatible(pallet, reference, mix_courts, compact):
     if same_item:
         return True
     base = pallet['items'][0]
+    compacting = mix_courts or reference['load_id'] in compact
     # Retornables de litro se arman desde la base por pisos. Un resto de piso
     # queda concentrado y no se utiliza como apoyo para otro artículo.
     if prefers_complete_floors(reference):
         if not prefers_complete_floors(base) or not same_physical_format(base, reference):
             return False
+        if not compacting:
+            return False
         if pallet['court'] == reference['court']:
             return True
-        return (mix_courts or reference['load_id'] in compact) and cross_court_compatible(pallet, reference)
+        return cross_court_compatible(pallet, reference)
     if prefers_complete_floors(base) and not base.get('floor_complete'):
+        return False
+    if prefers_complete_floors(base) and not compacting:
         return False
     if pallet['court'] == reference['court']:
         return True
-    return (mix_courts or reference['load_id'] in compact) and cross_court_compatible(pallet, reference)
+    return compacting and cross_court_compatible(pallet, reference)
 
 
 def cross_court_compatible(pallet, reference):

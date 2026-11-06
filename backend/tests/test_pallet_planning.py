@@ -127,7 +127,7 @@ class PlanningTest(unittest.TestCase):
         liter = row(40, sku='RET', calibre='975 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ')
         other = row(10, sku='LATA', calibre='473 CC LATAS', rank=473)
-        pallet = simulate_pallets([liter, other], 2)['mixed_pallets'][0]
+        pallet = plan_for_capacity([liter, other], 1)['mixed_pallets'][0]
         self.assertEqual([i['sku'] for i in pallet['items']], ['RET', 'LATA'])
 
     def test_equal_liter_formats_share_a_pallet(self):
@@ -135,7 +135,11 @@ class PlanningTest(unittest.TestCase):
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
                 row(20, sku='RET-B', calibre='1000 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
-        plan = simulate_pallets(rows, 2)
+        roomy = plan_for_capacity(rows, 3)
+        self.assertFalse(roomy['automatic_mix'])
+        self.assertEqual(roomy['mixed_count'], 2)
+        plan = plan_for_capacity(rows, 1)
+        self.assertTrue(plan['automatic_mix'])
         self.assertEqual(plan['mixed_count'], 1)
         self.assertEqual([(item['sku'], item['bultos']) for item in plan['mixed_pallets'][0]['items']],
                          [('RET-A', 20), ('RET-B', 20)])
@@ -145,7 +149,10 @@ class PlanningTest(unittest.TestCase):
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
                 row(20, sku='RET-975', calibre='975 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
-        plan = simulate_pallets(rows, 2)
+        roomy = plan_for_capacity(rows, 3)
+        self.assertEqual(roomy['mixed_count'], 2)
+        plan = plan_for_capacity(rows, 1)
+        self.assertTrue(plan['automatic_mix'])
         self.assertEqual(plan['mixed_count'], 1)
         self.assertEqual({item['sku'] for item in plan['mixed_pallets'][0]['items']}, {'RET-1000', 'RET-975'})
 
