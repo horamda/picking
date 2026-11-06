@@ -120,7 +120,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             pieces.append((reference, field, amount, size))
     # Stable/heavy configured bases are allocated first. Picking tasks retain source order.
     pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('size_rank', 0), -p[0].get('base_priority', 0),
-        -p[3] if p[0]['load_id'] in compact else 0, p[0]['court'], p[0]['order']))
+        -p[3] if p[0]['load_id'] in compact else 0,
+        p[0]['court'] if mix_courts or p[0]['load_id'] in compact else p[0]['order'], p[0]['order']))
     for reference, field, amount, size in pieces:
         order = reference['order']
         while amount:
