@@ -8,6 +8,7 @@ RUN npm run build
 
 # Stage 2: backend + built frontend
 FROM python:3.12-slim
+LABEL org.opencontainers.image.description="Del Palacio Picking"
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app/backend
