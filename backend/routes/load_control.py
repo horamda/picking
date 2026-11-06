@@ -1385,6 +1385,11 @@ def warehouse_monitor():
             equivalent += amount
         return bultos, unidades, round(equivalent, 2) if complete else None
 
+    def answered_products(products, answers):
+        """Answers use product_key (SKU + freshness); legacy rows used plain SKU."""
+        return sum(1 for product in products if any(str(key) in answers for key in
+            (product.get('product_key'), product.get('sku')) if key not in (None, '', 'null')))
+
     def responsible_candidates(stage, court_number, excluded_user_id=None):
         role = 'operador' if stage == 0 else 'palletizador' if stage == 4 else 'controlador'
         return [user.username for user in active_workers if user.role.name == role
@@ -1438,7 +1443,7 @@ def warehouse_monitor():
                     if stage in (0, 4):
                         products = products_for(load, court, stage, check.get('user_id'), products)
                     answers = check.get('answers', {})
-                    answered = sum(p['sku'] in answers for p in products)
+                    answered = answered_products(products, answers)
                     bultos, unidades, bultos_equiv = process_amounts(products)
                     if stage == 0:
                         available = bool(plan or legacy_in_progress(truck))
@@ -1495,7 +1500,12 @@ def warehouse_monitor():
                                              (2, effective_check(truck, pallet, 2))):
                     answers = check.get('answers', {})
                     if display_stage == 0:
-                        available, blocked_reason = True, None
+                        if pallet['assembly_stage'] == 4:
+                            pallet_load = next((item for item in selected_loads(truck) if item.id == pallet['load_id']), None)
+                            available = bool(pallet_load and load_picking_complete(pallet_load))
+                            blocked_reason = None if available else 'Espera que finalice el picking del reparto'
+                        else:
+                            available, blocked_reason = True, None
                     elif display_stage == 1:
                         available = assembly_done(truck, pallet)
                         blocked_reason = None if available else 'Espera armado del pallet'
@@ -1503,15 +1513,17 @@ def warehouse_monitor():
                         available = effective_check(truck, pallet, 1).get('status') == 'done'
                         blocked_reason = None if available else 'Espera Control 1 de este pallet'
                     assigned = assignments.get(str(display_stage), {}) if display_stage in (1, 2) else {}
+                    responsibility_stage = pallet['assembly_stage'] if display_stage == 0 else display_stage
                     candidates = ([assigned.get('username')] if assigned.get('username') else
-                        responsible_candidates(display_stage, pallet['owner_court'],
+                        responsible_candidates(responsibility_stage, pallet['owner_court'],
                             assignments.get('1', {}).get('user_id') if display_stage == 2 else None))
                     rows.append(dict(id=f'{pallet["key"]}:{display_stage}', load_id=pallet['load_id'],
                         pallet_id=pallet['id'], truck=truck.truck, reparto=pallet['reparto'], branch=truck.branch,
-                        court=pallet['owner_court'], stage=display_stage, user_id=check.get('user_id'),
+                        court=pallet['owner_court'], stage=display_stage, assembly_stage=pallet['assembly_stage'],
+                        pallet_kind=pallet['kind'], user_id=check.get('user_id'),
                         username=check.get('username'),
                         status='pending' if not check else 'done' if check.get('status') == 'done' else 'running' if check.get('timer_started_at') else 'paused',
-                        answered=sum(str(product['sku']) in answers for product in products), total=len(products),
+                        answered=answered_products(products, answers), total=len(products),
                         elapsed_seconds=elapsed(check), timing=timing(check),
                         shortages=sum(answer.get('result') == 'shortage' for answer in answers.values()),
                         bultos=bultos, unidades=unidades, bultos_equiv=bultos_equiv,
