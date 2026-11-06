@@ -9,6 +9,12 @@ def prefers_complete_floors(reference):
     return 'CERVEZA' in unit and any(size in caliber for size in ('975', '1000'))
 
 
+def same_physical_format(left, right):
+    """Articles with identical layer geometry can share the same pallet base."""
+    fields = ('business_unit', 'calibre', 'bultos_por_piso', 'pisos_por_pallet', 'bultos_por_pallet')
+    return all(left.get(field) == right.get(field) for field in fields)
+
+
 def pallet_compatible(pallet, reference, mix_courts, compact):
     if not pallet['items']:
         return True
@@ -19,7 +25,11 @@ def pallet_compatible(pallet, reference, mix_courts, compact):
     # Retornables de litro se arman desde la base por pisos. Un resto de piso
     # queda concentrado y no se utiliza como apoyo para otro artículo.
     if prefers_complete_floors(reference):
-        return False
+        if not prefers_complete_floors(base) or not same_physical_format(base, reference):
+            return False
+        if pallet['court'] == reference['court']:
+            return True
+        return (mix_courts or reference['load_id'] in compact) and cross_court_compatible(pallet, reference)
     if prefers_complete_floors(base) and not base.get('floor_complete'):
         return False
     if pallet['court'] == reference['court']:
@@ -92,7 +102,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             'calibre', 'stack_family', 'stack_family_name', 'must_be_bottom', 'base_priority', 'allowed_above',
             'cases_per_layer', 'max_layers', 'business_unit', 'can_be_base', 'stable',
             'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending',
-            'bultos_por_pallet', 'unidades_por_bulto')}
+            'bultos_por_pallet', 'pisos_por_pallet', 'unidades_por_bulto')}
         floor = reference.get('bultos_por_piso')
         reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or (floor and remainder >= floor
             and (not prefers_complete_floors(reference) or remainder % floor == 0)))

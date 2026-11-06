@@ -143,6 +143,25 @@ class ControlFlowTest(unittest.TestCase):
         self.assertIn('1001',content)
         self.assertEqual(self.client.get('/api/pallet-rules/incomplete-articles.csv',headers={'Authorization':'Bearer '+self.tokens['super']}).status_code,403)
 
+    def test_mixer_includes_non_mobile_active_merchandise_but_not_cancelled(self):
+        common = {'TIPO DE PRODUCTO': 'MERCADERIA', 'ACTIVO': 'SI',
+                  'USADO EN DISPOSITIVO MOVIL': 'NO', 'UNIDAD DE NEGOCIO': 'MIXER TEST'}
+        db.session.add(Article(sku='NONMOBILE', descripcion='Válido fuera de móvil', activo=False,
+            calibre='FORMATO MIXER', bultos_por_pallet=50, unidades_por_bulto=12,
+            datos_origen={**common, 'ANULADO': 'NO'}))
+        db.session.add(Article(sku='CANCELLED', descripcion='Anulado', activo=False,
+            calibre='FORMATO ANULADO', bultos_por_pallet=50, unidades_por_bulto=12,
+            datos_origen={**common, 'ANULADO': 'SI'}))
+        db.session.commit()
+        headers = {'Authorization': 'Bearer ' + self.tokens['admin']}
+        listing = self.client.get('/api/pallet-rules', headers=headers).json
+        pending = {(item['business_unit'], item['caliber']) for item in listing['pending_rules']}
+        self.assertIn(('MIXER TEST', 'FORMATO MIXER'), pending)
+        self.assertNotIn(('MIXER TEST', 'FORMATO ANULADO'), pending)
+        exported = self.client.get('/api/pallet-rules/incomplete-articles.csv', headers=headers).get_data(as_text=True)
+        self.assertIn('NONMOBILE', exported)
+        self.assertNotIn('CANCELLED', exported)
+
     def test_answer_receipt_prevents_duplicate_audit_and_payload_reuse(self):
         from models import LogEntry
         check=self.call('post',f'/loads/{self.load_id}/courts/1/start/0','picker')

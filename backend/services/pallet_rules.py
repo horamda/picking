@@ -47,6 +47,24 @@ def source_value(article, name):
     return ''
 
 
+def mixer_article_eligible(article):
+    """Return whether an article belongs to the physical pallet-rule catalog.
+
+    Mobile availability is deliberately not required here: an article can be
+    valid merchandise for pallet planning even when it is not shown on mobile.
+    """
+    if not article:
+        return False
+    cancelled = source_value(article, 'ANULADO').casefold()
+    if cancelled in {'si', 'sí'}:
+        return False
+    if article.activo:
+        return True
+    product_type = source_value(article, 'TIPO DE PRODUCTO').casefold()
+    source_active = source_value(article, 'ACTIVO').casefold()
+    return product_type == 'mercaderia' and source_active in {'si', 'sí'} and cancelled == 'no'
+
+
 def normalize_key(value):
     import re
     key = re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower()).strip('_')
@@ -111,4 +129,5 @@ def stacking_values(article, rules):
         allow_incomplete_floor=stack_rule.allow_incomplete_floor if stack_rule else False,
         size_rank=stack_rule.size_rank if stack_rule else (rule['base_priority'] if rule and legacy_mode else 0),
         bultos_por_piso=(article.bultos_por_piso if article else None) or (1 if legacy_mode and rule else None),
+        pisos_por_pallet=(article.pisos_por_pallet if article else None),
         stacking_rule_pending=not legacy_mode and (stack_rule is None or article is None or not article.bultos_por_piso))

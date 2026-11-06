@@ -11,7 +11,9 @@ def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', pri
                 calibre=calibre, stack_family=family, stack_family_name=family,
                 base_priority=priority, must_be_bottom=bottom, allowed_above=['*'] if allowed is None else allowed,
                 business_unit=business_unit, can_be_base=can_base, stable=stable, allow_incomplete_floor=False,
-                size_rank=rank, bultos_por_piso=floor, stacking_rule_pending=pending)
+                size_rank=rank, bultos_por_piso=floor,
+                pisos_por_pallet=(bpp // floor if isinstance(bpp, int) and bpp > 0 and floor else None),
+                stacking_rule_pending=pending)
 
 
 class PlanningTest(unittest.TestCase):
@@ -127,6 +129,23 @@ class PlanningTest(unittest.TestCase):
         other = row(10, sku='LATA', calibre='473 CC LATAS', rank=473)
         pallet = simulate_pallets([liter, other], 2)['mixed_pallets'][0]
         self.assertEqual([i['sku'] for i in pallet['items']], ['RET', 'LATA'])
+
+    def test_equal_liter_formats_share_a_pallet(self):
+        rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
+                row(20, sku='RET-B', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
+        plan = simulate_pallets(rows, 2)
+        self.assertEqual(plan['mixed_count'], 1)
+        self.assertEqual([(item['sku'], item['bultos']) for item in plan['mixed_pallets'][0]['items']],
+                         [('RET-A', 20), ('RET-B', 20)])
+
+    def test_different_liter_geometry_stays_separate(self):
+        rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
+                row(20, sku='RET-B', calibre='1000 CC VIDRIO', floor=8,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
+        self.assertEqual(simulate_pallets(rows, 2)['mixed_count'], 2)
 
     def test_supervisor_can_merge_pallets_without_losing_products(self):
         plan = simulate_pallets([row(10, court=1), row(10, court=2, sku='AGUA')], 2, False)

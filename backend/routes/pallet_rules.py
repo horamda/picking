@@ -8,11 +8,16 @@ from flask import Blueprint, Response, g, jsonify, request
 from auth import roles_required
 from models import Article, LogEntry
 from services.pallet_rules import (PalletCaliberFamily, PalletCaliberAlias, PalletStackingRule,
-                                   source_value, validate_family)
+                                   mixer_article_eligible, source_value, validate_family)
 from utils.db import db
 
 
 pallet_rules_bp = Blueprint('pallet_rules', __name__)
+
+
+def mixer_articles():
+    return [article for article in Article.query.order_by(Article.sku).all()
+            if mixer_article_eligible(article)]
 
 
 def family_json(row):
@@ -57,7 +62,7 @@ def list_rules():
     calibers = [value for (value,) in db.session.query(Article.calibre).distinct().order_by(Article.calibre).all() if value and value.strip()]
     stacking = PalletStackingRule.query.order_by(PalletStackingRule.business_unit, PalletStackingRule.size_rank.desc()).all()
     configured = {(r.business_unit, r.caliber) for r in stacking if r.enabled}
-    active_articles = Article.query.filter_by(activo=True).all()
+    active_articles = mixer_articles()
     coverage = {}
     for article in active_articles:
         key = (source_value(article, 'UNIDAD DE NEGOCIO') or 'SIN UNIDAD',
@@ -91,7 +96,7 @@ def export_incomplete_articles():
     writer = csv.writer(output, delimiter=';', lineterminator='\n')
     writer.writerow(['SKU', 'DESCRIPCION', 'UNIDAD_DE_NEGOCIO', 'CALIBRE', 'UNIDADES_POR_BULTO',
                      'BULTOS_POR_PALLET', 'BULTOS_POR_PISO', 'PISOS_POR_PALLET', 'HL_POR_BULTO', 'DATOS_FALTANTES'])
-    for article in Article.query.filter_by(activo=True).order_by(Article.sku).all():
+    for article in mixer_articles():
         business_unit, caliber, missing = missing_article_data(article, configured)
         if missing:
             writer.writerow([article.sku, article.descripcion, business_unit, caliber, article.unidades_por_bulto,
