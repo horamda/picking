@@ -431,26 +431,25 @@ function DashboardPage() {
                 ))}
             </div>
 
-            <div className="mt-6 grid gap-6 xl:grid-cols-3">
-                <div className="xl:col-span-2">
+            <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+                <div className="space-y-6">
                     <RatioPanel ratio={metrics?.operacion_ratio || charts?.pallets_vs_picking} />
+                    <BarList
+                        title="Bultos picking equiv. por sucursal"
+                        subtitle="Comparacion por deposito o sucursal de origen."
+                        rows={charts?.picking_por_sucursal || []}
+                        labelKey="sucursal"
+                    />
                 </div>
-                <BarList
-                    title="Bultos picking equiv. por division"
-                    subtitle="Separacion operativa por complejidad de producto."
-                    rows={charts?.picking_por_division || []}
-                    labelKey="division"
-                />
-            </div>
-
-            <div className="mt-6 grid gap-6 xl:grid-cols-2">
-                <BarList
-                    title="Bultos picking equiv. por sucursal"
-                    subtitle="Comparacion por deposito o sucursal de origen."
-                    rows={charts?.picking_por_sucursal || []}
-                    labelKey="sucursal"
-                />
-                <SeasonPanel rows={charts?.productividad_por_temporada || []} />
+                <div className="space-y-6">
+                    <BarList
+                        title="Bultos picking equiv. por division"
+                        subtitle="Separacion operativa por complejidad de producto."
+                        rows={charts?.picking_por_division || []}
+                        labelKey="division"
+                    />
+                    <SeasonPanel rows={charts?.productividad_por_temporada || []} />
+                </div>
             </div>
         </div>
     )
