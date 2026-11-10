@@ -214,7 +214,7 @@ function RatioPanel({ ratio }) {
     )
 }
 
-function BarList({ title, subtitle, rows, labelKey, valueKey = 'bultos_pick' }) {
+function BarList({ title, subtitle, rows, labelKey, valueKey = 'bultos_pick', compactGrid = false }) {
     const maxValue = Math.max(...(rows || []).map((row) => Number(row[valueKey] || 0)), 0)
     return (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -222,7 +222,7 @@ function BarList({ title, subtitle, rows, labelKey, valueKey = 'bultos_pick' }) 
                 <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
                 <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
             </div>
-            <div className="space-y-4">
+            <div className={compactGrid ? 'grid gap-x-8 gap-y-4 md:grid-cols-2 2xl:grid-cols-3' : 'space-y-4'}>
                 {(rows || []).map((row) => {
                     const value = Number(row[valueKey] || 0)
                     const width = maxValue > 0 ? (value / maxValue) * 100 : 0
@@ -431,22 +431,21 @@ function DashboardPage() {
                 ))}
             </div>
 
-            <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-                <div className="space-y-6">
-                    <RatioPanel ratio={metrics?.operacion_ratio || charts?.pallets_vs_picking} />
+            <div className="mt-6 space-y-6">
+                <RatioPanel ratio={metrics?.operacion_ratio || charts?.pallets_vs_picking} />
+                <BarList
+                    title="Bultos picking equiv. por division"
+                    subtitle="Separacion operativa por complejidad de producto."
+                    rows={charts?.picking_por_division || []}
+                    labelKey="division"
+                    compactGrid
+                />
+                <div className="grid items-start gap-6 xl:grid-cols-2">
                     <BarList
                         title="Bultos picking equiv. por sucursal"
                         subtitle="Comparacion por deposito o sucursal de origen."
                         rows={charts?.picking_por_sucursal || []}
                         labelKey="sucursal"
-                    />
-                </div>
-                <div className="space-y-6">
-                    <BarList
-                        title="Bultos picking equiv. por division"
-                        subtitle="Separacion operativa por complejidad de producto."
-                        rows={charts?.picking_por_division || []}
-                        labelKey="division"
                     />
                     <SeasonPanel rows={charts?.productividad_por_temporada || []} />
                 </div>
