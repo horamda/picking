@@ -128,11 +128,25 @@ class ArticleImportTest(unittest.TestCase):
                         {'Articulo': '006', 'Activo': ''},
                         {'Articulo': '007', 'TIPO DE PRODUCTO': ' Mercadería ', 'Activo': 'sí'})
         parsed = parse_article_csv(raw)
-        self.assertEqual([a['sku'] for a in parsed['articles']], ['001', '007'])
-        self.assertEqual(len(parsed['excluded']), 5)
+        self.assertEqual([a['sku'] for a in parsed['articles']], ['001', '005', '007'])
+        self.assertEqual(len(parsed['excluded']), 4)
         self.assertEqual(parsed['articles'][0]['datos_origen']['Codigo de barras'], '001234')
         self.assertEqual(parsed['articles'][0]['datos_origen']['Extra futuro'], '  original  ')
         self.assertEqual(parsed['articles'][0]['bultos_por_piso'], 10)
+
+    def test_non_mobile_non_cancelled_articles_are_counted(self):
+        raw = csv_bytes(
+            {'Articulo': '101', 'Usado en dispositivo movil': 'NO', 'Anulado': 'NO'},
+            {'Articulo': '102', 'Usado en dispositivo movil': 'NO', 'Anulado': 'NO'},
+            {'Articulo': '103', 'Usado en dispositivo movil': 'NO', 'Anulado': 'NO'},
+            {'Articulo': '104', 'Usado en dispositivo movil': 'NO', 'Anulado': 'NO'},
+        )
+        parsed = parse_article_csv(raw)
+        self.assertEqual([article['sku'] for article in parsed['articles']], ['101', '102', '103', '104'])
+        self.assertEqual(parsed['excluded'], [])
+        result = import_articles_from_csv(raw)
+        self.assertTrue(result['applied'])
+        self.assertEqual((result['eligible'], result['created'], result['excluded']), (4, 4, 0))
 
     def test_reimport_and_sync_preserve_ids_voice_and_history(self):
         self.assertTrue(import_articles_from_csv(csv_bytes())['applied'])

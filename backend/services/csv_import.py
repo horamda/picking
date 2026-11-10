@@ -141,7 +141,6 @@ def parse_article_csv(file_bytes: bytes) -> dict:
 
         eligible = (normalize_key(row['tipo de producto']) == 'mercaderia'
                     and normalize_key(row['activo']) == 'si'
-                    and normalize_key(row['usado en dispositivo movil']) == 'si'
                     and normalize_key(row['anulado']) == 'no')
         if not eligible:
             excluded.append({'sku': sku, 'datos_origen': dict(raw_row)})
