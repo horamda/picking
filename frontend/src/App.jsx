@@ -1,26 +1,28 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
 import { getStoredUser, clearAuthSession } from './utils/auth'
-import AdminPage from './pages/AdminPage'
-import TimingPage from './pages/TimingPage'
-import DepotMonitorPage from './pages/DepotMonitorPage'
-import WarehousePage from './pages/WarehousePage'
-import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
-import ImportsPage from './pages/ImportsPage'
-import ArticlesPage from './pages/ArticlesPage'
-import HistoryPage from './pages/HistoryPage'
-import OperationsPage from './pages/OperationsPage'
-import LoadControlPage from './pages/LoadControlPage'
-import ExclusionsPage from './pages/ExclusionsPage'
 import axiosClient from './api/axiosClient'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
 import ThemeSwitch from './components/ThemeSwitch'
-import VoiceTemplatesPage from './pages/VoiceTemplatesPage'
-import PalletRulesPage from './pages/PalletRulesPage'
-import PreviousLoadsPage from './pages/PreviousLoadsPage'
 import { homeForRole } from './utils/roleAccess'
+
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+const TimingPage = lazy(() => import('./pages/TimingPage'))
+const DepotMonitorPage = lazy(() => import('./pages/DepotMonitorPage'))
+const WarehousePage = lazy(() => import('./pages/WarehousePage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const ImportsPage = lazy(() => import('./pages/ImportsPage'))
+const ArticlesPage = lazy(() => import('./pages/ArticlesPage'))
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const OperationsPage = lazy(() => import('./pages/OperationsPage'))
+const LoadControlPage = lazy(() => import('./pages/LoadControlPage'))
+const ExclusionsPage = lazy(() => import('./pages/ExclusionsPage'))
+const VoiceTemplatesPage = lazy(() => import('./pages/VoiceTemplatesPage'))
+const PalletRulesPage = lazy(() => import('./pages/PalletRulesPage'))
+const PreviousLoadsPage = lazy(() => import('./pages/PreviousLoadsPage'))
+const CapacityReportsPage = lazy(() => import('./pages/CapacityReportsPage'))
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -34,7 +36,7 @@ function App() {
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
             <ThemeSwitch />
-            <Routes>
+            <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Cargando pantalla…</div>}><Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route
                     path="/*"
@@ -87,6 +89,7 @@ function App() {
                                             <Route path="/controles" element={<LoadControlPage key="controles" controlsOnly />} />
                                             <Route path="/control-cargas" element={<Navigate to="/operacion?tab=control" replace />} />
                                             <Route path="/historial" element={<HistoryPage />} />
+                                            <Route path="/capacidad-reportes" element={<CapacityReportsPage />} />
                                             <Route path="/articulos" element={<ArticlesPage />} />
                                             <Route path="/exclusiones" element={<ExclusionsPage />} />
                                             <Route path="*" element={<Navigate to="/" replace />} />
@@ -97,7 +100,7 @@ function App() {
                         </ProtectedRoute>
                     }
                 />
-            </Routes>
+            </Routes></Suspense>
         </div>
     )
 }

@@ -14,7 +14,7 @@ import {
     totalRowClass,
     totalRowValueCellClass,
 } from '../components/tableStyles'
-import { formatNumber, todayInputValue } from '../utils/format'
+import { formatDate, formatNumber, todayInputValue } from '../utils/format'
 
 const KPI_CONFIG = [
     { key: 'pdfs_procesados', label: 'PDFs procesados', color: 'bg-brand-50 text-brand-500' },
@@ -26,6 +26,138 @@ const KPI_CONFIG = [
     { key: 'pct_pallets_completos', label: 'Eficiencia pallets', color: 'bg-teal-50 text-teal-600', suffix: '%' },
     { key: 'skus_no_encontrados', label: 'SKUs sin maestro', color: 'bg-amber-50 text-amber-500' },
 ]
+
+const OPERATIONS_KPIS = [
+    { key: 'planillas_programadas', label: 'Planillas programadas' },
+    { key: 'planillas_pendientes', label: 'Planillas pendientes' },
+    { key: 'planillas_en_preparacion', label: 'En preparación' },
+    { key: 'planillas_finalizadas', label: 'Planillas finalizadas' },
+    { key: 'avance_pct', label: 'Avance operativo', suffix: '%' },
+    { key: 'operarios_en_proceso', label: 'Operarios en proceso' },
+    { key: 'operarios_disponibles', label: 'Operarios disponibles' },
+    { key: 'bultos_confirmados', label: 'Bultos confirmados' },
+    { key: 'bultos_pendientes', label: 'Bultos pendientes' },
+    { key: 'productividad_bultos_hora', label: 'Productividad', suffix: ' b/h' },
+    { key: 'diferencias_detectadas', label: 'Diferencias detectadas' },
+    { key: 'cargas_liberadas', label: 'Cargas liberadas' },
+    { key: 'cargas_demoradas', label: 'Cargas demoradas' },
+    { key: 'alertas_operativas', label: 'Alertas operativas' },
+]
+
+const COVERAGE_KEYS = {
+    operarios_disponibles: 'operarios_disponibles',
+    bultos_pendientes: 'bultos_pendientes',
+    cargas_demoradas: 'cargas_demoradas',
+}
+
+function OperationsCard({ config, data }) {
+    const value = data?.metrics?.[config.key]
+    const unavailable = value === null || value === undefined
+    const reason = data?.coverage?.[COVERAGE_KEYS[config.key]]
+    return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className={`text-2xl font-semibold ${unavailable ? 'text-slate-400' : 'text-slate-900'}`}>
+            {unavailable ? 'No medido' : `${formatNumber(value)}${config.suffix || ''}`}
+        </p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{config.label}</p>
+        {reason && <p className="mt-2 text-xs leading-4 text-amber-700">{reason}</p>}
+    </article>
+}
+
+function OperationsCenter({ data, lastUpdated }) {
+    const coverage = data?.coverage?.respuestas_medibles_pct
+    return <section className="mb-8">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+                <p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Centro de operaciones</p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Seguimiento de preparación real</h2>
+                <p className="mt-1 text-sm text-slate-500">Datos confirmados por el servidor. No incluye los controles como producción adicional.</p>
+            </div>
+            <div className="text-right text-xs text-slate-500">
+                <p>{lastUpdated ? `Actualizado ${lastUpdated.toLocaleTimeString('es-AR')}` : 'Cargando operación…'}</p>
+                <p>{coverage == null ? 'Sin respuestas en el período' : `${formatNumber(coverage)}% de respuestas con cantidad medible`}</p>
+            </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
+            {OPERATIONS_KPIS.map(config => <OperationsCard key={config.key} config={config} data={data} />)}
+        </div>
+        <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>
+                    {['Fecha', 'Sucursal', 'Camión', 'Planilla', 'Estado', 'Avance'].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
+                </tr></thead>
+                <tbody>{(data?.rows || []).map(row => <tr key={row.id} className="border-t border-slate-100">
+                    <td className="px-4 py-3">{formatDate(row.fecha)}</td><td className="px-4 py-3">{row.sucursal}</td>
+                    <td className="px-4 py-3 font-medium">{row.camion}</td><td className="px-4 py-3">{row.reparto}</td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${row.estado === 'finalizado' ? 'bg-emerald-50 text-emerald-700' : row.estado === 'en_preparacion' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>{row.estado.replaceAll('_', ' ')}</span></td>
+                    <td className="px-4 py-3">{row.avance == null ? 'Sin tareas' : `${formatNumber(row.avance)}% · ${row.completados}/${row.total} ${row.unidad}`}</td>
+                </tr>)}</tbody>
+            </table>
+            {data && !data.rows.length && <p className="p-6 text-center text-sm text-slate-500">No hay planillas para los filtros elegidos.</p>}
+            {data?.rows_total > data?.rows?.length && <p className="border-t p-3 text-center text-xs text-slate-500">Se muestran las primeras {data.rows.length} de {data.rows_total} planillas.</p>}
+        </div>
+    </section>
+}
+
+function duration(seconds) {
+    if (seconds == null) return '—'
+    const minutes = Math.round(Number(seconds) / 60)
+    return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`
+}
+
+function ProductivityPanel({ data }) {
+    const rate = value => value == null ? 'No medido' : `${formatNumber(value)} b/h`
+    return <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Productividad</p><h2 className="mt-1 text-xl font-semibold text-slate-900">Rendimiento por operario</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Bultos confirmados por hora activa. Picking y pallets completos se muestran separados porque su complejidad no es equivalente.</p></div>
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">Las diferencias de stock no se atribuyen al operario.</p>
+        </div>
+        <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>
+                    {['Operario', 'Bultos', 'Líneas', 'Tiempo activo', 'Pausas', 'Total b/h', 'Picking b/h', 'Pallets b/h', 'Tareas finalizadas', 'Diferencias', 'Cobertura'].map(label => <th key={label} className="px-3 py-3">{label}</th>)}
+                </tr></thead>
+                <tbody>{(data?.rows || []).map(row => <tr key={row.user_id} className="border-t border-slate-100">
+                    <td className="px-3 py-3 font-semibold text-slate-900">{row.username}</td>
+                    <td className="px-3 py-3 tabular-nums">{formatNumber(row.bultos)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.lineas)}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">{duration(row.tiempo_efectivo_segundos)}</td><td className="px-3 py-3 whitespace-nowrap">{duration(row.tiempo_pausa_segundos)}</td>
+                    <td className="px-3 py-3 whitespace-nowrap font-semibold">{rate(row.productividad_bultos_hora)}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">{rate(row.modalidades?.picking?.productividad_bultos_hora)}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">{rate(row.modalidades?.pallets_completos?.productividad_bultos_hora)}</td>
+                    <td className="px-3 py-3 tabular-nums">{row.tareas_finalizadas}</td><td className="px-3 py-3 tabular-nums">{row.diferencias_atribuidas}</td>
+                    <td className="px-3 py-3">{row.cobertura_pct == null ? 'Sin respuestas' : `${formatNumber(row.cobertura_pct)}%`}</td>
+                </tr>)}</tbody>
+            </table>
+            {data && !data.rows.length && <p className="py-8 text-center text-sm text-slate-500">No hay trabajo de preparación para estos filtros.</p>}
+        </div>
+        <p className="mt-4 text-xs text-slate-500">“Líneas” representa productos respondidos en tareas de preparación. El total combinado es informativo; para comparar personas debe usarse la misma modalidad y una complejidad equivalente.</p>
+    </section>
+}
+
+function QualityPanel({ data }) {
+    const metrics = data?.metrics || {}
+    const percentage = value => value == null ? 'No medido' : `${formatNumber(value)}%`
+    const cards = [
+        ['Exactitud de picking', metrics.exactitud_picking_pct],
+        ['Diferencias de stock', metrics.diferencias_stock_pct],
+        ['Retrabajo', metrics.retrabajo_pct],
+        ['Exactitud segundo control', metrics.exactitud_segundo_control_lineas_pct],
+        ['Exactitud por unidades', metrics.exactitud_segundo_control_unidades_pct],
+    ]
+    return <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Calidad y diferencias</p><h2 className="mt-1 text-xl font-semibold text-slate-900">Exactitud, causas y revisiones</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Los errores atribuibles al picking se muestran separados de las diferencias de stock. Una confirmación correcta de faltante no penaliza al segundo control.</p></div>
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">La exactitud actual es por productos respondidos, no por líneas originales del PDF.</p>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{cards.map(([label, value]) => <article key={label} className="rounded-xl bg-slate-50 p-4"><p className={`text-2xl font-semibold ${value == null ? 'text-slate-400' : 'text-slate-900'}`}>{percentage(value)}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p></article>)}</div>
+        <div className="mt-5 flex flex-wrap gap-2">{(data?.causes || []).map(row => <span key={row.cause} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{row.cause}: <b>{row.count}</b></span>)}{data && !data.causes.length && <span className="text-sm text-slate-500">Sin diferencias para los filtros elegidos.</span>}</div>
+        <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Fecha', 'Camión', 'Planilla', 'SKU', 'Origen', 'Causa', 'Esperado', 'Real', 'Responsable', 'Detectó', 'Estado'].map(label => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead>
+                <tbody>{(data?.incidents || []).map((row, index) => <tr key={`${row.load_id}-${row.product_key}-${row.saved_at || index}`} className="border-t border-slate-100"><td className="px-3 py-3 whitespace-nowrap">{formatDate(row.fecha)}</td><td className="px-3 py-3">{row.camion}</td><td className="px-3 py-3">{row.reparto}</td><td className="px-3 py-3 font-medium">{row.sku}</td><td className="px-3 py-3">{row.origin}</td><td className="px-3 py-3">{row.cause}</td><td className="px-3 py-3 whitespace-nowrap">{row.expected_b ?? '—'} b + {row.expected_u ?? '—'} u</td><td className="px-3 py-3 whitespace-nowrap">{row.actual_b ?? '—'} b + {row.actual_u ?? '—'} u</td><td className="px-3 py-3">{row.responsible_username || '—'}</td><td className="px-3 py-3">{row.detected_username || '—'}</td><td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{row.status?.replaceAll('_', ' ')}</span></td></tr>)}</tbody>
+            </table>
+        </div>
+        <p className="mt-4 text-xs text-slate-500">La exactitud del segundo control por unidades permanece “No medido” hasta contar con cantidades esperadas y verificadas consistentes para todo el período.</p>
+    </section>
+}
 
 function KpiCard({ config, metrics }) {
     const value = metrics ? `${formatNumber(metrics[config.key])}${config.suffix || ''}` : null
@@ -175,25 +307,43 @@ function SeasonPanel({ rows }) {
 function DashboardPage() {
     const [metrics, setMetrics] = useState(null)
     const [charts, setCharts] = useState(null)
-    const [filters, setFilters] = useState({ desde: '', hasta: '' })
+    const [operations, setOperations] = useState(null)
+    const [productivity, setProductivity] = useState(null)
+    const [quality, setQuality] = useState(null)
+    const [lastUpdated, setLastUpdated] = useState(null)
+    const [filters, setFilters] = useState({ desde: '', hasta: '', sucursal: '', camion: '', reparto: '', operario: '', estado: '' })
     const [error, setError] = useState(null)
 
     useEffect(() => {
+        let active = true, timer, controller
         async function loadDashboard() {
+            controller?.abort()
+            controller = new AbortController()
             try {
                 const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
-                const [summaryResponse, chartsResponse] = await Promise.all([
-                    axiosClient.get('/dashboard/summary', { params }),
-                    axiosClient.get('/dashboard/charts', { params }),
+                const legacyParams = Object.fromEntries(['desde', 'hasta', 'sucursal', 'reparto']
+                    .map(key => [key, filters[key]]).filter(([, value]) => value))
+                const [summaryResponse, chartsResponse, operationsResponse, productivityResponse, qualityResponse] = await Promise.all([
+                    axiosClient.get('/dashboard/summary', { params: legacyParams, signal: controller.signal }),
+                    axiosClient.get('/dashboard/charts', { params: legacyParams, signal: controller.signal }),
+                    axiosClient.get('/dashboard/operations', { params, signal: controller.signal }),
+                    axiosClient.get('/dashboard/productivity', { params, signal: controller.signal }),
+                    axiosClient.get('/dashboard/quality', { params, signal: controller.signal }),
                 ])
-                setMetrics(summaryResponse.data)
-                setCharts(chartsResponse.data)
-                setError(null)
+                if (active) {
+                    setMetrics(summaryResponse.data); setCharts(chartsResponse.data); setOperations(operationsResponse.data)
+                    setProductivity(productivityResponse.data)
+                    setQuality(qualityResponse.data)
+                    setLastUpdated(new Date()); setError(null)
+                }
             } catch {
-                setError('No se pudo cargar el resumen operativo.')
+                if (active && !controller.signal.aborted) setError('No se pudo cargar el resumen operativo. Se conservaron los últimos datos recibidos.')
+            } finally {
+                if (active) timer = setTimeout(loadDashboard, 15000)
             }
         }
         loadDashboard()
+        return () => { active = false; clearTimeout(timer); controller?.abort() }
     }, [filters])
 
     const setFilter = (key) => (event) => {
@@ -201,12 +351,12 @@ function DashboardPage() {
     }
 
     const clearFilters = () => {
-        setFilters({ desde: '', hasta: '' })
+        setFilters({ desde: '', hasta: '', sucursal: '', camion: '', reparto: '', operario: '', estado: '' })
     }
 
     const selectToday = () => {
         const today = todayInputValue()
-        setFilters({ desde: today, hasta: today })
+        setFilters((previous) => ({ ...previous, desde: today, hasta: today }))
     }
 
     return (
@@ -217,7 +367,7 @@ function DashboardPage() {
             </div>
 
             <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end">
+                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
                     <label className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-slate-500">Desde reparto</span>
                         <input
@@ -236,6 +386,12 @@ function DashboardPage() {
                             className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                         />
                     </label>
+                    <label className="flex flex-col gap-1"><span className="text-xs font-medium text-slate-500">Sucursal</span><select value={filters.sucursal} onChange={setFilter('sucursal')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Todas</option>{operations?.options?.sucursales.map(value => <option key={value}>{value}</option>)}</select></label>
+                    <label className="flex flex-col gap-1"><span className="text-xs font-medium text-slate-500">Camión</span><select value={filters.camion} onChange={setFilter('camion')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Todos</option>{operations?.options?.camiones.map(value => <option key={value}>{value}</option>)}</select></label>
+                    <label className="flex flex-col gap-1"><span className="text-xs font-medium text-slate-500">Planilla</span><select value={filters.reparto} onChange={setFilter('reparto')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Todas</option>{operations?.options?.repartos.map(value => <option key={value}>{value}</option>)}</select></label>
+                    <label className="flex flex-col gap-1"><span className="text-xs font-medium text-slate-500">Operario</span><select value={filters.operario} onChange={setFilter('operario')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Todos</option>{operations?.options?.operarios.map(value => <option key={value.id} value={value.id}>{value.username}</option>)}</select></label>
+                    <label className="flex flex-col gap-1"><span className="text-xs font-medium text-slate-500">Estado</span><select value={filters.estado} onChange={setFilter('estado')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option value="">Todos</option><option value="pendiente">Pendiente</option><option value="en_preparacion">En preparación</option><option value="finalizado">Finalizado</option></select></label>
+                    <div className="flex gap-2 self-end">
                     <button
                         type="button"
                         onClick={selectToday}
@@ -251,6 +407,7 @@ function DashboardPage() {
                     >
                         Limpiar
                     </button>
+                    </div>
                 </div>
             </div>
 
@@ -260,6 +417,14 @@ function DashboardPage() {
                 </div>
             )}
 
+            <OperationsCenter data={operations} lastUpdated={lastUpdated} />
+            <ProductivityPanel data={productivity} />
+            <QualityPanel data={quality} />
+
+            <div className="mb-4">
+                <h2 className="text-xl font-semibold text-slate-900">Volumen planificado e importado</h2>
+                <p className="mt-1 text-sm text-slate-500">Datos de planillas y maestro. Los filtros de estado, operario y camión se aplican únicamente al centro de operaciones.</p>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {KPI_CONFIG.map((config) => (
                     <KpiCard key={config.key} config={config} metrics={metrics} />

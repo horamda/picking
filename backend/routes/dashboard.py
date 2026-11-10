@@ -1,13 +1,101 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
+import csv
+import io
 from auth import auth_required
 from models import Article, ConsolidadoDetalle, Consolidado, ProcessingBatch
 from sqlalchemy import distinct, func
 from utils.db import db
+from services.operations_dashboard import build_operations_dashboard, build_productivity_dashboard, build_quality_dashboard
+from services.capacity_simulator import simulate_capacity
 
 dashboard_bp = Blueprint('dashboard', __name__)
+
+
+@dashboard_bp.route('/operations', methods=['GET'])
+@auth_required
+def operations():
+    try:
+        return jsonify(build_operations_dashboard(request.args))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@dashboard_bp.route('/productivity', methods=['GET'])
+@auth_required
+def productivity():
+    try:
+        return jsonify(build_productivity_dashboard(request.args))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@dashboard_bp.route('/quality', methods=['GET'])
+@auth_required
+def quality():
+    try:
+        return jsonify(build_quality_dashboard(request.args))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@dashboard_bp.post('/capacity-simulator')
+@auth_required
+def capacity_simulator():
+    try:
+        return jsonify(simulate_capacity(request.get_json(silent=True) or {}))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+def _export_range():
+    try:
+        start = datetime.fromisoformat(request.args.get('desde', '')).date()
+        end = datetime.fromisoformat(request.args.get('hasta', '')).date()
+    except (TypeError, ValueError):
+        raise ValueError('La exportación requiere desde y hasta con formato AAAA-MM-DD.')
+    if start > end:
+        raise ValueError('La fecha desde no puede ser posterior a la fecha hasta.')
+    if (end - start).days > 366:
+        raise ValueError('La exportación no puede superar 366 días.')
+
+
+def _safe_csv(value):
+    if value is None:
+        return ''
+    text_value = str(value)
+    return "'" + text_value if text_value.startswith(('=', '+', '-', '@', '\t', '\r')) else text_value
+
+
+@dashboard_bp.get('/export/<report>.csv')
+@auth_required
+def export_report(report):
+    builders = {'operations': (build_operations_dashboard, 'rows'),
+                'productivity': (build_productivity_dashboard, 'rows'),
+                'quality': (build_quality_dashboard, 'incidents')}
+    if report not in builders:
+        return jsonify(error='Reporte no encontrado.'), 404
+    try:
+        _export_range()
+        builder, row_key = builders[report]
+        result = builder(request.args)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    rows = result.get(row_key, [])
+    if report == 'productivity':
+        rows = [dict(row, modalidades=None) for row in rows]
+    headers = sorted({key for row in rows for key in row if key not in ('review_history',)})
+    output = io.StringIO(newline='')
+    writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow([_safe_csv(row.get(key)) for key in headers])
+    body = '\ufeff' + output.getvalue()
+    return Response(body, mimetype='text/csv; charset=utf-8', headers={
+        'Content-Disposition': f'attachment; filename="pickearya-{report}.csv"',
+        'X-Report-Rows': str(len(rows)), 'X-Report-Generated-At': datetime.utcnow().isoformat()+'Z'})
 
 def to_float(value):
     return float(value or 0)
@@ -155,6 +243,8 @@ def apply_dashboard_filters(query):
         query = query.filter(fecha < datetime.fromisoformat(args.get('hasta')) + timedelta(days=1))
     if args.get('camion'):
         query = query.filter(Consolidado.camion == args.get('camion'))
+    if args.get('sucursal'):
+        query = query.filter(Consolidado.deposito == args.get('sucursal'))
     if args.get('reparto'):
         query = query.filter(Consolidado.reparto == args.get('reparto'))
     if args.get('cancha'):

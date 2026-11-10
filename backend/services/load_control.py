@@ -6,6 +6,7 @@ dos empleados no pueden sobrescribir reservas, respuestas o liberaciones.
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import re
+import os
 
 from utils.db import db
 from models import LogEntry, Consolidado
@@ -147,6 +148,28 @@ def audit(user, action, truck, details):
     import json
     db.session.add(LogEntry(user_id=user.id, action=action, entity='control_cargas',
                             entity_id=truck.id, details=json.dumps(details, ensure_ascii=False)))
+
+
+def answer_measurement(product, check):
+    """Capture reporting context in the existing answer, never a second event.
+
+    Older clients need no new fields. Missing packaging stays unknown; a live
+    catalog value is explicitly distinguished from an approved snapshot.
+    """
+    if os.environ.get('KPI_INSTRUMENTATION_ENABLED', '1') == '0':
+        return {}
+    from models import Article
+    factor = product.get('unidades_por_bulto')
+    source = 'task_snapshot'
+    if type(factor) is not int or factor <= 0:
+        factor = db.session.query(Article.unidades_por_bulto).filter_by(sku=product['sku']).scalar()
+        source = 'catalog_at_confirmation'
+    if type(factor) is not int or factor <= 0:
+        factor, source = None, None
+    return dict(measurement=dict(version=1, process_id=check['id'],
+        expected_b=product['bultos'], expected_u=product.get('unidades', 0),
+        units_per_case=factor, units_per_case_source=source,
+        confirmation_source='unknown'))
 
 
 def save_state(truck, state, user, action, details):

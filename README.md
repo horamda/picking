@@ -83,6 +83,49 @@ Si el frontend ya esta compilado (`npm run build` dentro de `frontend/`), tambie
 - Historial de operacion
 - Gestion de articulos
 
+## Evolucion administrativa local
+
+El desarrollo incremental documentado en `AUDITORIA_PICKEARYA.md` y `PLAN_IMPLEMENTACION.md` amplía el panel existente sin reemplazar el flujo de picking:
+
+- Centro de operaciones con filtros, cobertura y polling secuencial.
+- Productividad separada entre picking y pallets completos.
+- Calidad, diferencias de stock, retrabajo y segundo control.
+- Revisión auditada de faltantes y alertas de supervisión.
+- Diagnóstico técnico opcional de voz web, sin audio ni transcripciones.
+- Simulador hipotético de capacidad y exportaciones CSV reconciliadas.
+- Carga diferida de pantallas y guardas de consultas/tamaño de respuesta.
+
+Endpoints agregados:
+
+- `GET /api/dashboard/operations`
+- `GET /api/dashboard/productivity`
+- `GET /api/dashboard/quality`
+- `POST /api/dashboard/capacity-simulator`
+- `GET /api/dashboard/export/{operations|productivity|quality}.csv`
+- `POST /api/load-control/device-events`
+- `GET /api/load-control/device-diagnostics`
+
+La captura técnica está apagada por defecto. Para habilitar únicamente esos eventos mínimos, configurar `DEVICE_TELEMETRY_ENABLED=1` y reiniciar el backend. No habilita Firebase, no identifica el teléfono y no cambia voz o picking. La instrumentación aditiva de cantidades puede deshabilitarse con `KPI_INSTRUMENTATION_ENABLED=0`.
+
+Las métricas sin fuente suficiente se muestran como no medidas. Presencia, turnos, horario comprometido, alcance de usuarios por sucursal y exactitud histórica por unidades todavía requieren modelo o validación operativa; no se infieren.
+
+### Verificación integral local
+
+Desde la raíz, las pruebas backend usan bases SQLite temporales y aisladas. La suite de concurrencia se excluye porque requiere un PostgreSQL descartable dedicado en `127.0.0.1:55433` y recrea sus tablas.
+
+```powershell
+$backendTests = Get-ChildItem backend/tests/test_*.py | Where-Object { $_.Name -ne 'test_warehouse_concurrency.py' }
+foreach ($test in $backendTests) { python $test.FullName; if ($LASTEXITCODE -ne 0) { break } }
+python -m pytest tests -q
+
+cd frontend
+$testFiles = @(Get-ChildItem src/voice/*.test.js,src/utils/*.test.js | ForEach-Object FullName)
+node --test @testFiles
+node .\node_modules\vite\bin\vite.js build
+```
+
+Resultado de cierre registrado en `PRUEBAS_REGRESION.md`: 217 pruebas aprobadas y build web satisfactorio. Esto no sustituye PostgreSQL con volumen real, Android físico, QA visual ni aprobación de despliegue.
+
 
 ## Control de cargas integrado
 

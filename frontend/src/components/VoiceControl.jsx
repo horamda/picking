@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { parseVoice } from '../voice/parseVoice'
 import { startListening, voiceSupported } from '../voice/voiceEngine'
 import { speak, stopSpeaking } from '../voice/speech'
+import { deviceTelemetry } from '../utils/deviceTelemetry'
 
 const secondary = 'min-h-12 touch-manipulation rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40'
 
@@ -33,24 +34,30 @@ export default function VoiceControl({ prompt, onCommand }) {
         if (listening) {
             stopSpeaking()
             await stopRef.current?.(); stopRef.current = null
-            setListening(false); return
+            setListening(false); deviceTelemetry('voice_stopped'); return
         }
         setError('')
         setLoading(true)
         const controller = new AbortController()
         activationRef.current = controller
+        const activationStarted = performance.now()
+        deviceTelemetry('voice_activation_started')
         speak('Activando voz. Permití el micrófono y esperá a que termine de cargar.', setError)
         try {
             const stop = await startListening({
                 signal: controller.signal,
                 onStatus: value => { if (!controller.signal.aborted) setStatus(value) },
-                onText: text => { setHeard(text); commandRef.current(parseVoice(text), text) },
+                onText: text => { const parsed = parseVoice(text); setHeard(text); deviceTelemetry(parsed.action === 'unknown' ? 'recognition_rejected' : 'recognition_accepted'); commandRef.current(parsed, text) },
                 onPartial: partial => setHeard(partial),
             })
             if (controller.signal.aborted) { await stop(); return }
             stopRef.current = stop
             setListening(true)
+            deviceTelemetry('voice_ready', { duration_ms: Math.round(performance.now() - activationStarted) })
         } catch (err) {
+            if (!controller.signal.aborted) deviceTelemetry('voice_activation_failed', {
+                duration_ms: Math.round(performance.now() - activationStarted), error_code: err.name || 'VoiceError',
+            })
             if (!controller.signal.aborted) setError(err.name === 'NotAllowedError'
                 ? 'Micrófono bloqueado. Permití el micrófono en la configuración de este sitio y volvé a activar voz.'
                 : err.message || 'No se pudo activar la voz. Usá los botones.')

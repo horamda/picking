@@ -15,6 +15,7 @@ export const NAVIGATION = {
     exclusions: { path: '/exclusiones', label: 'Exclusiones', description: 'Administrar productos o reglas excluidas del proceso.' },
     previousLoads: { path: '/administracion/cargas-anteriores', label: 'Cargas anteriores', description: 'Consultar estados y anular armados históricos incompletos.' },
     reports: { path: '/operacion', label: 'Reportes operativos', description: 'Consultar picking por cancha, reparto, pallets y controles.' },
+    capacityReports: { path: '/capacidad-reportes', label: 'Capacidad y exportaciones', description: 'Simular escenarios hipotéticos y descargar reportes reconciliados.' },
     dashboard: { path: '/', label: 'Dashboard histórico', description: 'Analizar indicadores acumulados y evolución de la operación.' },
     history: { path: '/historial', label: 'Historial de archivos', description: 'Consultar PDFs importados y sus procesos anteriores.' },
 }
@@ -24,14 +25,14 @@ export const ADMIN_GROUPS = [
     ['Operación y supervisión', ['supervision', 'planning', 'shortages', 'resources', 'monitor', 'timing']],
     ['Personas y configuración', ['people', 'trucks', 'articles', 'voice', 'pallets', 'exclusions']],
     ['Carga de datos', ['imports']],
-    ['Reportes e historial', ['reports', 'dashboard', 'previousLoads', 'history']],
+    ['Reportes e historial', ['reports', 'dashboard', 'capacityReports', 'previousLoads', 'history']],
 ]
 
 export const SUPERVISOR_GROUPS = [
     ['Inicio', ['supervision']],
     ['Operación', ['planning', 'shortages', 'resources', 'monitor', 'timing']],
     ['Datos de consulta', ['articles', 'imports']],
-    ['Reportes e historial', ['reports', 'dashboard', 'history']],
+    ['Reportes e historial', ['reports', 'dashboard', 'capacityReports', 'history']],
 ]
 
 export const navigationGroups = role => role === 'administrador' ? ADMIN_GROUPS : SUPERVISOR_GROUPS

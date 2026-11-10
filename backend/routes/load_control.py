@@ -4,13 +4,14 @@ import json
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
+import os
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
 
 from flask import Blueprint, g, jsonify, request, has_request_context
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from werkzeug.exceptions import HTTPException
 
 from auth import auth_required, roles_required, current_user_payload
@@ -18,7 +19,8 @@ from models import Consolidado, User, LogEntry, Article
 from services.pallet_planning import plan_for_capacity, apply_manual_pallets
 from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts, truck_capacity, depot_key
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
-    court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads)
+    court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads,
+    answer_measurement)
 from services.dispatch import totals, truck_summary, worker_queue, selection_preview
 from services.pdf_articles import enable_pdf_articles
 from utils.db import db
@@ -29,6 +31,73 @@ from services.pallet_control import (physical_pallets, pallet_state, edit_pallet
 
 load_control_bp = Blueprint('load_control', __name__)
 MANAGERS = ('administrador', 'supervisor')
+DEVICE_EVENTS = {'voice_activation_started', 'voice_ready', 'voice_activation_failed',
+                 'voice_stopped', 'recognition_accepted', 'recognition_rejected',
+                 'push_registration_ready', 'push_registration_failed'}
+
+
+@load_control_bp.post('/device-events')
+@auth_required
+def device_event():
+    """Optional technical telemetry. Never accepts audio, transcripts or device tokens."""
+    data = body()
+    event = data.get('event')
+    platform = data.get('platform')
+    version = str(data.get('client_version') or '').strip()
+    error_code = str(data.get('error_code') or '').strip()
+    duration_ms = data.get('duration_ms')
+    if event not in DEVICE_EVENTS:
+        fail('Evento técnico inválido.')
+    if platform not in ('web', 'android'):
+        fail('Plataforma inválida.')
+    if len(version) > 40 or (error_code and (len(error_code) > 80 or not re.fullmatch(r'[A-Za-z0-9_.-]+', error_code))):
+        fail('Contexto técnico inválido.')
+    if duration_ms is not None and (type(duration_ms) is not int or not 0 <= duration_ms <= 600000):
+        fail('Duración técnica inválida.')
+    if os.environ.get('DEVICE_TELEMETRY_ENABLED') != '1':
+        return jsonify(ok=True, recorded=False), 202
+    details = dict(version=1, platform=platform)
+    if version:
+        details['client_version'] = version
+    if error_code:
+        details['error_code'] = error_code
+    if duration_ms is not None:
+        details['duration_ms'] = duration_ms
+    db.session.add(LogEntry(user_id=g.current_user.id, action=event,
+        entity='device_telemetry', details=json.dumps(details)))
+    db.session.commit()
+    return jsonify(ok=True, recorded=True), 201
+
+
+@load_control_bp.get('/device-diagnostics')
+@roles_required(*MANAGERS)
+def device_diagnostics():
+    try:
+        days = int(request.args.get('days', 7))
+    except (TypeError, ValueError):
+        fail('El rango debe ser un número entero.')
+    if not 1 <= days <= 31:
+        fail('El rango debe estar entre 1 y 31 días.')
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = db.session.query(LogEntry, User.username).outerjoin(User, User.id == LogEntry.user_id).filter(
+        LogEntry.entity == 'device_telemetry', LogEntry.timestamp >= since
+    ).order_by(LogEntry.id.desc()).limit(1000).all()
+    counts, platforms, durations = {}, {}, {}
+    recent = []
+    for entry, username in rows:
+        detail = json.loads(entry.details or '{}')
+        counts[entry.action] = counts.get(entry.action, 0) + 1
+        platform = detail.get('platform', 'unknown')
+        platforms[platform] = platforms.get(platform, 0) + 1
+        if isinstance(detail.get('duration_ms'), int):
+            durations.setdefault(entry.action, []).append(detail['duration_ms'])
+        if len(recent) < 100:
+            recent.append(dict(event=entry.action, username=username, at=entry.timestamp.isoformat()+'Z', **detail))
+    latency = {key: dict(samples=len(values), average_ms=round(sum(values)/len(values), 1),
+                         maximum_ms=max(values)) for key, values in durations.items()}
+    return jsonify(enabled=os.environ.get('DEVICE_TELEMETRY_ENABLED') == '1', days=days,
+        total=len(rows), counts=counts, platforms=platforms, latency=latency, recent=recent,
+        privacy='No se almacenan audio, transcripciones, tokens push ni identificadores del dispositivo.')
 
 
 @load_control_bp.route('/push/device', methods=['POST', 'DELETE'])
@@ -912,6 +981,9 @@ def answer(load_id, number, stage, check_id):
     shortage = shortages.get(answer_key)
     confirmation = stage == 2 and result == 'shortage' and shortage is not None
     incident = shortage.get('incident') if confirmation else None
+    shortage_reason = (data.get('shortage_reason') or 'no_localizado') if result == 'shortage' and stage in (0, 4) else None
+    if shortage_reason is not None and shortage_reason not in ('stock', 'rotura', 'no_localizado', 'frescura_no_disponible'):
+        fail('Indicá si el faltante corresponde a stock, rotura, producto no localizado o frescura no disponible.')
     if result in ('corrected', 'shortage') and not confirmation:
         responsible_id = g.current_user.id if stage in (0, 4) else data.get('responsible_user_id')
         origin = 'picking' if stage in (0, 4) else data.get('origin')
@@ -920,12 +992,12 @@ def answer(load_id, number, stage, check_id):
             fail('Indic? el responsable del error y si corresponde a picking o control.')
         incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
                         origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
+        if shortage_reason == 'stock':
+            incident.update(responsible_user_id=None, responsible_username='Diferencia de stock',
+                            origin='stock', error_count=0)
     shortages = cs['shortages'] if stage in (1, 2) else cs.setdefault('preparation_shortages', {}).setdefault(str(stage), {})
     shortage = shortages.get(answer_key)
     if result == 'shortage':
-        shortage_reason = (data.get('shortage_reason') or 'no_localizado') if stage in (0, 4) else None
-        if stage in (0, 4) and shortage_reason not in ('stock', 'rotura', 'no_localizado', 'frescura_no_disponible'):
-            fail('Indicá si el faltante corresponde a stock, rotura, producto no localizado o frescura no disponible.')
         b, u = data.get('physical_b'), data.get('physical_u')
         if type(b) is not int or type(u) is not int or min(b, u) < 0:
             fail('Ingresá cantidades físicas enteras y no negativas.')
@@ -950,7 +1022,9 @@ def answer(load_id, number, stage, check_id):
             del shortages[answer_key]
     check['answers'][answer_key] = dict(sku=sku, product_key=answer_key,
         fecha_frescura=prod.get('fecha_frescura'), result=result, physical_b=b, physical_u=u,
-        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
+        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username,
+        shortage_reason=shortage_reason,
+        **answer_measurement(prod, check))
     if data.get('verification_mode') == 'full_sku':
         check['answers'][answer_key]['verification'] = 'not_found' if not_found else 'full_sku'
     if request_id:
@@ -960,7 +1034,7 @@ def answer(load_id, number, stage, check_id):
         state.setdefault('incidents', {})[f'{check_id}:{answer_key}'] = dict(check['answers'][answer_key],
             load_id=load.id, court=number, stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control',
-               dict(load_id=load.id, court=number, stage=stage, **check['answers'][answer_key]))
+               dict(load_id=load.id, court=number, stage=stage, process_id=check_id, **check['answers'][answer_key]))
     return jsonify(check)
 
 
@@ -1039,15 +1113,37 @@ def shortage_action(load_id, number, sku, action):
             fail('Completá ambos controles antes de autorizar el faltante.', 409)
         if not sh.get('approved_by'):
             sh.update(approved_by=g.current_user.id, approved_at=now())
+            record_shortage_review(sh, 'autorizado')
     elif action == 'adjusted':
         if not sh.get('approved_by'):
             fail('Primero debe autorizarse el faltante.', 409)
         if not sh.get('adjusted_by'):
             sh.update(adjusted_by=g.current_user.id, adjusted_at=now())
+            record_shortage_review(sh, 'ajustado')
+    elif action in ('review', 'recount', 'reject'):
+        apply_shortage_review(sh, action)
     else:
         fail('Acción inválida.', 404)
     save_state(load.truck, state, g.current_user, 'faltante_' + action, dict(load_id=load.id, court=number, sku=sku))
     return jsonify(ok=True)
+
+
+def record_shortage_review(shortage, status, reason=None):
+    event = dict(status=status, by=g.current_user.id, username=g.current_user.username, at=now())
+    if reason:
+        event['reason'] = reason
+    shortage['review_status'] = status
+    shortage.setdefault('review_history', []).append(event)
+
+
+def apply_shortage_review(shortage, action):
+    if shortage.get('approved_by'):
+        fail('El faltante ya está autorizado. Reabrí el control si necesitás revisarlo.', 409)
+    reason = str(body().get('reason') or '').strip()
+    if len(reason) < 3 or len(reason) > 500:
+        fail('Indicá un motivo de entre 3 y 500 caracteres.')
+    status = {'review':'en_revision', 'recount':'recuento_solicitado', 'reject':'rechazado'}[action]
+    record_shortage_review(shortage, status, reason)
 
 
 @load_control_bp.get('/asset-types')
@@ -1363,9 +1459,15 @@ def warehouse_monitor():
         fail('Fecha invalida.')
     rows = []
     summaries = []
-    active_workers = [user for user in User.query.filter_by(active=True).all()
+    alerts = []
+    active_workers = [user for user in User.query.options(joinedload(User.role)).filter_by(active=True).all()
                       if user.role.name in ('operador', 'palletizador', 'controlador')]
-    worker_courts = {user.id: assigned_courts(user.id) for user in active_workers}
+    worker_courts = {user.id: [] for user in active_workers}
+    worker_ids = list(worker_courts)
+    if worker_ids:
+        for assignment in UserCourt.query.filter(UserCourt.user_id.in_(worker_ids)).all():
+            worker_courts[assignment.user_id].append(assignment.court_number)
+    worker_courts = {user_id: sorted(numbers) for user_id, numbers in worker_courts.items()}
 
     def process_amounts(products):
         bultos = sum(product.get('bultos', 0) for product in products)
@@ -1422,6 +1524,7 @@ def warehouse_monitor():
             assets_status='done' if assets.get('status') == 'done' else 'running' if assets.get('timer_started_at') else 'paused' if assets else 'pending',
             assets_username=assets.get('username'), position=truck.state.get('dispatch', {}).get('position'),
             summary=truck_summary(truck, dispatch_catalog(), valid=bool(plan))))
+        alerts.extend(supervision_alerts(truck))
         for load in selected_loads(truck):
             for court in load.content['canchas']:
                 cs = court_state(truck.state, load.id, court['numero'])
@@ -1535,10 +1638,110 @@ def warehouse_monitor():
     latest = db.session.query(LogEntry, User.username).outerjoin(User, LogEntry.user_id == User.id).filter(
         LogEntry.timestamp >= day_start, LogEntry.timestamp < day_start + timedelta(days=1),
         LogEntry.entity != 'api_activity').order_by(LogEntry.id.desc()).limit(12).all()
+    alert_counts = {key: sum(alert['status'] == key for alert in alerts)
+                    for key in ('abierta', 'reconocida', 'resuelta', 'descartada')}
     return jsonify(date=date, updated_at=now(), processes=rows, trucks=summaries,
+        alerts=alerts, alert_counts=alert_counts,
         events=[dict(id=event.id, action=event.action, username=username, at=event.timestamp.isoformat()+'Z') for event, username in latest],
         operators=[dict(id=u.id, username=u.username, role=u.role.name, courts=worker_courts[u.id])
             for u in active_workers])
+
+
+def supervision_alerts(truck, state=None):
+    """Derive one current alert per entity/type and overlay its audited review state."""
+    state = truck.state if state is None else state
+    reviews = state.get('alert_reviews', {})
+    alerts = []
+
+    def add(key, alert_type, severity, title, detail, **context):
+        review = reviews.get(key, {})
+        alerts.append(dict(key=key, type=alert_type, severity=severity, title=title,
+            detail=detail, status=review.get('status', 'abierta'), active=True,
+            history=review.get('history', []), truck_id=truck.id, truck=truck.truck,
+            branch=truck.branch, date=truck.load_date, **context))
+
+    loads = selected_loads(truck)
+    if loads and not approved(truck) and not legacy_in_progress(truck):
+        add('planificacion', 'planificacion_pendiente', 'media',
+            'Planificación pendiente', 'La carga requiere revisión y aprobación antes de iniciar.')
+
+    for load in loads:
+        for court in load.content.get('canchas', []):
+            number = court.get('numero')
+            cs = court_state(state, load.id, number)
+            first, second = cs.get('checks', {}).get('1', {}), cs.get('checks', {}).get('2', {})
+            if first.get('status') == 'done' and second.get('status') != 'done':
+                add(f'control2|{load.id}|{number}', 'segundo_control_pendiente', 'alta',
+                    'Segundo control pendiente', 'Control 1 finalizó y Control 2 todavía no.',
+                    load_id=load.id, reparto=load.reparto, court=number)
+            for product_key, shortage in cs.get('shortages', {}).items():
+                if shortage.get('approved_by'):
+                    continue
+                add(f'faltante|{load.id}|{number}|{product_key}', 'faltante_pendiente', 'alta',
+                    'Faltante pendiente de decisión', shortage.get('note') or 'Requiere revisión del supervisor.',
+                    load_id=load.id, reparto=load.reparto, court=number,
+                    sku=shortage.get('sku'), review_status=shortage.get('review_status'))
+
+    for pallet_key, pallet in state.get('pallet_controls', {}).items():
+        checks = pallet.get('checks', {})
+        try:
+            load_id, pallet_id = pallet_key.split(':', 1)
+            load_id = int(load_id)
+        except (TypeError, ValueError):
+            load_id, pallet_id = None, pallet_key
+        if checks.get('1', {}).get('status') == 'done' and checks.get('2', {}).get('status') != 'done':
+            add(f'control2p|{pallet_key}', 'segundo_control_pendiente', 'alta',
+                'Segundo control de pallet pendiente', 'Control 1 finalizó y Control 2 todavía no.',
+                load_id=load_id, pallet_id=pallet_id, court=pallet.get('owner_court'))
+        for product_key, shortage in pallet.get('shortages', {}).items():
+            if shortage.get('approved_by'):
+                continue
+            add(f'faltantep|{pallet_key}|{product_key}', 'faltante_pendiente', 'alta',
+                'Faltante de pallet pendiente', shortage.get('note') or 'Requiere revisión del supervisor.',
+                load_id=load_id, pallet_id=pallet_id, court=pallet.get('owner_court'),
+                sku=shortage.get('sku'), review_status=shortage.get('review_status'))
+
+    seen = set()
+    for court in state.get('courts', {}).values():
+        for check in list(court.get('checks', {}).values()) + helpers(court):
+            if check.get('id') in seen or not check.get('started_at') or check.get('status') == 'done' or check.get('timer_started_at'):
+                continue
+            seen.add(check.get('id'))
+            add(f'pausa|{check.get("id")}', 'proceso_pausado', 'media',
+                'Proceso pausado', f'{check.get("username") or "Sin responsable"} tiene trabajo iniciado sin cronómetro activo.',
+                process_id=check.get('id'), stage=check.get('stage'), username=check.get('username'))
+    alerts.sort(key=lambda item: ({'alta': 0, 'media': 1, 'baja': 2}.get(item['severity'], 3), item['key']))
+    return alerts
+
+
+@load_control_bp.post('/trucks/<int:truck_id>/alerts/<path:alert_key>/<action>')
+@roles_required(*MANAGERS)
+def supervision_alert_action(truck_id, alert_key, action):
+    if action not in ('acknowledge', 'resolve', 'dismiss', 'reopen'):
+        fail('Acción inválida.', 404)
+    truck = get_truck(truck_id)
+    state = deepcopy(truck.state)
+    current = {alert['key']: alert for alert in supervision_alerts(truck, state)}
+    if alert_key not in current:
+        fail('Alerta no encontrada o ya no vigente.', 404)
+    reason = str(body().get('reason') or '').strip()
+    if action in ('resolve', 'dismiss', 'reopen') and not 3 <= len(reason) <= 500:
+        fail('Indicá un motivo de entre 3 y 500 caracteres.')
+    if action == 'acknowledge' and len(reason) > 500:
+        fail('El comentario no puede superar 500 caracteres.')
+    status_value = {'acknowledge': 'reconocida', 'resolve': 'resuelta',
+                    'dismiss': 'descartada', 'reopen': 'abierta'}[action]
+    review = state.setdefault('alert_reviews', {}).setdefault(alert_key, {'history': []})
+    event = dict(status=status_value, by=g.current_user.id,
+                 username=g.current_user.username, at=now())
+    if reason:
+        event['reason'] = reason
+    review['status'] = status_value
+    review.setdefault('history', []).append(event)
+    save_state(truck, state, g.current_user, 'alerta_' + action,
+               dict(alert_key=alert_key, alert_type=current[alert_key]['type'], reason=reason))
+    return jsonify(ok=True, alert=dict(current[alert_key], status=status_value,
+        history=review['history']))
 
 
 @load_control_bp.get('/trucks/<int:truck_id>/control-pallets')
@@ -1765,17 +1968,25 @@ def answer_pallet_control(load_id, pallet_id, stage, check_id):
         ps['shortages'].pop(answer_key, None)
     check['answers'][answer_key] = dict(sku=sku, product_key=answer_key,
         fecha_frescura=product.get('fecha_frescura'), result=result, physical_b=bultos, physical_u=unidades,
-        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username)
+        note=note, incident=incident, saved_at=now(), user_id=g.current_user.id, username=g.current_user.username,
+        **answer_measurement(product, check))
     if request_id:
         check['answers'][answer_key]['request_id'] = request_id
         check.setdefault('receipts', {})[request_id] = dict(
             digest=digest, sku=answer_key, saved_at=check['answers'][answer_key]['saved_at'])
     if incident and not confirmation:
-        state.setdefault('incidents', {})[f'{check_id}:{pallet_id}:{sku}'] = dict(
+        incidents = state.setdefault('incidents', {})
+        incident_key = f'{check_id}:{pallet_id}:{answer_key}'
+        legacy_key = f'{check_id}:{pallet_id}:{sku}'
+        legacy = incidents.get(legacy_key)
+        if legacy and str(legacy.get('product_key') or legacy.get('sku')) == answer_key:
+            incident_key = legacy_key  # Update the same legacy incident, without duplicating it.
+        incidents[incident_key] = dict(
             check['answers'][answer_key], load_id=load.id, court=pallet['owner_court'], pallet_id=pallet_id,
             stage=stage, process_id=check_id, process_status=check['status'])
     save_state(load.truck, state, g.current_user, 'respuesta_control_pallet',
-        dict(load_id=load.id, pallet_id=pallet_id, stage=stage, **check['answers'][answer_key]))
+        dict(load_id=load.id, pallet_id=pallet_id, court=pallet['owner_court'], stage=stage,
+             process_id=check_id, **check['answers'][answer_key]))
     return jsonify(check)
 
 
@@ -1819,11 +2030,15 @@ def pallet_shortage_action(load_id, pallet_id, sku, action):
             fail('Completá ambos controles del pallet antes de autorizar el faltante.', 409)
         if not shortage.get('approved_by'):
             shortage.update(approved_by=g.current_user.id, approved_at=now())
+            record_shortage_review(shortage, 'autorizado')
     elif action == 'adjusted':
         if not shortage.get('approved_by'):
             fail('Primero debe autorizarse el faltante.', 409)
         if not shortage.get('adjusted_by'):
             shortage.update(adjusted_by=g.current_user.id, adjusted_at=now())
+            record_shortage_review(shortage, 'ajustado')
+    elif action in ('review', 'recount', 'reject'):
+        apply_shortage_review(shortage, action)
     else:
         fail('Acción inválida.', 404)
     save_state(load.truck, state, g.current_user, 'faltante_pallet_' + action,
