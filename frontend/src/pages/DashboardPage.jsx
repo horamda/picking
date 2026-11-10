@@ -18,7 +18,7 @@ import { formatDate, formatNumber, todayInputValue } from '../utils/format'
 
 const KPI_CONFIG = [
     { key: 'pdfs_procesados', label: 'PDFs procesados', color: 'bg-brand-50 text-brand-500' },
-    { key: 'repartos_procesados', label: 'Repartos', color: 'bg-violet-50 text-violet-500' },
+    { key: 'repartos_procesados', label: 'Repartos', color: 'bg-blue-50 text-brand-600' },
     { key: 'camiones_procesados', label: 'Camiones', color: 'bg-sky-50 text-sky-500' },
     { key: 'bultos_manuales', label: 'Bultos picking equiv.', color: 'bg-orange-50 text-orange-500' },
     { key: 'bultos_palletizados', label: 'Bultos pallets', color: 'bg-emerald-50 text-emerald-500' },

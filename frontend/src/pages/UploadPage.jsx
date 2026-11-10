@@ -6,7 +6,7 @@ import { formatDate } from '../utils/format'
 function MetaChip({ label, value }) {
     if (!value) return null
     return (
-        <span className="inline-flex items-center gap-1 text-xs text-slate-600">
+        <span className="inline-flex items-center gap-1 text-sm text-slate-600">
             <span className="font-medium text-slate-500">{label}:</span>
             {value}
         </span>
@@ -19,12 +19,12 @@ function ProcessedCard({ item }) {
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <p className="text-sm font-semibold text-slate-800">Reparto {item.reparto}</p>
-                    <p className="mt-0.5 text-xs font-medium text-green-700">
+                    <p className="mt-0.5 text-sm font-medium text-green-700">
                         {formatDate(item.fecha_reparto)}
                         {!item.fecha_reparto && <span className="text-amber-600">Fecha no detectada en el PDF</span>}
                     </p>
                 </div>
-                <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-sm font-medium text-green-700">
                     Procesado
                 </span>
             </div>
@@ -33,7 +33,7 @@ function ProcessedCard({ item }) {
                 <MetaChip label="Chofer" value={item.chofer} />
                 <MetaChip label="Deposito" value={item.deposito} />
             </div>
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-sm text-slate-500">
                 {item.items} articulos procesados
                 {item.excluded > 0 && (
                     <span className="ml-2 text-amber-600">{item.excluded} excluidos</span>
@@ -47,7 +47,7 @@ function ErrorCard({ item }) {
     return (
         <li className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
             <p className="text-sm font-semibold text-slate-800">{item.filename}</p>
-            <p className="mt-1 text-xs text-red-700">{item.error}</p>
+            <p className="mt-1 text-sm text-red-700">{item.error}</p>
         </li>
     )
 }
@@ -101,8 +101,8 @@ function UploadPage() {
     }
 
     return (
-        <div className="bg-slate-50 p-4 sm:p-6">
-            <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="p-0">
+            <div className="imports-surface mb-6 rounded-2xl border p-4 shadow-sm sm:p-6">
                 <h2 className="text-2xl font-semibold text-slate-900">Carga de PDFs</h2>
                 <p className="mt-2 text-slate-600">Arrastra y suelta archivos o selecciona varios PDFs para procesar consolidados.</p>
                 <div className="mt-6 flex flex-col gap-4">
@@ -127,7 +127,7 @@ function UploadPage() {
                                 <h3 className="text-sm font-semibold text-slate-700">
                                     {files.length} archivo{files.length !== 1 ? 's' : ''} seleccionado{files.length !== 1 ? 's' : ''}
                                 </h3>
-                                <button type="button" onClick={() => setFiles([])} className="text-xs text-slate-400 hover:text-slate-600">Limpiar</button>
+                                <button type="button" onClick={() => setFiles([])} className="min-h-11 px-2 text-sm text-slate-500 hover:text-slate-700">Limpiar</button>
                             </div>
                             <ul className="space-y-1 text-sm text-slate-600">
                                 {files.map((file) => (<li key={file.name} className="truncate">{file.name}</li>))}
@@ -165,7 +165,7 @@ function UploadPage() {
                                 </h3>
                                 <Link
                                     to="/historial"
-                                    className="text-xs font-medium text-brand-600 hover:underline"
+                                    className="min-h-11 py-3 text-sm font-medium text-brand-600 hover:underline"
                                 >
                                     Ver en historial →
                                 </Link>

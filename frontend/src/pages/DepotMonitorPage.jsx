@@ -4,7 +4,7 @@ import api from '../api/axiosClient'
 import { todayInputValue } from '../utils/format'
 
 const labels = { running: 'En curso', paused: 'Pausado', done: 'Finalizado', pending: 'Listo para iniciar', waiting: 'En espera' }
-const colors = { running: 'border-emerald-500 bg-emerald-950', paused: 'border-amber-400 bg-amber-950', done: 'border-sky-500 bg-sky-950', pending: 'border-violet-500 bg-violet-950', waiting: 'border-slate-600 bg-slate-900' }
+const colors = { running: 'border-emerald-500 bg-emerald-950', paused: 'border-amber-400 bg-amber-950', done: 'border-sky-500 bg-sky-950', pending: 'border-brand-500 bg-brand-950', waiting: 'border-slate-600 bg-slate-900' }
 const actions = { guardar_semana: 'Borrador semanal guardado', publicar_semana: 'Semana publicada', activar_semana: 'Asignación semanal activada', asignar_refuerzo: 'Refuerzo asignado', devolver_refuerzo: 'Pendientes de refuerzo devueltos', vencer_refuerzo: 'Refuerzo vencido: revisar pendientes', seleccionar_cola_armado: 'Cola de camiones actualizada', respuesta_control: 'Producto registrado', iniciar_control: 'Tarea iniciada', reanudar_proceso: 'Tarea reanudada', pausar_proceso: 'Tarea pausada', finalizar_control: 'Tarea finalizada', aprobar_planificacion: 'Carga aprobada', iniciar_planificacion: 'Planificación iniciada', asignar_canchas: 'Canchas asignadas', reasignar_canchas: 'Trabajo reasignado', registrar_activos: 'Activos registrados', liberacion_en_aplicacion: 'Camión liberado', faltante_approve: 'Faltante aprobado', faltante_adjusted: 'Ajuste confirmado', importar_planilla_control: 'Reparto incorporado', importacion_csv_autorizada: 'Maestro de artículos importado', editar_descripcion_voz: 'Descripción de voz actualizada' }
 
 function ProcessCard({ entries, stage, group }) {
@@ -59,7 +59,7 @@ export default function DepotMonitorPage() {
 
     return <div className="min-h-screen bg-slate-950 p-3 text-white sm:p-4">
         <header className="grid gap-2 border-b border-slate-800 pb-2 lg:grid-cols-[minmax(190px,1fr)_auto] lg:items-end">
-            <div><p className="text-[11px] font-semibold uppercase tracking-widest text-[#00ed45]">PickearYa · Depósito</p><h1 className="text-xl font-bold leading-tight sm:text-2xl">Armado en vivo</h1></div>
+            <div><p className="text-[11px] font-semibold uppercase tracking-widest text-[#FFD27A]">PickearYa · Depósito</p><h1 className="text-xl font-bold leading-tight sm:text-2xl">Armado en vivo</h1></div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end"><label className="text-xs text-slate-300">Fecha<input aria-label="Fecha del monitor" type="date" value={date} onChange={event => event.target.value && setDate(event.target.value)} className="ml-2 min-h-8 rounded-lg bg-slate-800 px-2 py-1 text-white" /></label><button className="min-h-8 rounded-lg border border-slate-600 px-3 text-xs" onClick={() => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => setError('El navegador no permite pantalla completa.'))}>Pantalla completa</button><Link to="/supervision" className="px-2 py-1 text-xs underline">Supervisión</Link></div>
         </header>
         <section className="my-2 grid gap-2 xl:grid-cols-[minmax(260px,.8fr)_minmax(640px,2.2fr)]">

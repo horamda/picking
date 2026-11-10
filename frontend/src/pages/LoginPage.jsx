@@ -27,16 +27,16 @@ function LoginPage() {
     }
 
     return (
-        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#210033] via-[#3b005b] to-[#24106b] px-4">
-            <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#00ed45]/10 blur-3xl" />
+        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#071A3B] via-[#0B3D91] to-[#0B0F17] px-4">
+            <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#FFB020]/10 blur-3xl" />
             <div className="pointer-events-none absolute -right-24 bottom-20 h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl" />
             <div className="w-full max-w-sm">
                 <div className="relative mb-6 flex justify-center">
-                    <img src="/brand/pickearya-horizontal.png" alt="PickearYa" className="h-20 w-auto rounded-2xl bg-white px-4 py-2 shadow-xl" />
+                    <img src="/brand/lockup-negro-1x.png" srcSet="/brand/lockup-negro-1x.png 1x, /brand/lockup-negro-3x.png 3x" width="340" height="100" alt="PickearYa" className="h-20 w-auto rounded-2xl bg-[#0B0F17] px-4 py-2 shadow-xl" />
                 </div>
 
                 <div className="relative rounded-3xl bg-white p-8 shadow-2xl ring-1 ring-white/20">
-                    <p className="text-xs font-bold uppercase tracking-[.2em] text-[#6f0a91]">Picking por voz</p>
+                    <p className="text-xs font-bold uppercase tracking-[.2em] text-[#0B3D91]">Picking por voz</p>
                     <h1 className="mb-6 mt-1 text-2xl font-semibold text-slate-900">Ingresar a PickearYa</h1>
 
                     {error && (

@@ -21,11 +21,11 @@ export default function ImportsPage() {
         catch (e) { setResult(e.response?.data || null); setError(e.response?.data?.error || 'No se aplicó la importación. Revisá los errores.') }
         finally { setBusy(false) }
     }
-    return <div className="p-4 sm:p-6">
+    return <div className="imports-page p-4 sm:p-6">
         <h1 className="text-2xl font-semibold">Importaciones</h1>
-        <p className="mt-2 text-slate-500">Carga de archivos para actualizar el sistema.</p>
-        <nav className="my-4 flex flex-wrap gap-3" aria-label="Tipo de importación">{[['pdf', 'Consolidados PDF'], ['articulos', 'Artículos CSV'], ['logistica', 'Datos logísticos Excel'], ['voz', 'Descripciones de voz']].map(([id, label]) => <button disabled={busy} key={id} onClick={() => setParams({ tipo: id })} className={`min-h-12 rounded-xl px-4 ${tab === id ? 'bg-brand-500 text-white' : 'border bg-white'}`}>{label}</button>)}</nav>
-        {tab === 'pdf' ? <UploadPage /> : tab === 'voz' ? <VoiceCsvImport /> : tab === 'logistica' ? <LogisticsImport /> : <section className="max-w-3xl rounded-2xl border bg-white p-4 sm:p-6">
+        <p className="imports-muted mt-2">Carga de archivos para actualizar el sistema.</p>
+        <nav className="my-4 flex flex-wrap gap-2" aria-label="Tipo de importación">{[['pdf', 'Consolidados PDF'], ['articulos', 'Artículos CSV'], ['logistica', 'Datos logísticos Excel'], ['voz', 'Descripciones de voz']].map(([id, label]) => <button type="button" disabled={busy} key={id} onClick={() => setParams({ tipo: id })} aria-selected={tab === id} className="imports-tab rounded-full px-4 font-medium disabled:opacity-50">{label}</button>)}</nav>
+        {tab === 'pdf' ? <UploadPage /> : tab === 'voz' ? <VoiceCsvImport /> : tab === 'logistica' ? <LogisticsImport /> : <section className="imports-surface max-w-3xl rounded-2xl border p-4 sm:p-6">
             <h2 className="text-lg font-semibold">Importar maestro de artículos</h2>
             <p className="my-3 text-sm text-slate-600">Se activan las mercaderías con Activo = SI y Anulado = NO. “Usado en dispositivo móvil” puede ser SI o NO y se conserva como dato de origen. También se conservan las descripciones de voz editadas.</p>
             <form className="space-y-4" onSubmit={upload}>
