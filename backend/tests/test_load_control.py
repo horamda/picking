@@ -8,6 +8,7 @@ from io import BytesIO
 from pdf_fixture import planilla_pdf
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from openpyxl import load_workbook
 
 TEMP = tempfile.TemporaryDirectory()
 os.environ['DATABASE_URL'] = 'sqlite:///' + str(Path(TEMP.name) / 'control.db')
@@ -125,11 +126,46 @@ class ControlFlowTest(unittest.TestCase):
         headers = {'Authorization':'Bearer '+self.tokens['admin']}
         payload = dict(business_unit='CERVEZAS CMQ', caliber='1000 CC VIDRIO',
             can_be_base=True, stable=True, allow_incomplete_floor=False,
-            size_rank=1000, enabled=True)
+            size_rank=1000, enabled=True, units_per_case=12, length_cm=40.5, width_cm=30,
+            height_cm=None)
         self.assertEqual(self.client.put('/api/pallet-rules/stacking', headers=headers, json=payload).status_code, 200)
         listing = self.client.get('/api/pallet-rules', headers=headers).json
         self.assertEqual(listing['stacking_rules'][0]['size_rank'], 1000)
         self.assertTrue(listing['stacking_rules'][0]['can_be_base'])
+        self.assertEqual(listing['stacking_rules'][0]['units_per_case'], 12)
+        self.assertEqual(listing['stacking_rules'][0]['length_cm'], 40.5)
+        self.assertEqual(listing['stacking_rules'][0]['missing_physical'], [])
+
+    def test_stacking_rules_excel_round_trip_preserves_existing_values(self):
+        headers = {'Authorization':'Bearer '+self.tokens['admin']}
+        payload = dict(business_unit='CERVEZAS CMQ', caliber='1000 CC VIDRIO', can_be_base=True,
+            stable=True, allow_incomplete_floor=False, size_rank=1000, enabled=True,
+            units_per_case=12, length_cm=40, width_cm=30, height_cm=None)
+        self.assertEqual(self.client.put('/api/pallet-rules/stacking', headers=headers, json=payload).status_code, 200)
+        exported = self.client.get('/api/pallet-rules/stacking.xlsx', headers=headers)
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn('reglas-mezclador.xlsx', exported.headers['Content-Disposition'])
+        workbook = load_workbook(BytesIO(exported.data))
+        sheet = workbook.active
+        header = {cell.value: cell.column for cell in sheet[1]}
+        target = next(row for row in range(2, sheet.max_row + 1)
+                      if sheet.cell(row, header['UNIDAD_DE_NEGOCIO']).value == 'CERVEZAS CMQ'
+                      and sheet.cell(row, header['CALIBRE']).value == '1000 CC VIDRIO')
+        sheet.cell(target, header['LARGO_CM']).value = 41.25
+        sheet.cell(target, header['ANCHO_CM']).value = None
+        output = BytesIO(); workbook.save(output); excel_bytes = output.getvalue()
+        preview = self.client.post('/api/pallet-rules/stacking.xlsx', headers=headers,
+            data={'file': (BytesIO(excel_bytes), 'reglas.xlsx'), 'apply': 'false'}, content_type='multipart/form-data')
+        self.assertEqual(preview.status_code, 200)
+        self.assertGreaterEqual(preview.json['updated'], 1)
+        applied = self.client.post('/api/pallet-rules/stacking.xlsx', headers=headers,
+            data={'file': (BytesIO(excel_bytes), 'reglas.xlsx'), 'apply': 'true'}, content_type='multipart/form-data')
+        self.assertEqual(applied.status_code, 200)
+        self.assertTrue(applied.json['applied'])
+        listing = self.client.get('/api/pallet-rules', headers=headers).json
+        rule = next(row for row in listing['stacking_rules'] if row['business_unit'] == 'CERVEZAS CMQ')
+        self.assertEqual(rule['length_cm'], 41.25)
+        self.assertEqual(rule['width_cm'], 30.0)
 
     def test_incomplete_pallet_articles_can_be_exported(self):
         headers={'Authorization':'Bearer '+self.tokens['admin']}

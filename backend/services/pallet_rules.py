@@ -34,6 +34,10 @@ class PalletStackingRule(db.Model):
     stable = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     allow_incomplete_floor = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     size_rank = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    units_per_case = db.Column(db.Integer, nullable=True)
+    length_cm = db.Column(db.Numeric(10, 2), nullable=True)
+    width_cm = db.Column(db.Numeric(10, 2), nullable=True)
+    height_cm = db.Column(db.Numeric(10, 2), nullable=True)
     enabled = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
     updated_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -147,6 +151,10 @@ def stacking_values(article, rules):
         stable=stack_rule.stable if stack_rule else bool(rule) and legacy_mode,
         allow_incomplete_floor=stack_rule.allow_incomplete_floor if stack_rule else False,
         size_rank=stack_rule.size_rank if stack_rule else (rule['base_priority'] if rule and legacy_mode else 0),
+        package_units_per_case=stack_rule.units_per_case if stack_rule else None,
+        package_length_cm=str(stack_rule.length_cm) if stack_rule and stack_rule.length_cm is not None else None,
+        package_width_cm=str(stack_rule.width_cm) if stack_rule and stack_rule.width_cm is not None else None,
+        package_height_cm=str(stack_rule.height_cm) if stack_rule and stack_rule.height_cm is not None else None,
         bultos_por_piso=(article.bultos_por_piso if article else None) or (1 if legacy_mode and rule else None),
         pisos_por_pallet=(article.pisos_por_pallet if article else None),
         peso_por_bulto=case_weight(article),
