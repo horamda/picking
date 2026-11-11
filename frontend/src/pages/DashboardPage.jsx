@@ -54,7 +54,7 @@ function OperationsCard({ config, data }) {
     const value = data?.metrics?.[config.key]
     const unavailable = value === null || value === undefined
     const reason = data?.coverage?.[COVERAGE_KEYS[config.key]]
-    return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    return <article className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
         <p className={`text-2xl font-semibold ${unavailable ? 'text-slate-400' : 'text-slate-900'}`}>
             {unavailable ? 'No medido' : `${formatNumber(value)}${config.suffix || ''}`}
         </p>
@@ -148,7 +148,7 @@ function QualityPanel({ data }) {
             <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Calidad y diferencias</p><h2 className="mt-1 text-xl font-semibold text-slate-900">Exactitud, causas y revisiones</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Los errores atribuibles al picking se muestran separados de las diferencias de stock. Una confirmación correcta de faltante no penaliza al segundo control.</p></div>
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">La exactitud actual es por productos respondidos, no por líneas originales del PDF.</p>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{cards.map(([label, value]) => <article key={label} className="rounded-xl bg-slate-50 p-4"><p className={`text-2xl font-semibold ${value == null ? 'text-slate-400' : 'text-slate-900'}`}>{percentage(value)}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p></article>)}</div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{cards.map(([label, value]) => <article key={label} className="rounded-xl bg-slate-50 p-4 text-center"><p className={`text-2xl font-semibold ${value == null ? 'text-slate-400' : 'text-slate-900'}`}>{percentage(value)}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p></article>)}</div>
         <div className="mt-5 flex flex-wrap gap-2">{(data?.causes || []).map(row => <span key={row.cause} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{row.cause}: <b>{row.count}</b></span>)}{data && !data.causes.length && <span className="text-sm text-slate-500">Sin diferencias para los filtros elegidos.</span>}</div>
         <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr>{['Fecha', 'Camión', 'Planilla', 'SKU', 'Origen', 'Causa', 'Esperado', 'Real', 'Responsable', 'Detectó', 'Estado'].map(label => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead>
@@ -162,8 +162,8 @@ function QualityPanel({ data }) {
 function KpiCard({ config, metrics }) {
     const value = metrics ? `${formatNumber(metrics[config.key])}${config.suffix || ''}` : null
     return (
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${config.color}`}>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 text-center shadow-sm">
+            <div className={`mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl ${config.color}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75h16.5v16.5H3.75V3.75zm4.5 12h7.5m-7.5-4.5h7.5m-7.5-4.5h7.5" />
                 </svg>
@@ -171,7 +171,7 @@ function KpiCard({ config, metrics }) {
             {metrics ? (
                 <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">{value}</p>
             ) : (
-                <div className="mt-3 h-8 w-16 animate-pulse rounded-xl bg-slate-100" />
+                <div className="mx-auto mt-3 h-8 w-16 animate-pulse rounded-xl bg-slate-100" />
             )}
             <p className="mt-1 text-xs font-medium uppercase tracking-[0.15em] text-slate-400">{config.label}</p>
         </div>
@@ -197,15 +197,15 @@ function RatioPanel({ ratio }) {
                 <div className="h-full bg-emerald-500" style={{ width: `${Math.min(pctPallets, 100)}%` }} />
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
                     <p className="text-sm font-semibold text-emerald-800">{formatNumber(pctPallets)}% bultos pallets</p>
                     <p className="mt-1 text-xs text-emerald-700">{formatNumber(ratio?.bultos_palletizados)} bultos</p>
                 </div>
-                <div className="rounded-2xl bg-orange-50 px-4 py-3">
+                <div className="rounded-2xl bg-orange-50 px-4 py-3 text-center">
                     <p className="text-sm font-semibold text-orange-800">{formatNumber(pctPicking)}% picking equiv.</p>
                     <p className="mt-1 text-xs text-orange-700">{formatNumber(ratio?.bultos_manuales)} bultos</p>
                 </div>
-                <div className="rounded-2xl bg-brand-50 px-4 py-3">
+                <div className="rounded-2xl bg-brand-50 px-4 py-3 text-center">
                     <p className="text-sm font-semibold text-brand-800">Total bultos</p>
                     <p className="mt-1 text-xs text-brand-700">{formatNumber(ratio?.total_bultos)} bultos</p>
                 </div>
