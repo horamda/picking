@@ -47,6 +47,25 @@ def source_value(article, name):
     return ''
 
 
+def logistics_value(article, name):
+    """Read logistics keys ignoring case and every whitespace character."""
+    wanted = ''.join(str(name).split()).casefold()
+    for key, value in (article.datos_logisticos or {}).items() if article else []:
+        if ''.join(str(key).split()).casefold() == wanted:
+            return str(value or '').strip()
+    return ''
+
+
+def case_weight(article):
+    from decimal import Decimal, InvalidOperation
+    raw = logistics_value(article, 'Peso').replace(',', '.')
+    try:
+        value = Decimal(raw)
+        return str(value) if value.is_finite() and value > 0 else None
+    except InvalidOperation:
+        return None
+
+
 def mixer_article_eligible(article):
     """Return whether an article belongs to the physical pallet-rule catalog.
 
@@ -130,4 +149,5 @@ def stacking_values(article, rules):
         size_rank=stack_rule.size_rank if stack_rule else (rule['base_priority'] if rule and legacy_mode else 0),
         bultos_por_piso=(article.bultos_por_piso if article else None) or (1 if legacy_mode and rule else None),
         pisos_por_pallet=(article.pisos_por_pallet if article else None),
+        peso_por_bulto=case_weight(article),
         stacking_rule_pending=not legacy_mode and (stack_rule is None or article is None or not article.bultos_por_piso))

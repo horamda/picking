@@ -32,7 +32,7 @@ def totals(rows, catalog):
                 courts=len({r['court'] for r in rows}), loads=len({r['load_id'] for r in rows}))
 
 
-def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_load_ids=None):
+def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_load_ids=None, configuration=None):
     """Read-only packing preview; missing factors never become guessed quantities."""
     result = totals(rows, catalog)
     valid, missing = [], set()
@@ -48,7 +48,8 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
             **stacking_values(article, rules)))
     # Capacity affects the fit check, not packing. Never expose the placeholder as a real capacity.
     compact = [n for n in (compact_load_ids or []) if n in {r['load_id'] for r in valid}]
-    plan = plan_for_capacity(valid, capacity, mix_courts, compact) if capacity and not missing else simulate_pallets(valid, capacity or 1, mix_courts, compact)
+    plan = (plan_for_capacity(valid, capacity, mix_courts, compact, configuration) if capacity and not missing
+            else simulate_pallets(valid, capacity or 1, mix_courts, compact, configuration))
     result.update(pallets=plan['total_pallets'] if not missing else None,
                   separation_policy=plan['separation_policy'], load_plans=plan['load_plans'],
                   pallets_known=plan['total_pallets'], full_pallets_known=plan['full_count'],
@@ -56,6 +57,8 @@ def selection_preview(rows, catalog, capacity=None, mix_courts=False, compact_lo
                   capacity=capacity, mix_courts=plan['mix_courts'],
                   automatic_mix=plan.get('automatic_mix', False), separate_pallets=plan.get('separate_pallets'),
                   missing_caliber_rules=plan.get('missing_caliber_rules', []),
+                  missing_weights=plan.get('missing_weights', []), weight_complete=plan.get('weight_complete'),
+                  truck_weight_kg=plan.get('truck_weight_kg'), truck_weight_known_kg=plan.get('truck_weight_known_kg'),
                   fits=None if missing or capacity is None else plan['fits_estimate'])
     descriptions = {row['sku']: row['descripcion'] for row in rows}
     result['missing'] = [dict(sku=sku, descripcion=descriptions[sku], hl=sku in result['hl_missing'],

@@ -1,6 +1,140 @@
 """Read-only, deterministic pallet estimate. Never rewrites picking quantities."""
 from fractions import Fraction
 from collections import Counter
+from decimal import Decimal, InvalidOperation
+
+
+MODES = {'inform', 'block'}
+
+
+def fraction(value, label):
+    if value in (None, ''):
+        return None
+    try:
+        result = Fraction(Decimal(str(value).replace(',', '.')))
+    except (InvalidOperation, ValueError, ZeroDivisionError) as exc:
+        raise ValueError(f'{label} debe ser un número válido.') from exc
+    if result <= 0:
+        raise ValueError(f'{label} debe ser positivo.')
+    return result
+
+
+def validate_configuration(configuration=None):
+    source = dict(configuration or {})
+    result = {}
+    numeric = {
+        'pallet_base_height_cm': 'La altura de la tarima',
+        'reference_pallet_height_cm': 'La altura de referencia',
+        'max_pallet_height_cm': 'La altura máxima',
+        'empty_pallet_weight_kg': 'El peso de la tarima',
+        'max_pallet_weight_kg': 'El peso máximo por pallet',
+        'max_payload_kg': 'La carga útil del camión',
+    }
+    for key, label in numeric.items():
+        result[key] = fraction(source.get(key), label)
+    margin = source.get('safety_margin_pct')
+    if margin in (None, ''):
+        result['safety_margin_pct'] = Fraction(0)
+    else:
+        try:
+            result['safety_margin_pct'] = Fraction(Decimal(str(margin).replace(',', '.')))
+        except (InvalidOperation, ValueError, ZeroDivisionError) as exc:
+            raise ValueError('El margen de seguridad debe ser un número entre 0 y 50.') from exc
+        if not 0 <= result['safety_margin_pct'] <= 50:
+            raise ValueError('El margen de seguridad debe estar entre 0 y 50%.')
+    base, reference, maximum = (result['pallet_base_height_cm'], result['reference_pallet_height_cm'],
+                                result['max_pallet_height_cm'])
+    if reference is not None and base is not None and reference <= base:
+        raise ValueError('La altura de referencia debe ser mayor que la altura de la tarima.')
+    if maximum is not None and base is not None and maximum <= base:
+        raise ValueError('La altura máxima debe ser mayor que la altura de la tarima.')
+    for key in ('height_excess_mode', 'pallet_weight_excess_mode', 'truck_weight_excess_mode'):
+        value = source.get(key, 'inform')
+        if value not in MODES:
+            raise ValueError('Los modos de exceso deben ser informar o bloquear.')
+        result[key] = value
+    for key in ('share_floor_remainders', 'weight_tiebreaker'):
+        value = source.get(key, False)
+        if type(value) is not bool:
+            raise ValueError('Las opciones de planificación deben ser verdadero o falso.')
+        result[key] = value
+    result['truck_height_override'] = bool(source.get('truck_height_override', False))
+    return result
+
+
+def effective_limit(value, configuration):
+    return value * (100 - configuration['safety_margin_pct']) / 100 if value is not None else None
+
+
+def json_number(value, digits=3):
+    return None if value is None else round(float(value), digits)
+
+
+def item_case_amount(item):
+    return Fraction(item.get('bultos', 0)) + Fraction(item.get('unidades', 0), item['unidades_por_bulto'])
+
+
+def pallet_metrics(items, configuration):
+    base_height = configuration['pallet_base_height_cm']
+    reference_height = configuration['reference_pallet_height_cm']
+    empty_weight = configuration['empty_pallet_weight_kg'] or Fraction(0)
+    weight, missing_weights = empty_weight, set()
+    height, missing_dimensions = base_height, set()
+    height_groups = {}
+    for item in items:
+        amount = item_case_amount(item)
+        if not amount:
+            continue
+        raw_weight = item.get('peso_por_bulto')
+        try:
+            case_weight_value = fraction(raw_weight, 'El peso por bulto') if raw_weight not in (None, '') else None
+        except ValueError:
+            case_weight_value = None
+        if case_weight_value is None:
+            missing_weights.add(str(item.get('sku')))
+        else:
+            weight += amount * case_weight_value
+        per_floor, floors = item.get('bultos_por_piso'), item.get('pisos_por_pallet')
+        if base_height is None or reference_height is None:
+            if not per_floor or not floors:
+                missing_dimensions.add(str(item.get('sku')))
+            height = None
+            continue
+        if not per_floor or not floors or reference_height <= base_height:
+            missing_dimensions.add(str(item.get('sku')))
+            height = None
+            continue
+        floor_height = (reference_height - base_height) / floors
+        if configuration['share_floor_remainders']:
+            key = (per_floor, floors)
+            current = height_groups.setdefault(key, dict(amount=Fraction(0), floor_height=floor_height))
+            current['amount'] += amount
+        else:
+            key = (item.get('order'), item.get('sku'))
+            height_groups[key] = dict(amount=amount, floor_height=floor_height, per_floor=per_floor)
+    if height is not None:
+        for key, group in height_groups.items():
+            per_floor = key[0] if configuration['share_floor_remainders'] else group['per_floor']
+            occupied = group['amount'] / per_floor
+            layers = (occupied.numerator + occupied.denominator - 1) // occupied.denominator
+            height += layers * group['floor_height']
+    height_limit = effective_limit(configuration['max_pallet_height_cm'], configuration)
+    weight_limit = effective_limit(configuration['max_pallet_weight_kg'], configuration)
+    return dict(
+        height_cm=json_number(height, 2), weight_kg=json_number(weight, 3),
+        height_fraction=height, weight_fraction=weight,
+        height_limit_cm=json_number(height_limit, 2), weight_limit_kg=json_number(weight_limit, 3),
+        height_excess_cm=json_number(max(Fraction(0), height - height_limit), 2) if height is not None and height_limit is not None else 0,
+        weight_excess_kg=json_number(max(Fraction(0), weight - weight_limit), 3) if weight_limit is not None and not missing_weights else 0,
+        height_exceeded=bool(height is not None and height_limit is not None and height > height_limit),
+        weight_exceeded=bool(weight_limit is not None and not missing_weights and weight > weight_limit),
+        missing_weights=sorted(missing_weights), missing_dimensions=sorted(missing_dimensions),
+        weight_complete=not missing_weights, height_complete=height is not None and not missing_dimensions,
+    )
+
+
+def public_metrics(metrics):
+    return {key: value for key, value in metrics.items() if key not in ('height_fraction', 'weight_fraction')}
 
 
 def prefers_complete_floors(reference):
@@ -67,20 +201,20 @@ def cross_court_compatible(pallet, reference):
     return family == base_family or '*' in allowed or family in allowed
 
 
-def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None):
+def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None, configuration=None):
     """Keep courts separate unless requested or needed to fit the truck."""
     if type(mix_courts) is not bool:
         raise ValueError('La mezcla entre canchas debe ser verdadero o falso.')
     rows = list(rows)
-    separate = simulate_pallets(rows, capacity, False, compact_load_ids)
+    separate = simulate_pallets(rows, capacity, False, compact_load_ids, configuration)
     required = not separate['fits_estimate']
-    result = simulate_pallets(rows, capacity, True, compact_load_ids) if mix_courts or required else separate
+    result = simulate_pallets(rows, capacity, True, compact_load_ids, configuration) if mix_courts or required else separate
     result.update(separate_pallets=separate['total_pallets'], automatic_mix=required,
                   saved_positions=separate['total_pallets'] - result['total_pallets'])
     return result
 
 
-def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
+def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, configuration=None):
     if type(capacity) is not int or capacity <= 0:
         raise ValueError('La capacidad debe ser una cantidad entera positiva de pallets físicos.')
     if type(mix_courts) is not bool:
@@ -92,6 +226,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
     if not set(compact_load_ids) <= {r['load_id'] for r in rows}:
         raise ValueError('Un reparto de supermercado no pertenece a la carga seleccionada.')
     compact = set(compact_load_ids)
+    config = validate_configuration(configuration)
     full, mixed, tasks = [], [], []
     pieces = []
     full_count = 0
@@ -109,7 +244,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             'calibre', 'stack_family', 'stack_family_name', 'must_be_bottom', 'base_priority', 'allowed_above',
             'cases_per_layer', 'max_layers', 'business_unit', 'can_be_base', 'stable',
             'allow_incomplete_floor', 'size_rank', 'bultos_por_piso', 'stacking_rule_pending',
-            'bultos_por_pallet', 'pisos_por_pallet', 'unidades_por_bulto')}
+            'bultos_por_pallet', 'pisos_por_pallet', 'unidades_por_bulto', 'peso_por_bulto')}
         floor = reference.get('bultos_por_piso')
         reference['floor_complete'] = bool(reference.get('allow_incomplete_floor') or (floor and remainder >= floor
             and (not prefers_complete_floors(reference) or remainder % floor == 0)))
@@ -124,22 +259,58 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
                                     ('unidades', row['unidades'], Fraction(1, bpp*upb))]:
             pieces.append((reference, field, amount, size))
     # Stable/heavy configured bases are allocated first. Picking tasks retain source order.
+    def piece_weight(piece):
+        try:
+            return fraction(piece[0].get('peso_por_bulto'), 'Peso') or Fraction(0)
+        except ValueError:
+            return Fraction(0)
     pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('size_rank', 0), -p[0].get('base_priority', 0),
+        -piece_weight(p) if config['weight_tiebreaker'] else 0,
         -p[3] if p[0]['load_id'] in compact else 0,
         p[0]['court'] if mix_courts or p[0]['load_id'] in compact else p[0]['order'], p[0]['order']))
+    def quantity_allowed(pallet, reference, field, quantity):
+        items = [dict(item) for item in pallet['items']]
+        item = next((candidate for candidate in items if candidate['order'] == reference['order']), None)
+        if item is None:
+            item = dict(reference, bultos=0, unidades=0)
+            items.append(item)
+        item[field] += quantity
+        metrics = pallet_metrics(items, config)
+        if config['height_excess_mode'] == 'block' and metrics['height_exceeded']:
+            return False
+        if config['pallet_weight_excess_mode'] == 'block' and metrics['weight_exceeded']:
+            return False
+        return True
+
+    def maximum_quantity(pallet, reference, field, amount, size):
+        upper = min(amount, int((1-pallet['used']) // size))
+        low, high = 0, upper
+        while low < high:
+            middle = (low + high + 1) // 2
+            if quantity_allowed(pallet, reference, field, middle):
+                low = middle
+            else:
+                high = middle - 1
+        return low
+
     for reference, field, amount, size in pieces:
         order = reference['order']
         while amount:
-            candidates = [p for p in mixed
+            candidates = [(p, maximum_quantity(p, reference, field, amount, size)) for p in mixed
                 if p['load_id'] == reference['load_id']
                 and pallet_compatible(p, reference, mix_courts, compact)
                 and 1-p['used'] >= size]
-            pallet = max(candidates, key=lambda p: (p['court'] == reference['court'], p['used']), default=None)
+            candidates = [(p, quantity) for p, quantity in candidates if quantity > 0]
+            selected = max(candidates, key=lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used']), default=None)
+            pallet, allowed_quantity = selected if selected else (None, 0)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
                     assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
                 mixed.append(pallet)
-            quantity = min(amount, int((1-pallet['used']) // size))
+                allowed_quantity = maximum_quantity(pallet, reference, field, amount, size)
+            # A single indivisible case/unit that exceeds a blocking limit is retained and flagged;
+            # otherwise the loop could neither conserve quantities nor produce a reviewable plan.
+            quantity = allowed_quantity or min(amount, 1)
             floor = reference.get('bultos_por_piso')
             if field == 'bultos' and prefers_complete_floors(reference) and floor and amount >= floor:
                 quantity = quantity - quantity % floor
@@ -147,8 +318,10 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
                     pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
                         assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
                     mixed.append(pallet)
-                    quantity = min(amount, int(Fraction(1, 1) // size))
+                    quantity = min(amount, allowed_quantity or int(Fraction(1, 1) // size))
                     quantity -= quantity % floor
+                    if not quantity:
+                        quantity = min(amount, 1)
             item = next((i for i in pallet['items'] if i['order'] == order), None)
             if item is None:
                 item = dict(reference, bultos=0, unidades=0)
@@ -163,7 +336,11 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
         pallet['owner_court'] = pallet['court']
         pallet['layers'] = [dict(position=n+1, placement='base' if n == 0 else 'arriba', **item)
             for n, item in enumerate(pallet['items'])]
+        pallet.update(public_metrics(pallet_metrics(pallet['items'], config)))
         del pallet['court']
+    for pallet in full:
+        one = dict(pallet, bultos=pallet['bultos_por_pallet'], unidades=0)
+        pallet.update(public_metrics(pallet_metrics([one], config)))
     total = full_count + len(mixed)
     load_plans = []
     for load_id in dict.fromkeys(r['load_id'] for r in rows):
@@ -175,13 +352,34 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None):
             pallet_ids=[p['id'] for p in own_full+own_mixed]))
     missing_rules = sorted({f"{r.get('business_unit') or 'SIN UNIDAD'} / {r.get('calibre') or 'SIN CALIBRE'}"
         for r in rows if (r.get('bultos') or r.get('unidades')) and r.get('stacking_rule_pending')})
+    all_pallets = [(p, p['pallets']) for p in full] + [(p, 1) for p in mixed]
+    missing_weights = sorted({sku for pallet, _ in all_pallets for sku in pallet['missing_weights']})
+    missing_dimensions = sorted({sku for pallet, _ in all_pallets for sku in pallet['missing_dimensions']})
+    known_weight = sum(Fraction(str(pallet['weight_kg'])) * count for pallet, count in all_pallets)
+    weight_complete = not missing_weights
+    truck_limit = effective_limit(config['max_payload_kg'], config)
+    truck_excess = max(Fraction(0), known_weight - truck_limit) if truck_limit is not None else Fraction(0)
+    truck_exceeded = bool(truck_limit is not None and known_weight > truck_limit)
+    height_blocked = config['height_excess_mode'] == 'block' and any(p['height_exceeded'] for p, _ in all_pallets)
+    pallet_weight_blocked = config['pallet_weight_excess_mode'] == 'block' and any(p['weight_exceeded'] for p, _ in all_pallets)
+    truck_weight_blocked = config['truck_weight_excess_mode'] == 'block' and truck_exceeded
+    fits = total <= capacity and not height_blocked and not pallet_weight_blocked and not truck_weight_blocked
+    config_result = {key: (json_number(value, 3) if isinstance(value, Fraction) else value) for key, value in config.items()}
     return dict(capacity=capacity, mix_courts=mix_courts, full_pallets=full,
                 separation_policy='reparto_v1', compact_load_ids=sorted(compact), load_plans=load_plans,
                 picking_tasks=tasks, mixed_pallets=mixed, full_count=full_count,
                 mixed_count=len(mixed), total_pallets=total, free_positions=max(0, capacity-total),
-                excess_positions=max(0, total-capacity), fits_estimate=total <= capacity,
-                missing_caliber_rules=missing_rules, status='simulation', method='caliber_first_fit_per_load',
-                warning='Estimación por equivalencia de bultos y reglas de calibre. Requiere revisión física de altura, peso y estabilidad por el supervisor.')
+                excess_positions=max(0, total-capacity), fits_estimate=fits,
+                configuration=config_result, missing_weights=missing_weights,
+                missing_dimensions=missing_dimensions, weight_complete=weight_complete,
+                truck_weight_kg=json_number(known_weight, 3) if weight_complete else None,
+                truck_weight_known_kg=json_number(known_weight, 3),
+                truck_weight_limit_kg=json_number(truck_limit, 3),
+                truck_weight_excess_kg=json_number(truck_excess, 3), truck_weight_exceeded=truck_exceeded,
+                blocking_excesses=dict(height=height_blocked, pallet_weight=pallet_weight_blocked,
+                                       truck_weight=truck_weight_blocked),
+                missing_caliber_rules=missing_rules, status='simulation', method='caliber_floor_height_weight_first_fit_per_load',
+                warning='Plan calculado por equivalencia, pisos, altura, peso y reglas de calibre con los datos disponibles. La estabilidad y los datos faltantes requieren revisión física del supervisor.')
 
 
 def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
@@ -195,6 +393,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
                 item.get('bultos'), item.get('unidades'))
 
     allowed = set(merge_allowed_load_ids or [])
+    config = validate_configuration(plan.get('configuration'))
     originals = [item for pallet in plan['mixed_pallets'] for item in pallet['items']]
     available = {}
     for pallet in plan['mixed_pallets']:
@@ -233,6 +432,11 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
                    for item in clean_items)
         if used > 1:
             raise ValueError(f'El pallet {pallet_id} supera el 100% de capacidad.')
+        metrics = pallet_metrics(clean_items, config)
+        if config['height_excess_mode'] == 'block' and metrics['height_exceeded']:
+            raise ValueError(f'El pallet {pallet_id} supera la altura máxima permitida.')
+        if config['pallet_weight_excess_mode'] == 'block' and metrics['weight_exceeded']:
+            raise ValueError(f'El pallet {pallet_id} supera el peso máximo permitido.')
         for item in clean_items:
             item['assigned_court'] = owner
             item['pallet_id'] = pallet_id
@@ -241,7 +445,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
                           occupancy=round(float(used), 6), courts=sorted({i['court'] for i in clean_items}),
                           shared=len({i['court'] for i in clean_items}) > 1, items=clean_items,
                           layers=[dict(position=n + 1, placement='base' if n == 0 else 'arriba', **item)
-                                  for n, item in enumerate(clean_items)]))
+                                  for n, item in enumerate(clean_items)], **public_metrics(metrics)))
     if received != expected:
         raise ValueError('El armado manual deja productos afuera o altera sus cantidades.')
 
@@ -265,7 +469,24 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
     plan['total_pallets'] = plan['full_count'] + len(mixed)
     plan['free_positions'] = max(0, plan['capacity'] - plan['total_pallets'])
     plan['excess_positions'] = max(0, plan['total_pallets'] - plan['capacity'])
-    plan['fits_estimate'] = plan['total_pallets'] <= plan['capacity']
+    all_pallets = [(p, p['pallets']) for p in plan['full_pallets']] + [(p, 1) for p in mixed]
+    plan['missing_weights'] = sorted({sku for pallet, _ in all_pallets for sku in pallet.get('missing_weights', [])})
+    plan['missing_dimensions'] = sorted({sku for pallet, _ in all_pallets for sku in pallet.get('missing_dimensions', [])})
+    known_weight = sum(Fraction(str(pallet.get('weight_kg') or 0)) * count for pallet, count in all_pallets)
+    truck_limit = effective_limit(config['max_payload_kg'], config)
+    truck_excess = max(Fraction(0), known_weight - truck_limit) if truck_limit is not None else Fraction(0)
+    plan.update(weight_complete=not plan['missing_weights'],
+                truck_weight_kg=json_number(known_weight, 3) if not plan['missing_weights'] else None,
+                truck_weight_known_kg=json_number(known_weight, 3), truck_weight_limit_kg=json_number(truck_limit, 3),
+                truck_weight_excess_kg=json_number(truck_excess, 3),
+                truck_weight_exceeded=bool(truck_limit is not None and known_weight > truck_limit))
+    height_blocked = config['height_excess_mode'] == 'block' and any(p.get('height_exceeded') for p, _ in all_pallets)
+    pallet_weight_blocked = config['pallet_weight_excess_mode'] == 'block' and any(p.get('weight_exceeded') for p, _ in all_pallets)
+    truck_weight_blocked = config['truck_weight_excess_mode'] == 'block' and plan['truck_weight_exceeded']
+    plan['blocking_excesses'] = dict(height=height_blocked, pallet_weight=pallet_weight_blocked,
+                                     truck_weight=truck_weight_blocked)
+    plan['fits_estimate'] = (plan['total_pallets'] <= plan['capacity'] and not height_blocked
+                             and not pallet_weight_blocked and not truck_weight_blocked)
     for load_plan in plan['load_plans']:
         own = [p for p in mixed if p['load_id'] == load_plan['load_id']]
         load_plan['mixed_count'] = len(own)

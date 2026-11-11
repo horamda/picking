@@ -14,6 +14,59 @@ for name in dir(ControlFlowTest):
 
 
 class RepartoPlanningTest(Fixture):
+    def physical_settings(self, **changes):
+        data = dict(branch='Central', truck='ABC123', capacity=20, mix_courts_default=False,
+            pallet_base_height_cm=10, reference_pallet_height_cm=110, max_pallet_height_cm=100,
+            empty_pallet_weight_kg=20, max_pallet_weight_kg=800, safety_margin_pct=5,
+            height_excess_mode='inform', pallet_weight_excess_mode='inform', truck_weight_excess_mode='inform',
+            share_floor_remainders=False, weight_tiebreaker=False, max_payload_kg=10000, max_height_cm=None)
+        data.update(changes)
+        return data
+
+    def test_truck_height_overrides_depot_and_configuration_is_audited(self):
+        from models import LogEntry
+        self.call('put','/settings',data=self.physical_settings(max_height_cm=80))
+        plan=self.call('post',f'/trucks/{self.truck_id}/planning/simulate',data=dict(capacity=20,mix_courts=False))
+        self.assertEqual(plan['configuration']['max_pallet_height_cm'],80)
+        self.assertTrue(plan['configuration']['truck_height_override'])
+        log=LogEntry.query.filter_by(action='configurar_capacidad').order_by(LogEntry.id.desc()).first()
+        self.assertIn('previous',log.details);self.assertIn('current',log.details)
+
+    def test_logistics_weight_accepts_spacing_case_and_decimal_comma(self):
+        from models import Article
+        from routes.load_control import planning_rows
+        article=Article.query.filter_by(sku='1001').one();article.datos_logisticos={' P e S o ':'20,17'};db.session.commit()
+        truck=db.session.get(ControlTruck,self.truck_id)
+        weights={item['sku']:item['peso_por_bulto'] for item in planning_rows(truck)}
+        self.assertEqual(weights['1001'],'20.17')
+
+    def test_invalid_physical_settings_are_rejected(self):
+        self.call('put','/settings',data=self.physical_settings(safety_margin_pct=51),expected=400)
+        self.call('put','/settings',data=self.physical_settings(pallet_base_height_cm=20,max_pallet_height_cm=10),expected=400)
+        self.call('put','/settings',data=self.physical_settings(height_excess_mode='ignore'),expected=400)
+
+    def test_legacy_capacity_update_preserves_physical_configuration(self):
+        self.call('put','/settings',data=self.physical_settings(max_payload_kg=9000))
+        self.call('put','/settings',data=dict(branch='Central',truck='ABC123',capacity=20,mix_courts_default=True))
+        settings=self.call('get','/settings')
+        depot=next(item for item in settings['depots'] if item['branch']=='Central')
+        truck=next(item for item in settings['trucks'] if item['branch']=='Central' and item['truck']=='ABC123')
+        self.assertEqual(depot['pallet_base_height_cm'],10)
+        self.assertEqual(truck['max_payload_kg'],9000)
+
+    def test_configuration_invalidates_unstarted_plan_but_not_started_work(self):
+        from routes.load_control import approved
+        truck=db.session.get(ControlTruck,self.truck_id)
+        self.assertTrue(approved(truck))
+        self.call('put','/settings',data=self.physical_settings())
+        db.session.refresh(truck);self.assertFalse(approved(truck))
+        plan=self.call('post',f'/trucks/{self.truck_id}/planning/simulate',data=dict(capacity=20,mix_courts=False))
+        self.call('post',f'/trucks/{self.truck_id}/planning/approve',data=dict(plan,physical_review=True))
+        check=self.call('post',f'/loads/{self.load_id}/courts/1/start/0','picker')
+        self.assertIsNotNone(check['id'])
+        self.call('put','/settings',data=self.physical_settings(safety_margin_pct=10))
+        db.session.refresh(truck);self.assertTrue(approved(truck))
+
     def test_capacity_accepts_unique_pdf_depot_code_alias(self):
         from services.warehouse import DepotSettings, TruckCapacity, truck_capacity
         truck=db.session.get(ControlTruck,self.truck_id)

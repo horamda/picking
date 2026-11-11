@@ -11,7 +11,7 @@ La revisión `20261027_01` fue aplicada en Railway el 27/10/2026 con autorizaci�
 
 El plan usa la versión del camión y una huella de productos/capacidad/mezcla para rechazar aprobaciones desactualizadas. Antes de comenzar, cambios de catálogo invalidan la aprobación. Una vez iniciado el armado, sus cantidades quedan congeladas: los cambios de catálogo se usan en planes futuros. No se permite modificar la capacidad ni incorporar nuevos repartos a ese camión mientras tiene trabajo iniciado. Los procesos históricos sin planificación pueden continuar, pero no comenzar un armado nuevo retroactivamente.
 
-La mezcla es una estimación por equivalencias de catálogo, no un cálculo geométrico de altura, peso, estabilidad o compatibilidad. Se exige revisión física del supervisor. No se escribe en Chess.
+Desde la revisión preparada `20261111_01`, la estimación puede calcular altura por pisos, peso por pallet y carga total del camión con límites configurables. Los datos ausentes quedan explícitos y nunca se inventan. La estabilidad continúa requiriendo revisión física del supervisor. No se escribe en Chess.
 
 ## Tiempos y concurrencia
 

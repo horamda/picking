@@ -4,6 +4,7 @@ import json
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import os
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
@@ -17,7 +18,8 @@ from werkzeug.exceptions import HTTPException
 from auth import auth_required, roles_required, current_user_payload
 from models import Consolidado, User, LogEntry, Article
 from services.pallet_planning import plan_for_capacity, apply_manual_pallets
-from services.warehouse import UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts, truck_capacity, depot_key
+from services.warehouse import (UserCourt, DepotSettings, TruckCapacity, assigned_courts, validate_courts,
+                                truck_capacity, depot_key, planning_configuration)
 from services.load_control import (ControlTruck, ControlLoad, ControlTimer, ASSET_NAMES, now, truck_name,
     court_state, edit_court, court_done, status, save_state, snapshot, audit, elapsed, timing, stop_timer, selected_loads,
     answer_measurement)
@@ -336,7 +338,7 @@ def preview_dispatch():
     mix = saved_plan.get('mix_courts', depot.mix_courts_default if depot else False)
     compact_sources = [l.source_id for l in selected_loads(existing) if l.id in saved_plan.get('compact_load_ids', [])] if existing else []
     return jsonify(selection_preview(rows, dispatch_catalog(), capacity.pallet_capacity if capacity else None, mix,
-        [n for n in compact_sources if n in ids]))
+        [n for n in compact_sources if n in ids], planning_configuration(branch, truck)))
 
 
 def require_court(number):
@@ -359,6 +361,7 @@ def require_stage(stage):
 
 def plan_fingerprint(truck, capacity, mix, compact_load_ids=None):
     value = dict(rows=planning_rows(truck), capacity=capacity, mix=mix,
+                 configuration=planning_configuration(truck.branch, truck.truck),
                  separation_policy='reparto_v1', compact_load_ids=sorted(set(compact_load_ids or [])),
                  pending=status(truck)['pending_sources'])
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -806,7 +809,8 @@ def simulate_truck(truck_id):
     if not isinstance(merge_allowed, list) or any(type(n) is not int for n in merge_allowed) or not set(merge_allowed) <= {r['load_id'] for r in rows}:
         fail('Indicá repartos válidos para permitir la unión manual de pallets.')
     try:
-        result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False), data.get('compact_load_ids', []))
+        result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False),
+                                   data.get('compact_load_ids', []), planning_configuration(truck.branch, truck.truck))
     except ValueError as exc:
         fail(str(exc))
     return jsonify(dict(result, merge_allowed_load_ids=sorted(set(merge_allowed)), fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts'], result['compact_load_ids']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))
@@ -1364,8 +1368,18 @@ def assign_courts(user_id):
 @load_control_bp.get('/settings')
 @roles_required(*MANAGERS)
 def warehouse_settings():
-    return jsonify(depots=[dict(branch=d.branch, mix_courts_default=d.mix_courts_default) for d in DepotSettings.query.all()],
-        trucks=[dict(branch=t.branch, truck=t.truck, capacity=t.pallet_capacity) for t in TruckCapacity.query.all()])
+    def number(value):
+        return float(value) if value is not None else None
+    return jsonify(depots=[dict(branch=d.branch, mix_courts_default=d.mix_courts_default,
+        pallet_base_height_cm=number(d.pallet_base_height_cm), reference_pallet_height_cm=number(d.reference_pallet_height_cm),
+        max_pallet_height_cm=number(d.max_pallet_height_cm), empty_pallet_weight_kg=number(d.empty_pallet_weight_kg),
+        max_pallet_weight_kg=number(d.max_pallet_weight_kg), safety_margin_pct=number(d.safety_margin_pct),
+        height_excess_mode=d.height_excess_mode, pallet_weight_excess_mode=d.pallet_weight_excess_mode,
+        truck_weight_excess_mode=d.truck_weight_excess_mode, share_floor_remainders=d.share_floor_remainders,
+        weight_tiebreaker=d.weight_tiebreaker) for d in DepotSettings.query.all()],
+        trucks=[dict(branch=t.branch, truck=t.truck, capacity=t.pallet_capacity,
+                     max_payload_kg=number(t.max_payload_kg), max_height_cm=number(t.max_height_cm))
+                for t in TruckCapacity.query.all()])
 
 
 @load_control_bp.put('/settings')
@@ -1380,23 +1394,80 @@ def save_settings():
     capacity, mix = data.get('capacity'), data.get('mix_courts_default')
     if not branch or len(branch) > 255 or not name or len(name) > 255 or type(capacity) is not int or capacity <= 0 or type(mix) is not bool:
         fail('Completa deposito, camion, capacidad entera positiva y preferencia de mezcla.')
+    existing_depot = db.session.get(DepotSettings, branch)
+    existing_entry = db.session.get(TruckCapacity, (branch, name))
+    def optional_decimal(key, label):
+        if key not in data:
+            source = existing_entry if key in ('max_payload_kg', 'max_height_cm') else existing_depot
+            return getattr(source, key, None) if source else None
+        value = data.get(key)
+        if value in (None, ''):
+            return None
+        try:
+            result = Decimal(str(value).replace(',', '.'))
+        except InvalidOperation:
+            fail(f'{label} debe ser un número válido.')
+        if not result.is_finite() or result <= 0:
+            fail(f'{label} debe ser positivo.')
+        return result
+    numeric = {key: optional_decimal(key, label) for key, label in {
+        'pallet_base_height_cm': 'La altura de la tarima', 'reference_pallet_height_cm': 'La altura de referencia',
+        'max_pallet_height_cm': 'La altura máxima', 'empty_pallet_weight_kg': 'El peso de la tarima',
+        'max_pallet_weight_kg': 'El peso máximo por pallet', 'max_payload_kg': 'La carga útil máxima',
+        'max_height_cm': 'La altura máxima del camión'}.items()}
+    margin_raw = data.get('safety_margin_pct', existing_depot.safety_margin_pct if existing_depot else None)
+    try:
+        margin = None if margin_raw in (None, '') else Decimal(str(margin_raw).replace(',', '.'))
+    except InvalidOperation:
+        fail('El margen de seguridad debe ser un número entre 0 y 50.')
+    if margin is not None and (not margin.is_finite() or not 0 <= margin <= 50):
+        fail('El margen de seguridad debe estar entre 0 y 50%.')
+    modes = {key: data.get(key, getattr(existing_depot, key, 'inform') if existing_depot else 'inform') for key in ('height_excess_mode', 'pallet_weight_excess_mode', 'truck_weight_excess_mode')}
+    if any(value not in ('inform', 'block') for value in modes.values()):
+        fail('Los comportamientos ante exceso deben ser informar o bloquear.')
+    switches = {key: data.get(key, bool(getattr(existing_depot, key, False)) if existing_depot else False) for key in ('share_floor_remainders', 'weight_tiebreaker')}
+    if any(type(value) is not bool for value in switches.values()):
+        fail('Indicá las opciones de pisos y peso como verdadero o falso.')
+    base, reference = numeric['pallet_base_height_cm'], numeric['reference_pallet_height_cm']
+    if base is not None and reference is not None and reference <= base:
+        fail('La altura de referencia debe ser mayor que la altura de la tarima.')
+    for maximum in (numeric['max_pallet_height_cm'], numeric['max_height_cm']):
+        if base is not None and maximum is not None and maximum <= base:
+            fail('La altura máxima debe ser mayor que la altura de la tarima.')
     for truck in ControlTruck.query.filter_by(branch=branch, truck=name).all():
         old = truck.state.get('planning')
         if old and old['capacity'] != capacity and not truck.state.get('released_at') and any(c.get('checks') for c in truck.state.get('courts', {}).values()):
             fail('El camion tiene trabajo iniciado. Finalizalo antes de cambiar su capacidad.', 409)
-    depot = db.session.get(DepotSettings, branch)
+    depot = existing_depot
     if not depot:
         depot = DepotSettings(branch=branch)
         db.session.add(depot)
+    previous_depot = {key: str(getattr(depot, key)) if getattr(depot, key) is not None else None for key in (
+        'mix_courts_default', 'pallet_base_height_cm', 'reference_pallet_height_cm', 'max_pallet_height_cm',
+        'empty_pallet_weight_kg', 'max_pallet_weight_kg', 'safety_margin_pct', 'height_excess_mode',
+        'pallet_weight_excess_mode', 'truck_weight_excess_mode', 'share_floor_remainders', 'weight_tiebreaker')}
     depot.mix_courts_default = mix
+    for key in ('pallet_base_height_cm', 'reference_pallet_height_cm', 'max_pallet_height_cm',
+                'empty_pallet_weight_kg', 'max_pallet_weight_kg'):
+        setattr(depot, key, numeric[key])
+    depot.safety_margin_pct = margin
+    for key, value in {**modes, **switches}.items():
+        setattr(depot, key, value)
     db.session.flush()
-    entry = db.session.get(TruckCapacity, (branch, name))
+    entry = existing_entry
     if not entry:
         entry = TruckCapacity(branch=branch, truck=name)
         db.session.add(entry)
+    previous_truck = dict(capacity=entry.pallet_capacity, max_payload_kg=str(entry.max_payload_kg) if entry.max_payload_kg is not None else None,
+                          max_height_cm=str(entry.max_height_cm) if entry.max_height_cm is not None else None)
     entry.pallet_capacity = capacity
+    entry.max_payload_kg = numeric['max_payload_kg']
+    entry.max_height_cm = numeric['max_height_cm']
+    current = dict(branch=branch, truck=name, capacity=capacity, mix_courts_default=mix,
+        **{key: str(value) if value is not None else None for key, value in {**numeric, 'safety_margin_pct': margin}.items()},
+        **modes, **switches)
     db.session.add(LogEntry(user_id=g.current_user.id, action='configurar_capacidad', entity='camiones',
-        details=json.dumps(dict(branch=branch, truck=name, capacity=capacity, mix_courts_default=mix))))
+        details=json.dumps(dict(previous=dict(depot=previous_depot, truck=previous_truck), current=current))))
     db.session.commit()
     return jsonify(ok=True)
 
@@ -1425,9 +1496,10 @@ def approve_plan(truck_id):
     if status(truck)['pending_sources'] or data.get('fingerprint') != fingerprint:
         fail('Los productos o la configuracion cambiaron. Volve a simular.', 409)
     if data.get('physical_review') is not True:
-        fail('Confirma la revision fisica de altura, estabilidad y compatibilidad.')
+        fail('Confirmá la revisión física de estabilidad, compatibilidad y datos pendientes.')
     try:
-        plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix, compact)
+        plan = plan_for_capacity(planning_rows(truck), capacity.pallet_capacity, mix, compact,
+                                 planning_configuration(truck.branch, truck.truck))
         if data.get('manual_edition'):
             plan = apply_manual_pallets(plan, data.get('mixed_pallets'), merge_allowed)
         else:
@@ -1435,7 +1507,7 @@ def approve_plan(truck_id):
     except ValueError as exc:
         fail(str(exc))
     if not plan['fits_estimate']:
-        fail('El armado excede la capacidad del camion.', 409)
+        fail('El armado excede un límite configurado de posiciones, altura o peso.', 409)
     if plan['mix_courts'] != mix:
         fail('El armado requiere combinar canchas. Volve a simular y revisar la propuesta.', 409)
     plan.update(fingerprint=fingerprint, approved_at=now(), approved_by=g.current_user.id)

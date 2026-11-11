@@ -12,6 +12,12 @@ const button = 'min-h-12 rounded-xl bg-brand-500 px-5 py-3 font-semibold text-wh
 const card = 'rounded-2xl border border-slate-200 bg-white p-5'
 const roles = { operador: 'Pickeador', palletizador: 'Pallets completos', controlador: 'Controlador', supervisor: 'Supervisor', administrador: 'Administrador' }
 const courts = text => text.trim() ? text.split(',').map(s => Number(s.trim())) : []
+const emptyPlanningConfig = { branch: '', truck: '', capacity: '', mix_courts_default: false,
+    pallet_base_height_cm: '', reference_pallet_height_cm: '', max_pallet_height_cm: '',
+    empty_pallet_weight_kg: '', max_pallet_weight_kg: '', safety_margin_pct: '',
+    height_excess_mode: 'inform', pallet_weight_excess_mode: 'inform', truck_weight_excess_mode: 'inform',
+    share_floor_remainders: false, weight_tiebreaker: false, max_payload_kg: '', max_height_cm: '' }
+const optionalNumber = value => value === '' || value == null ? null : Number(value)
 
 function AlertsPanel({ alerts, busy, act }) {
     const [status, setStatus] = useState('activas')
@@ -50,7 +56,7 @@ export default function WarehousePage({ section = 'overview', supervision = fals
     const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false)
     const [filter, setFilter] = useState('running'), [updated, setUpdated] = useState(null)
     const [assignment, setAssignment] = useState(null)
-    const [config, setConfig] = useState({ branch: '', truck: '', capacity: '', mix_courts_default: false })
+    const [config, setConfig] = useState(emptyPlanningConfig)
     async function refresh(signal) {
         if (section === 'overview') {
             const r = await api.get('/load-control/monitor', { params: { date }, signal, timeout: 12000 })
@@ -109,8 +115,19 @@ export default function WarehousePage({ section = 'overview', supervision = fals
             <DailyAssistance users={users} />
         </>}
         {section === 'settings' && admin && <>
-            <form className={`${card} space-y-4`} onSubmit={e => { e.preventDefault(); save(() => api.put('/load-control/settings', { ...config, capacity: Number(config.capacity) })) }}><h2 className="font-bold">Capacidad física del camión</h2><div className="grid gap-3 sm:grid-cols-3">{[['branch', 'Depósito'], ['truck', 'Camión / patente'], ['capacity', 'Posiciones de pallets']].map(([name, label]) => <label key={name}>{label}<input required className={field} type={name === 'capacity' ? 'number' : 'text'} min="1" step="1" value={config[name]} onChange={e => setConfig({ ...config, [name]: e.target.value })} /></label>)}</div><label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={config.mix_courts_default} onChange={e => setConfig({ ...config, mix_courts_default: e.target.checked })} />Permitir mezcla entre canchas por defecto en este depósito</label><p className="text-sm text-slate-500">Usá el mismo depósito y camión que aparecen en las cargas. El supervisor puede cambiar la mezcla al planificar.</p><button disabled={busy} className={button}>Guardar configuración</button></form>
-            <div className="grid gap-3 md:grid-cols-2">{settings.trucks.map(t => <button key={`${t.branch}:${t.truck}`} className={`${card} text-left`} onClick={() => setConfig({ ...t, mix_courts_default: settings.depots.find(d => d.branch === t.branch)?.mix_courts_default || false })}><b>{t.truck} · {t.branch}</b><p>{t.capacity} posiciones de pallets · Editar</p></button>)}</div>
+            <form className={`${card} space-y-5`} onSubmit={e => { e.preventDefault(); const numeric = ['pallet_base_height_cm','reference_pallet_height_cm','max_pallet_height_cm','empty_pallet_weight_kg','max_pallet_weight_kg','safety_margin_pct','max_payload_kg','max_height_cm']; save(() => api.put('/load-control/settings', { ...config, capacity: Number(config.capacity), ...Object.fromEntries(numeric.map(key => [key, optionalNumber(config[key])])) })) }}>
+                <div><h2 className="font-bold">Planificación física del depósito y camión</h2><p className="mt-1 text-sm text-slate-500">Los límites vacíos solo dejan el cálculo como informativo. Las alturas se miden desde el piso.</p></div>
+                <div className="grid gap-3 sm:grid-cols-3">{[['branch', 'Depósito'], ['truck', 'Camión / patente'], ['capacity', 'Posiciones de pallets']].map(([name, label]) => <label key={name}>{label}<input required className={field} type={name === 'capacity' ? 'number' : 'text'} min="1" step="1" value={config[name]} onChange={e => setConfig({ ...config, [name]: e.target.value })} /></label>)}</div>
+                <fieldset className="rounded-xl border p-4"><legend className="px-2 font-semibold">Altura y peso del depósito</legend><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
+                    ['pallet_base_height_cm','Altura de tarima','cm'],['reference_pallet_height_cm','Altura de referencia','cm'],['max_pallet_height_cm','Altura máxima','cm'],
+                    ['empty_pallet_weight_kg','Peso de tarima vacía','kg'],['max_pallet_weight_kg','Peso máximo por pallet','kg'],['safety_margin_pct','Margen de seguridad','%']
+                ].map(([name,label,unit]) => <label key={name}>{label} ({unit})<input className={field} type="number" min="0" step="0.01" value={config[name]} onChange={e => setConfig({ ...config, [name]: e.target.value })} /></label>)}</div></fieldset>
+                <fieldset className="rounded-xl border p-4"><legend className="px-2 font-semibold">Límites propios del camión</legend><div className="grid gap-3 sm:grid-cols-2"><label>Carga útil máxima (kg)<input className={field} type="number" min="0" step="0.01" value={config.max_payload_kg} onChange={e => setConfig({ ...config, max_payload_kg: e.target.value })} /></label><label>Altura máxima del camión (cm, reemplaza depósito)<input className={field} type="number" min="0" step="0.01" value={config.max_height_cm} onChange={e => setConfig({ ...config, max_height_cm: e.target.value })} /></label></div></fieldset>
+                <fieldset className="rounded-xl border p-4"><legend className="px-2 font-semibold">Comportamiento ante excesos</legend><div className="grid gap-3 sm:grid-cols-3">{[['height_excess_mode','Altura'],['pallet_weight_excess_mode','Peso por pallet'],['truck_weight_excess_mode','Peso del camión']].map(([name,label]) => <label key={name}>{label}<select className={field} value={config[name]} onChange={e => setConfig({ ...config, [name]: e.target.value })}><option value="inform">Solo informar</option><option value="block">Bloquear aprobación</option></select></label>)}</div></fieldset>
+                <div className="grid gap-2 sm:grid-cols-2"><label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={config.mix_courts_default} onChange={e => setConfig({ ...config, mix_courts_default: e.target.checked })} />Permitir mezcla entre canchas por defecto</label><label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={config.share_floor_remainders} onChange={e => setConfig({ ...config, share_floor_remainders: e.target.checked })} />Permitir compartir piso entre restos de igual huella</label><label className="flex min-h-12 items-center gap-3"><input type="checkbox" checked={config.weight_tiebreaker} onChange={e => setConfig({ ...config, weight_tiebreaker: e.target.checked })} />Usar peso como desempate de apilado</label></div>
+                <p className="text-sm text-slate-500">Usá el mismo depósito y camión que aparecen en las cargas. El supervisor puede cambiar la mezcla al planificar.</p><button disabled={busy} className={button}>Guardar configuración</button>
+            </form>
+            <div className="grid gap-3 md:grid-cols-2">{settings.trucks.map(t => <button key={`${t.branch}:${t.truck}`} className={`${card} text-left`} onClick={() => { const depot=settings.depots.find(d => d.branch === t.branch) || {}; setConfig({ ...emptyPlanningConfig, ...depot, ...t }) }}><b>{t.truck} · {t.branch}</b><p>{t.capacity} posiciones{t.max_payload_kg ? ` · ${t.max_payload_kg} kg` : ''} · Editar</p></button>)}</div>
         </>}
     </div>
 }

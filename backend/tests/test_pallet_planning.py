@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.pallet_planning import simulate_pallets, plan_for_capacity, apply_manual_pallets
 
 
-def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False, business_unit='TEST'):
+def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', priority=0, bottom=False, allowed=None, calibre='GENERAL', rank=1000, floor=10, can_base=True, stable=True, pending=False, business_unit='TEST', weight=None):
     return dict(load_id=1, reparto='R1', court=court, sku=sku, descripcion=sku,
                 bultos=b, unidades=u, bultos_por_pallet=bpp, unidades_por_bulto=upb,
                 calibre=calibre, stack_family=family, stack_family_name=family,
@@ -13,6 +13,7 @@ def row(b=244, u=0, court=1, bpp=50, upb=12, sku='BRAHMA', family='general', pri
                 business_unit=business_unit, can_be_base=can_base, stable=stable, allow_incomplete_floor=False,
                 size_rank=rank, bultos_por_piso=floor,
                 pisos_por_pallet=(bpp // floor if isinstance(bpp, int) and bpp > 0 and floor else None),
+                peso_por_bulto=weight,
                 stacking_rule_pending=pending)
 
 
@@ -196,6 +197,97 @@ class PlanningTest(unittest.TestCase):
         first, second = plan['mixed_pallets']
         with self.assertRaisesRegex(ValueError, 'no permite'):
             apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)], [])
+
+
+class PhysicalLimitsTest(unittest.TestCase):
+    def config(self, **changes):
+        value = dict(pallet_base_height_cm=10, reference_pallet_height_cm=110,
+            max_pallet_height_cm=110, empty_pallet_weight_kg=20, max_pallet_weight_kg=None,
+            max_payload_kg=None, safety_margin_pct=0, height_excess_mode='block',
+            pallet_weight_excess_mode='block', truck_weight_excess_mode='block',
+            share_floor_remainders=False, weight_tiebreaker=False)
+        value.update(changes)
+        return value
+
+    def test_incomplete_floor_uses_a_whole_layer(self):
+        pallet = simulate_pallets([row(11, weight=10)], 2, configuration=self.config())['mixed_pallets'][0]
+        self.assertEqual(pallet['height_cm'], 50)
+
+    def test_equal_remainders_share_a_layer_only_when_enabled(self):
+        rows = [row(5, sku='A', weight=1), row(5, sku='B', weight=1)]
+        separate = simulate_pallets(rows, 2, configuration=self.config(max_pallet_height_cm=40))
+        shared = simulate_pallets(rows, 2, configuration=self.config(max_pallet_height_cm=40, share_floor_remainders=True))
+        self.assertEqual(separate['mixed_count'], 2)
+        self.assertEqual(shared['mixed_count'], 1)
+        self.assertEqual(shared['mixed_pallets'][0]['height_cm'], 30)
+        different = [row(5, sku='A', weight=1), row(4, sku='B', floor=8, bpp=48, weight=1)]
+        self.assertEqual(simulate_pallets(different, 2, configuration=self.config(max_pallet_height_cm=40, share_floor_remainders=True))['mixed_count'], 2)
+
+    def test_lower_height_limit_reduces_mixed_pallet_layers(self):
+        plan = simulate_pallets([row(40, weight=1)], 3, configuration=self.config(max_pallet_height_cm=70))
+        self.assertEqual(plan['mixed_count'], 2)
+        self.assertTrue(all(p['height_cm'] <= 70 for p in plan['mixed_pallets']))
+
+    def test_weight_limit_and_margin_split_a_pallet(self):
+        no_margin = simulate_pallets([row(40, weight=10)], 2,
+            configuration=self.config(max_pallet_weight_kg=420, height_excess_mode='inform'))
+        margin = simulate_pallets([row(40, weight=10)], 3,
+            configuration=self.config(max_pallet_weight_kg=420, safety_margin_pct=10, height_excess_mode='inform'))
+        self.assertEqual(no_margin['mixed_count'], 1)
+        self.assertEqual(margin['mixed_count'], 2)
+
+    def test_inform_mode_reports_without_splitting_or_blocking(self):
+        plan = simulate_pallets([row(40, weight=10)], 1,
+            configuration=self.config(max_pallet_weight_kg=200, pallet_weight_excess_mode='inform', height_excess_mode='inform'))
+        self.assertEqual(plan['mixed_count'], 1)
+        self.assertTrue(plan['mixed_pallets'][0]['weight_exceeded'])
+        self.assertTrue(plan['fits_estimate'])
+
+    def test_full_pallet_is_flagged_but_never_split(self):
+        inform = simulate_pallets([row(50, weight=20)], 1,
+            configuration=self.config(max_pallet_weight_kg=500, pallet_weight_excess_mode='inform'))
+        self.assertEqual(inform['full_count'], 1)
+        self.assertTrue(inform['full_pallets'][0]['weight_exceeded'])
+        blocked = simulate_pallets([row(50, weight=20)], 1,
+            configuration=self.config(max_pallet_weight_kg=500, pallet_weight_excess_mode='block'))
+        self.assertEqual(blocked['full_count'], 1)
+        self.assertFalse(blocked['fits_estimate'])
+
+    def test_weight_is_only_a_tiebreaker(self):
+        rows = [row(10, sku='LIVIANO', weight=1, rank=500, priority=10),
+                row(10, sku='PESADO', weight=10, rank=500, priority=10)]
+        plan = simulate_pallets(rows, 1, configuration=self.config(weight_tiebreaker=True, height_excess_mode='inform'))
+        self.assertEqual([item['sku'] for item in plan['mixed_pallets'][0]['items']], ['PESADO', 'LIVIANO'])
+
+    def test_truck_can_fit_positions_but_exceed_payload_and_tare_is_counted(self):
+        plan = simulate_pallets([row(100, weight=10)], 2,
+            configuration=self.config(max_payload_kg=1000, height_excess_mode='inform'))
+        self.assertEqual(plan['total_pallets'], 2)
+        self.assertEqual(plan['truck_weight_known_kg'], 1040)
+        self.assertEqual(plan['truck_weight_excess_kg'], 40)
+        self.assertFalse(plan['fits_estimate'])
+
+    def test_missing_weight_is_explicit_and_does_not_break_plan(self):
+        plan = simulate_pallets([row(10, sku='SIN-PESO')], 1, configuration=self.config())
+        self.assertEqual(plan['missing_weights'], ['SIN-PESO'])
+        self.assertFalse(plan['weight_complete'])
+        self.assertIsNone(plan['truck_weight_kg'])
+
+    def test_empty_configuration_keeps_original_pallet_counts(self):
+        rows = [row(25, court=1), row(25, court=2, sku='B')]
+        self.assertEqual(simulate_pallets(rows, 4, True)['total_pallets'], simulate_pallets(rows, 4, True, configuration={})['total_pallets'])
+
+    def test_manual_plan_rejects_height_and_weight(self):
+        height_plan = simulate_pallets([row(20, weight=1)], 2,
+            configuration=self.config(max_pallet_height_cm=110, height_excess_mode='inform'))
+        height_plan['configuration'].update(max_pallet_height_cm=20, height_excess_mode='block')
+        with self.assertRaisesRegex(ValueError, 'altura'):
+            apply_manual_pallets(height_plan, height_plan['mixed_pallets'], [1])
+        weight_plan = simulate_pallets([row(20, weight=10)], 2,
+            configuration=self.config(max_pallet_weight_kg=500, pallet_weight_excess_mode='inform'))
+        weight_plan['configuration'].update(max_pallet_weight_kg=100, pallet_weight_excess_mode='block')
+        with self.assertRaisesRegex(ValueError, 'peso'):
+            apply_manual_pallets(weight_plan, weight_plan['mixed_pallets'], [1])
 
 
 if __name__ == '__main__': unittest.main()
