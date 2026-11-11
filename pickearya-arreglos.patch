@@ -1,0 +1,155 @@
+From f7fecd9d80054b7c46d007fa51f77b9b3bc5634a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 02:11:26 +0000
+Subject: [PATCH] Endurece secretos en Railway y corrige consulta, mensajes y
+ prueba horaria
+
+- config: en Railway la app no arranca con SECRET_KEY/JWT_SECRET ausentes, por defecto o de menos de 32 caracteres
+- load_control: work_courts consulta solo camiones sin liberar
+- load_control: corrige acentos rotos en dos mensajes al operario
+- test_assistance: usa local_day() para no fallar entre las 21 y las 24
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018CfiForjBBFREVV6sAaUET
+---
+ backend/config.py                    | 14 +++++++++--
+ backend/routes/load_control.py       |  8 ++++---
+ backend/tests/test_assistance.py     |  5 ++--
+ backend/tests/test_config_secrets.py | 35 ++++++++++++++++++++++++++++
+ 4 files changed, 55 insertions(+), 7 deletions(-)
+ create mode 100644 backend/tests/test_config_secrets.py
+
+diff --git a/backend/config.py b/backend/config.py
+index c5c4df6..e39e788 100644
+--- a/backend/config.py
++++ b/backend/config.py
+@@ -43,10 +43,20 @@ def get_engine_options(database_url: str) -> dict:
+         options['connect_args'] = {'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10'))}
+     return options
+ 
++INSECURE_SECRETS = {'', 'supersecret', 'jwtsecret', 'replace_with_strong_key', 'replace_with_jwt_secret'}
++
++
++def get_secret(name: str, local_default: str) -> str:
++    value = os.getenv(name, '').strip()
++    if is_railway_environment() and (value in INSECURE_SECRETS or len(value) < 32):
++        raise RuntimeError(f'{name} debe definirse en Railway con un valor propio de al menos 32 caracteres.')
++    return value or local_default
++
++
+ class Config:
+     APP_MODE = os.getenv('APP_MODE', 'produccion' if is_railway_environment() else 'prueba')
+-    SECRET_KEY = os.getenv('SECRET_KEY', 'supersecret')
+-    JWT_SECRET = os.getenv('JWT_SECRET', 'jwtsecret')
++    SECRET_KEY = get_secret('SECRET_KEY', 'supersecret')
++    JWT_SECRET = get_secret('JWT_SECRET', 'jwtsecret')
+     SQLALCHEMY_DATABASE_URI = get_database_url()
+     SQLALCHEMY_TRACK_MODIFICATIONS = False
+     SQLALCHEMY_ENGINE_OPTIONS = get_engine_options(SQLALCHEMY_DATABASE_URI)
+diff --git a/backend/routes/load_control.py b/backend/routes/load_control.py
+index 29c4d91..2cfe613 100644
+--- a/backend/routes/load_control.py
++++ b/backend/routes/load_control.py
+@@ -149,7 +149,9 @@ def work_courts(user, trucks=None):
+     """Palletizers serve the whole truck; pickers retain their assigned courts."""
+     if user.role.name != 'palletizador':
+         return assigned_courts(user.id)
+-    candidates = trucks if trucks is not None else ControlTruck.query.options(selectinload(ControlTruck.loads)).all()
++    # Solo camiones sin liberar: el historico no aporta canchas y crece sin limite.
++    candidates = trucks if trucks is not None else ControlTruck.query.filter(
++        ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
+     return sorted({court['numero'] for truck in candidates if not truck.state.get('released_at')
+                    for load in selected_loads(truck) for court in load.content['canchas']})
+ 
+@@ -971,7 +973,7 @@ def answer(load_id, number, stage, check_id):
+     if stage in (0, 4) and data.get('result') == 'corrected':
+         fail('En picking solo se registra correcto o faltante.')
+     if not check.get('timer_started_at'):
+-        fail('Reanud? el proceso antes de registrar productos.', 409)
++        fail('Reanudá el proceso antes de registrar productos.', 409)
+     result = data.get('result')
+     note = str(data.get('note') or '').strip()[:2000]
+     if result not in ('ok', 'corrected', 'shortage'):
+@@ -989,7 +991,7 @@ def answer(load_id, number, stage, check_id):
+         origin = 'picking' if stage in (0, 4) else data.get('origin')
+         responsible = db.session.get(User, responsible_id) if type(responsible_id) is int else None
+         if not responsible or not responsible.active or origin not in ('picking', 'control'):
+-            fail('Indic? el responsable del error y si corresponde a picking o control.')
++            fail('Indicá el responsable del error y si corresponde a picking o control.')
+         incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
+                         origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
+         if shortage_reason == 'stock':
+diff --git a/backend/tests/test_assistance.py b/backend/tests/test_assistance.py
+index ed79c9b..622e7b3 100644
+--- a/backend/tests/test_assistance.py
++++ b/backend/tests/test_assistance.py
+@@ -5,6 +5,7 @@ from services.load_control import ControlTruck
+ from services.assistance import pause_expired, queue_for
+ from services.push import available_tasks
+ from datetime import date
++from services.staffing import local_day
+ from types import SimpleNamespace
+ from unittest.mock import patch
+ import unittest
+@@ -116,7 +117,7 @@ class AssistanceTest(Fixture):
+         old = truck(1, '2026-11-03', 'OLD', {
+             'checks': {'0': {'stage': 0, 'status': 'active', 'user_id': 7}},
+             'helpers': [{'stage': 0, 'status': 'active', 'user_id': 8,
+-                         'day': date.today().isoformat(), 'skus': ['OLD']}],
++                         'day': local_day().isoformat(), 'skus': ['OLD']}],
+         })
+         current = truck(2, '2026-11-05', 'NEW', {'checks': {}, 'helpers': []})
+         products = lambda load, court, stage: court['productos']
+@@ -128,7 +129,7 @@ class AssistanceTest(Fixture):
+         stale_helper = truck(3, '2026-11-03', 'OLD', {
+             'checks': {},
+             'helpers': [{'stage': 0, 'status': 'active', 'user_id': 7,
+-                         'day': date.today().isoformat(), 'skus': ['REMOVED']}],
++                         'day': local_day().isoformat(), 'skus': ['REMOVED']}],
+         })
+         self.assertEqual(queue_for([stale_helper, current], [1], 0, 7, products), [current])
+ 
+diff --git a/backend/tests/test_config_secrets.py b/backend/tests/test_config_secrets.py
+new file mode 100644
+index 0000000..e214067
+--- /dev/null
++++ b/backend/tests/test_config_secrets.py
+@@ -0,0 +1,35 @@
++"""Los secretos por defecto no pueden usarse en Railway."""
++import os
++import sys
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
++os.environ.setdefault('ALLOW_SQLITE_FOR_TESTS', '1')
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++import config
++
++RAILWAY = {'RAILWAY_ENVIRONMENT': 'production'}
++LOCAL = {'RAILWAY_ENVIRONMENT': '', 'RAILWAY_PROJECT_ID': '', 'RAILWAY_SERVICE_ID': ''}
++
++
++class SecretPolicyTest(unittest.TestCase):
++    def test_railway_rejects_missing_default_or_short_secret(self):
++        for value in ('', 'jwtsecret', 'supersecret', 'replace_with_jwt_secret', 'corto'):
++            with patch.dict(os.environ, dict(RAILWAY, JWT_SECRET=value)):
++                with self.assertRaises(RuntimeError):
++                    config.get_secret('JWT_SECRET', 'jwtsecret')
++
++    def test_railway_accepts_own_long_secret(self):
++        secret = 'x' * 32
++        with patch.dict(os.environ, dict(RAILWAY, JWT_SECRET=secret)):
++            self.assertEqual(config.get_secret('JWT_SECRET', 'jwtsecret'), secret)
++
++    def test_local_keeps_development_default(self):
++        with patch.dict(os.environ, dict(LOCAL, JWT_SECRET='')):
++            self.assertEqual(config.get_secret('JWT_SECRET', 'jwtsecret'), 'jwtsecret')
++
++
++if __name__ == '__main__':
++    unittest.main()
+-- 
+2.43.0
+

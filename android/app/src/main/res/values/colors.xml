@@ -1,5 +1,26 @@
 <resources>
-    <color name="pickearya_purple">#3B005B</color>
-    <color name="pickearya_purple_dark">#210033</color>
-    <color name="pickearya_green">#00ED45</color>
+    <color name="brand_primary">#0B3D91</color>
+    <color name="brand_secondary">#FFB020</color>
+    <color name="app_background">#F5F7FB</color>
+    <color name="app_surface">#FFFFFF</color>
+    <color name="app_surface_variant">#F5F7FB</color>
+    <color name="app_outline">#D9E1EE</color>
+    <color name="app_on_background">#0F1B33</color>
+    <color name="app_on_surface">#0F1B33</color>
+    <color name="app_on_surface_variant">#4A5873</color>
+    <color name="app_success">#047857</color>
+    <color name="app_success_container">#E7F7EF</color>
+    <color name="app_warning">#B45309</color>
+    <color name="app_warning_container">#FFF4D6</color>
+    <color name="app_error">#B42318</color>
+    <color name="app_error_container">#FDECEA</color>
+    <color name="app_on_primary">#FFFFFF</color>
+    <color name="app_on_secondary">#0B0F17</color>
+    <color name="launcher_background">#0B0F17</color>
+    <color name="light_background">#F5F7FB</color><color name="light_surface">#FFFFFF</color><color name="light_surface_variant">#F5F7FB</color><color name="light_outline">#D9E1EE</color>
+    <color name="light_on_surface">#0F1B33</color><color name="light_on_surface_variant">#4A5873</color><color name="light_success">#047857</color><color name="light_success_container">#E7F7EF</color>
+    <color name="light_warning">#B45309</color><color name="light_warning_container">#FFF4D6</color><color name="light_error">#B42318</color><color name="light_error_container">#FDECEA</color>
+    <color name="dark_background">#0B0F17</color><color name="dark_surface">#141B2A</color><color name="dark_surface_variant">#0F1523</color><color name="dark_outline">#22304A</color>
+    <color name="dark_on_surface">#E8EEF8</color><color name="dark_on_surface_variant">#A9B6CC</color><color name="dark_success">#2BB673</color><color name="dark_success_container">#10382E</color>
+    <color name="dark_warning">#FFB020</color><color name="dark_warning_container">#3E3019</color><color name="dark_error">#F04438</color><color name="dark_error_container">#2A1215</color>
 </resources>

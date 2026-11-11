@@ -1,0 +1,4 @@
+<resources>
+    <dimen name="content_horizontal_padding">16dp</dimen><dimen name="content_max_width">640dp</dimen>
+    <dimen name="touch_target_min">48dp</dimen><dimen name="primary_action_min_height">56dp</dimen>
+</resources>
