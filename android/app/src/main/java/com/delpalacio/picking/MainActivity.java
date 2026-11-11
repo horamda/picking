@@ -287,7 +287,9 @@ public final class MainActivity extends Activity {
         if(voice && !recoverVoice){voice=false;stopAudio();updateVoiceUi("Voz detenida · Revisá el resultado antes de continuar");}
         else if(recoverVoice)stopMic();
         message(error.getMessage() == null ? "No se pudo completar. Revisá la conexión y reintentá." : error.getMessage());
-        if(announce && ttsReady)speak(recoverVoice?"No pude completar la operación. Revisá la pantalla y repetí el comando.":"No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente.");
+        if(announce && ttsReady)speak(recoverVoice
+            ? voiceText("operation_failed_retry","No pude completar la operación. Revisá la pantalla y repetí el comando.")
+            : voiceText("operation_failed_review","No pude completar la operación. Revisá la pantalla y el estado del producto antes de activar la voz nuevamente."));
     }
     private String errorReason(Exception error){
         if(error instanceof java.net.SocketTimeoutException)return "El servidor tardó demasiado en responder.";
@@ -439,20 +441,20 @@ public final class MainActivity extends Activity {
         return java.text.NumberFormat.getNumberInstance(new java.util.Locale("es","AR")).format(data.optDouble(key));
     }
     private String summarySpeech(JSONObject summary) {
-        if(summary==null)return "El resumen del camión no está disponible. ";
-        if(summary.isNull("pallets"))return "Plan de armado pendiente. Consultá al supervisor para conocer tus pallets y cantidades asignadas.";
-        String speech="Carga total del camión: "+summary.optInt("loads")+" repartos, "+summary.optInt("courts")+" canchas. "+amount(summary,"pallets")+" pallets físicos previstos. ";
+        if(summary==null)return voiceText("summary_unavailable","El resumen del camión no está disponible. ")+" ";
+        if(summary.isNull("pallets"))return voiceText("summary_pending","Plan de armado pendiente. Consultá al supervisor para conocer tus pallets y cantidades asignadas.");
+        String speech=voiceText("summary_total","Carga total del camión: {loads} repartos, {courts} canchas. {pallets} pallets físicos previstos.","loads",summary.optInt("loads"),"courts",summary.optInt("courts"),"pallets",amount(summary,"pallets"))+" ";
         JSONObject mine=summary.optJSONObject("mine");
-        if(summary.optString("separation_policy").equals("reparto_v1"))speech+="Cada reparto se arma por separado. No mezcles repartos en un pallet. ";
+        if(summary.optString("separation_policy").equals("reparto_v1"))speech+=voiceText("summary_separation","Cada reparto se arma por separado. No mezcles repartos en un pallet.")+" ";
         if(mine!=null){
-            speech+="Tu trabajo: "+mine.optInt("loads")+" repartos y "+mine.optInt("courts")+" canchas. "+amount(mine,"bultos")+" bultos y "+amount(mine,"unidades")+" unidades. Participa en "+amount(mine,"pallets")+" pallets. ";
-            if(!mine.isNull("hl"))speech+=amount(mine,"hl")+" hectolitros. ";
-            if(stage()==0 && mine.optInt("full_pallets_info")>0)speech+=mine.optInt("full_pallets_info")+" pallets completos se preparan por separado. ";
+            speech+=voiceText("summary_mine","Tu trabajo: {loads} repartos y {courts} canchas. {bultos} bultos y {unidades} unidades. Participa en {pallets} pallets.","loads",mine.optInt("loads"),"courts",mine.optInt("courts"),"bultos",amount(mine,"bultos"),"unidades",amount(mine,"unidades"),"pallets",amount(mine,"pallets"))+" ";
+            if(!mine.isNull("hl"))speech+=voiceText("summary_hl","{hl} hectolitros.","hl",amount(mine,"hl"))+" ";
+            if(stage()==0 && mine.optInt("full_pallets_info")>0)speech+=voiceText("summary_full_pallets","{pallets} pallets completos se preparan por separado.","pallets",mine.optInt("full_pallets_info"))+" ";
         }
         return speech;
     }
     private String destinations(JSONObject product) {
-        if(!demo && stage()==4 && !product.optString("pallet_group").isEmpty())return "Grupo de pallets completos "+product.optString("pallet_group")+". Reparto "+product.optString("reparto")+". ";
+        if(!demo && stage()==4 && !product.optString("pallet_group").isEmpty())return voiceText("pallet_group","Grupo de pallets completos {group}. Reparto {reparto}.","group",product.optString("pallet_group"),"reparto",product.optString("reparto"))+" ";
         if(demo || stage()!=0 || load==null || court==null)return "";
         JSONArray explicit=product.optJSONArray("pallet_destinations");
         if(explicit!=null && explicit.length()>0){
@@ -460,9 +462,9 @@ public final class MainActivity extends Activity {
             for(int i=0;i<explicit.length();i++){
                 JSONObject destination=explicit.optJSONObject(i);if(destination==null)continue;
                 String placement=destination.optString("placement");
-                if(placement.equals("base"))instructions.append("Ubicá como base. ");
-                else if(placement.equals("arriba"))instructions.append("Ubicá arriba de la base. ");
-                instructions.append(ProductSpeech.destination(destination.optString("pallet_id"),destination.optInt("bultos"),destination.optInt("unidades"),destination.optBoolean("shared")));
+                if(placement.equals("base"))instructions.append(voiceText("placement_base","Ubicá como base.")).append(" ");
+                else if(placement.equals("arriba"))instructions.append(voiceText("placement_top","Ubicá arriba de la base.")).append(" ");
+                instructions.append(destinationSpeech(destination.optString("pallet_id"),destination.optInt("bultos"),destination.optInt("unidades"),destination.optBoolean("shared")));
             }
             if(instructions.length()>0)return instructions.toString();
         }
@@ -476,10 +478,19 @@ public final class MainActivity extends Activity {
             for(int j=0;j<items.length();j++){
                 JSONObject item=items.optJSONObject(j);
                 if(item.optInt("load_id")==load.optInt("id") && item.optInt("court")==court.optInt("numero") && item.optString("sku").equals(product.optString("sku")))
-                    result.append(item.optString("placement").equals("base")?"Ubicá como base. ":"Ubicá arriba de la base. ").append(ProductSpeech.destination(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
+                    result.append(item.optString("placement").equals("base")?voiceText("placement_base","Ubicá como base.")+" ":voiceText("placement_top","Ubicá arriba de la base.")+" ").append(destinationSpeech(pallet.optString("id"),item.optInt("bultos"),item.optInt("unidades"),pallet.optBoolean("shared")));
             }
         }
-        return result.length()==0?"Destino de pallet no disponible. Actualizá la tarea; si continúa, consultá al supervisor. ":result.toString();
+        return result.length()==0?voiceText("destination_missing","Destino de pallet no disponible. Actualizá la tarea; si continúa, consultá al supervisor.")+" ":result.toString();
+    }
+    private String destinationSpeech(String id,int bultos,int units,boolean shared){
+        List<String> quantities=new ArrayList<>();
+        if(bultos>0)quantities.add(bultos==1?"un bulto":bultos+" bultos");
+        if(units>0)quantities.add(units==1?"una unidad":units+" unidades");
+        if(quantities.isEmpty())return "";
+        String result=voiceText("pallet_destination","Pallet {pallet}: colocá {quantity}.","pallet",id,"quantity",String.join(" y ",quantities))+" ";
+        if(shared)result+=voiceText("pallet_shared","Compartido con otras canchas.")+" ";
+        return result;
     }
     private void truckSummary(JSONObject summary,boolean waiting) {
         if(summary==null)return;
@@ -558,8 +569,8 @@ public final class MainActivity extends Activity {
             if(announceQueue){
                 announceQueue=false;
                 if(!isController()){
-                    if(trucks.length()==0)speak("Cancha finalizada. No tenés más camiones habilitados pendientes.");
-                    else {JSONObject next=trucks.getJSONObject(0);speak("Cancha finalizada. Tu camión actual es "+next.optString("truck")+". "+summarySpeech(next.optJSONObject("summary"))+"Elegí el reparto y la cancha para continuar.");}
+                    if(trucks.length()==0)speak(voiceText("queue_finished_empty","Cancha finalizada. No tenés más camiones habilitados pendientes."));
+                    else {JSONObject next=trucks.getJSONObject(0);speak(voiceText("queue_finished_next","Cancha finalizada. Tu camión actual es {truck}. {summary} Elegí el reparto y la cancha para continuar.","truck",next.optString("truck"),"summary",summarySpeech(next.optJSONObject("summary"))));}
                 }
             }
             Set<String> availableTasks=new HashSet<>();
@@ -838,8 +849,15 @@ public final class MainActivity extends Activity {
             if(p.optInt("bultos")>0)quantities.add(p.optInt("bultos")==1?"un bulto":p.optInt("bultos")+" bultos");
             if(p.optInt("unidades")>0)quantities.add(p.optInt("unidades")==1?"una unidad":p.optInt("unidades")+" unidades");
             configured=voiceText("picking_product",fallback,"position",index+1,"total",products.length(),"quantity",String.join(" y ",quantities),"product",name);
+        }else{
+            List<String> quantities=new ArrayList<>();
+            if(p.optInt("bultos")>0)quantities.add(p.optInt("bultos")==1?"un bulto":p.optInt("bultos")+" bultos");
+            if(p.optInt("unidades")>0)quantities.add(p.optInt("unidades")==1?"una unidad":p.optInt("unidades")+" unidades");
+            configured=voiceText("control_product",fallback,"position",index+1,"total",products.length(),"quantity",String.join(" y ",quantities),"product",name);
         }
-        if(!configured.isEmpty() && !spokenFreshness.isEmpty())configured+=" Frescura exacta "+spokenFreshness+".";
+        if(!configured.isEmpty() && readFreshness)configured+=" "+(spokenFreshness.isEmpty()
+            ? voiceText("freshness_missing","Frescura no informada.")
+            : voiceText("freshness_exact","Frescura exacta {date}.","date",spokenFreshness));
         return configured.isEmpty()?"":configured+" "+destinations(p);
     }
     private String freshnessText(String value){
@@ -1153,8 +1171,8 @@ public final class MainActivity extends Activity {
     private void activateVoice(){
         updateVoiceUi("Leyendo…");
         if(currentScreen.equals("shortage"))speak(voiceText("shortage_quantities","Decí los bultos y unidades físicos. Revisá y decí registrar faltante."));
-        else if(currentScreen.equals("loads"))speak(voiceNextLoadId>0?"Voz activa. Decí iniciar o continuar para abrir tu próxima tarea, o actualizar tareas.":"Voz activa. No hay tareas disponibles. Podés decir actualizar tareas.");
-        else if(currentScreen.equals("courts"))speak(voiceCourtCandidate!=null?"Decí iniciar cancha para comenzar.":"No hay canchas disponibles en este reparto.");
+        else if(currentScreen.equals("loads"))speak(voiceNextLoadId>0?voiceText("voice_loads_ready","Voz activa. Decí iniciar o continuar para abrir tu próxima tarea, o actualizar tareas."):voiceText("voice_loads_empty","Voz activa. No hay tareas disponibles. Podés decir actualizar tareas."));
+        else if(currentScreen.equals("courts"))speak(voiceCourtCandidate!=null?voiceText("voice_courts_ready","Decí iniciar cancha para comenzar."):voiceText("voice_courts_empty","No hay canchas disponibles en este reparto."));
         else speakProductOnce();
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants) {
@@ -1171,6 +1189,7 @@ public final class MainActivity extends Activity {
         message("No se pudo leer el producto. Revisá Texto a voz y el volumen antes de activar la voz nuevamente.");
     }
     private void speak(String value) {
+        if(value==null || value.trim().isEmpty()){if(voice)startMic();return;}
         stopAudio();
         if(!ttsReady){speechFailed(speechVersion);return;}
         tts.setSpeechRate(Math.max(0.6f,Math.min(1.6f,speechRate)));
@@ -1195,28 +1214,28 @@ public final class MainActivity extends Activity {
         String action=VoiceCommands.parse(text,voiceCommands);
         if(voiceConfirmFinish){
             if(action.equals("confirm")){voiceConfirmFinish=false;finishPicking();}
-            else if(action.equals("cancel")){voiceConfirmFinish=false;speak("Finalización cancelada. Continuá con el picking.");}
-            else speak("Decí confirmar para finalizar o cancelar para continuar.");
+            else if(action.equals("cancel")){voiceConfirmFinish=false;speak(voiceText("finish_cancelled","Finalización cancelada. Continuá con el picking."));}
+            else speak(voiceText("finish_guidance","Decí confirmar para finalizar o cancelar para continuar."));
             return;
         }
         if(currentScreen.equals("loads")){
             if((action.equals("start") || action.equals("continue")) && voiceNextLoadId>0)openLoad(voiceNextLoadId,voiceNextCourt);
             else if(action.equals("refresh"))listLoads();
-            else if((action.equals("start") || action.equals("continue")))invalidVoiceCommand("Todavía no hay una tarea habilitada. Decí actualizar tareas.");
-            else invalidVoiceCommand("Decí iniciar, continuar o actualizar tareas.");
+            else if((action.equals("start") || action.equals("continue")))invalidVoiceCommand(voiceText("loads_no_task","Todavía no hay una tarea habilitada. Decí actualizar tareas."));
+            else invalidVoiceCommand(voiceText("loads_commands","Decí iniciar, continuar o actualizar tareas."));
             return;
         }
         if(currentScreen.equals("courts")){
             if(action.equals("start") && voiceCourtCandidate!=null)startCourt(voiceCourtCandidate,stage());
             else if(action.equals("cancel"))listLoads();
-            else invalidVoiceCommand("Decí iniciar cancha o cancelar.");
+            else invalidVoiceCommand(voiceText("courts_commands","Decí iniciar cancha o cancelar."));
             return;
         }
         if(currentScreen.equals("shortage")){
             if(action.equals("register") && voiceShortageSubmit!=null){voiceShortageSubmit.run();return;}
             if(action.equals("cancel")){stopAudio();product();return;}
             Integer[] values=VoiceQuantities.parse(text);
-            if(values==null){invalidVoiceCommand("Decí cantidades o registrar faltante.");return;}
+            if(values==null){invalidVoiceCommand(voiceText("shortage_commands","Decí cantidades o registrar faltante."));return;}
             JSONObject p=products.optJSONObject(index);
             if((values[0]!=null && values[0]>p.optInt("bultos")) || (values[1]!=null && values[1]>p.optInt("unidades"))){message("La cantidad dictada supera la planilla. Repetila o corregila a mano.");return;}
             if(values[0]!=null){shortageB.setText(values[0].toString());shortageB.setBackground(shape(Color.WHITE,GREEN,12));bHint.setText("Completado por voz");bHint.setTextColor(GREEN);}
@@ -1230,7 +1249,7 @@ public final class MainActivity extends Activity {
             case "repeat" -> speak(prompt());
             case "next" -> {if(index<products.length()-1){index++;product();}}
             case "prev" -> {if(index>0){index--;product();}}
-            case "finish" -> {voiceConfirmFinish=true;speak("¿Confirmás finalizar esta cancha? Decí confirmar o cancelar.");}
+            case "finish" -> {voiceConfirmFinish=true;speak(voiceText("finish_confirmation","¿Confirmás finalizar esta cancha? Decí confirmar o cancelar."));}
             default -> invalidVoiceCommand(voiceText("unknown_command","No entendí. Decí correcto, faltante o repetir."));
         }
     }

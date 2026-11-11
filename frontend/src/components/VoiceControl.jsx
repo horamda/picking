@@ -8,7 +8,7 @@ const secondary = 'min-h-12 touch-manipulation rounded-xl border border-slate-30
 
 // Botón de voz para la pantalla de control. Escucha solo cuando está activado
 // y entrega cada frase ya interpretada a `onCommand`.
-export default function VoiceControl({ prompt, onCommand }) {
+export default function VoiceControl({ prompt, onCommand, activationPrompt }) {
     const [listening, setListening] = useState(false)
     const [heard, setHeard] = useState('')
     const [error, setError] = useState('')
@@ -42,7 +42,8 @@ export default function VoiceControl({ prompt, onCommand }) {
         activationRef.current = controller
         const activationStarted = performance.now()
         deviceTelemetry('voice_activation_started')
-        speak('Activando voz. Permití el micrófono y esperá a que termine de cargar.', setError)
+        const activation = activationPrompt === undefined ? 'Activando voz. Permití el micrófono y esperá a que termine de cargar.' : activationPrompt
+        if (activation) speak(activation, setError)
         try {
             const stop = await startListening({
                 signal: controller.signal,
