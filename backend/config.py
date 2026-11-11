@@ -43,10 +43,20 @@ def get_engine_options(database_url: str) -> dict:
         options['connect_args'] = {'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10'))}
     return options
 
+INSECURE_SECRETS = {'', 'supersecret', 'jwtsecret', 'replace_with_strong_key', 'replace_with_jwt_secret'}
+
+
+def get_secret(name: str, local_default: str) -> str:
+    value = os.getenv(name, '').strip()
+    if is_railway_environment() and (value in INSECURE_SECRETS or len(value) < 32):
+        raise RuntimeError(f'{name} debe definirse en Railway con un valor propio de al menos 32 caracteres.')
+    return value or local_default
+
+
 class Config:
     APP_MODE = os.getenv('APP_MODE', 'produccion' if is_railway_environment() else 'prueba')
-    SECRET_KEY = os.getenv('SECRET_KEY', 'supersecret')
-    JWT_SECRET = os.getenv('JWT_SECRET', 'jwtsecret')
+    SECRET_KEY = get_secret('SECRET_KEY', 'supersecret')
+    JWT_SECRET = get_secret('JWT_SECRET', 'jwtsecret')
     SQLALCHEMY_DATABASE_URI = get_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = get_engine_options(SQLALCHEMY_DATABASE_URI)

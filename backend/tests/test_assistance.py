@@ -5,6 +5,7 @@ from services.load_control import ControlTruck
 from services.assistance import pause_expired, queue_for
 from services.push import available_tasks
 from datetime import date
+from services.staffing import local_day
 from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
@@ -116,7 +117,7 @@ class AssistanceTest(Fixture):
         old = truck(1, '2026-11-03', 'OLD', {
             'checks': {'0': {'stage': 0, 'status': 'active', 'user_id': 7}},
             'helpers': [{'stage': 0, 'status': 'active', 'user_id': 8,
-                         'day': date.today().isoformat(), 'skus': ['OLD']}],
+                         'day': local_day().isoformat(), 'skus': ['OLD']}],
         })
         current = truck(2, '2026-11-05', 'NEW', {'checks': {}, 'helpers': []})
         products = lambda load, court, stage: court['productos']
@@ -128,7 +129,7 @@ class AssistanceTest(Fixture):
         stale_helper = truck(3, '2026-11-03', 'OLD', {
             'checks': {},
             'helpers': [{'stage': 0, 'status': 'active', 'user_id': 7,
-                         'day': date.today().isoformat(), 'skus': ['REMOVED']}],
+                         'day': local_day().isoformat(), 'skus': ['REMOVED']}],
         })
         self.assertEqual(queue_for([stale_helper, current], [1], 0, 7, products), [current])
 

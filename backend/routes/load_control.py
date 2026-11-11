@@ -149,7 +149,9 @@ def work_courts(user, trucks=None):
     """Palletizers serve the whole truck; pickers retain their assigned courts."""
     if user.role.name != 'palletizador':
         return assigned_courts(user.id)
-    candidates = trucks if trucks is not None else ControlTruck.query.options(selectinload(ControlTruck.loads)).all()
+    # Solo camiones sin liberar: el historico no aporta canchas y crece sin limite.
+    candidates = trucks if trucks is not None else ControlTruck.query.filter(
+        ControlTruck.state['released_at'].as_string().is_(None)).options(selectinload(ControlTruck.loads)).all()
     return sorted({court['numero'] for truck in candidates if not truck.state.get('released_at')
                    for load in selected_loads(truck) for court in load.content['canchas']})
 
@@ -971,7 +973,7 @@ def answer(load_id, number, stage, check_id):
     if stage in (0, 4) and data.get('result') == 'corrected':
         fail('En picking solo se registra correcto o faltante.')
     if not check.get('timer_started_at'):
-        fail('Reanud? el proceso antes de registrar productos.', 409)
+        fail('Reanudá el proceso antes de registrar productos.', 409)
     result = data.get('result')
     note = str(data.get('note') or '').strip()[:2000]
     if result not in ('ok', 'corrected', 'shortage'):
@@ -989,7 +991,7 @@ def answer(load_id, number, stage, check_id):
         origin = 'picking' if stage in (0, 4) else data.get('origin')
         responsible = db.session.get(User, responsible_id) if type(responsible_id) is int else None
         if not responsible or not responsible.active or origin not in ('picking', 'control'):
-            fail('Indic? el responsable del error y si corresponde a picking o control.')
+            fail('Indicá el responsable del error y si corresponde a picking o control.')
         incident = dict(responsible_user_id=responsible.id, responsible_username=responsible.username,
                         origin=origin, detected_by=g.current_user.id, detected_username=g.current_user.username)
         if shortage_reason == 'stock':
