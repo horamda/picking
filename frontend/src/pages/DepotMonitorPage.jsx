@@ -57,7 +57,7 @@ export default function DepotMonitorPage() {
     const displayStatus = process => process.status === 'pending' && process.available === false ? 'waiting' : process.status
     const rows = groups.filter(group => filter === 'all' || group.stages.some(stage => stage.some(process => displayStatus(process) === filter)))
 
-    return <div className="min-h-screen bg-slate-950 p-3 text-white sm:p-4">
+    return <div className="depot-monitor min-h-screen bg-slate-950 p-3 text-white sm:p-4">
         <header className="grid gap-2 border-b border-slate-800 pb-2 lg:grid-cols-[minmax(190px,1fr)_auto] lg:items-end">
             <div><p className="text-sm font-semibold uppercase tracking-widest text-[#FFD27A]">PickearYa · Depósito</p><h1 className="text-xl font-bold leading-tight sm:text-2xl">Armado en vivo</h1></div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end"><label className="text-sm text-slate-300">Fecha<input aria-label="Fecha del monitor" type="date" value={date} onChange={event => event.target.value && setDate(event.target.value)} className="ml-2 min-h-11 rounded-lg bg-slate-800 px-3 py-2 text-white" /></label><button className="min-h-11 rounded-lg border border-slate-600 px-3 text-sm" onClick={() => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => setError('El navegador no permite pantalla completa.'))}>Pantalla completa</button><Link to="/supervision" className="inline-flex min-h-11 items-center px-3 py-2 text-sm underline">Supervisión</Link></div>
