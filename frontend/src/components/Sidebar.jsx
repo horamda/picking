@@ -26,5 +26,5 @@ function SidebarContent({ onClose }) {
 }
 
 export default function Sidebar({ isOpen, onClose }) {
-    return <><aside className="admin-sidebar hidden w-72 shrink-0 overflow-y-auto p-5 xl:block"><SidebarContent /></aside><aside aria-hidden={!isOpen} inert={!isOpen ? '' : undefined} className={`admin-sidebar fixed inset-y-0 left-0 z-30 w-72 overflow-y-auto p-5 transition-transform duration-200 xl:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}><SidebarContent onClose={onClose} /></aside></>
+    return <><aside className="admin-sidebar sticky top-12 hidden h-[calc(100vh-3rem)] w-72 shrink-0 overflow-y-auto p-5 xl:block"><SidebarContent /></aside><aside aria-hidden={!isOpen} inert={!isOpen ? '' : undefined} className={`admin-sidebar fixed bottom-0 left-0 top-12 z-30 w-72 overflow-y-auto p-5 transition-transform duration-200 xl:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}><SidebarContent onClose={onClose} /></aside></>
 }
