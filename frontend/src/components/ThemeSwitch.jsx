@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { getStoredUser } from '../utils/auth'
 import { homeForRole } from '../utils/roleAccess'
@@ -25,6 +25,7 @@ export default function ThemeSwitch() {
     const currentEntry = Object.values(NAVIGATION).find(item => item.path === location.pathname)
     const currentGroup = groups.find(([, keys]) => keys.some(key => NAVIGATION[key]?.path === location.pathname))?.[0]
     const home = homeForRole(user?.role)
+    useEffect(() => { document.title = `${currentEntry?.label || 'PickearYa'} · PickearYa` }, [currentEntry?.label])
 
     return <div className="app-toolbar sticky top-0 z-40 flex min-h-12 items-center justify-between gap-3 border-b px-4 py-1.5">
         <div className="min-w-0">

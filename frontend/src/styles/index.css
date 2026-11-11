@@ -89,6 +89,21 @@ html[data-theme="dark"] .hover\:bg-slate-100:hover { background-color: #1B2940; 
 .action-primary { background: var(--brand-primary); color: #FFFFFF; }
 .action-primary:disabled { background: color-mix(in srgb, var(--text-muted) 24%, var(--surface)); color: var(--text-muted); border: 1px solid var(--border); opacity: 1; cursor: not-allowed; }
 
+/* Reglas transversales del panel administrativo. */
+.admin-shell :is(.text-xs,.text-\[10px\],.text-\[11px\],.text-\[12px\],.text-\[13px\]) { font-size: .875rem; line-height: 1.25rem; }
+.admin-shell :is(button,summary,select,input:not([type="checkbox"]):not([type="radio"]),textarea) { min-height: 44px; }
+.admin-shell button { white-space: normal; text-wrap: balance; }
+.admin-shell :is(button,summary,[role="button"]):disabled { color: var(--text-muted); cursor: not-allowed; opacity: .65; }
+.admin-shell table { font-variant-numeric: tabular-nums; }
+.admin-shell .overflow-x-auto { max-width: 100%; overscroll-behavior-inline: contain; scrollbar-gutter: stable; }
+.admin-shell main > :first-child { width: 100%; }
+
+@media (max-width: 639px) {
+  .admin-shell :is(.p-6,.sm\:p-6,.sm\:p-8) { padding-left: 1rem; padding-right: 1rem; }
+  .admin-shell table { font-size: .875rem; }
+  .admin-shell :is(th,td) { max-width: 16rem; overflow-wrap: anywhere; }
+}
+
 /* Operational pallet identity: the hue belongs to the load in both themes. */
 .pallet-tone { --pallet-tone: #2563eb; border-color: var(--pallet-tone); background: color-mix(in srgb, var(--pallet-tone) 9%, white); box-shadow: inset 0 6px 0 var(--pallet-tone), 0 2px 5px rgb(15 23 42 / 10%); }
 .pallet-tone-0 { --pallet-tone: #2563eb; }

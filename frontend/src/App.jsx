@@ -42,7 +42,8 @@ function App() {
                     path="/*"
                     element={
                         <ProtectedRoute>
-                            <div className="flex min-h-screen">
+                            <div className="admin-shell flex min-h-screen">
+                                <a href="#main-content" className="fixed left-3 top-2 z-50 -translate-y-20 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">Saltar al contenido</a>
                                 {!monitor && !worker && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
                                 {sidebarOpen && !worker && (
                                     <div
@@ -65,7 +66,7 @@ function App() {
                                         </button>
                                         <Link to={homeForRole(user?.role)} className="flex items-center gap-2 text-base font-semibold text-slate-900"><img src="/brand/pickearya-icon.png" alt="" className="h-8 w-8 rounded-lg" />PickearYa · Inicio</Link>
                                     </header>
-                                    <main className="min-w-0 flex-1">
+                                    <main id="main-content" tabIndex="-1" className="min-w-0 flex-1 outline-none">
                                         {runtime?.mode === 'prueba' && runtime.shared_database && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">Modo prueba: conectado a la base de Railway. Los cambios se guardan en los datos compartidos.</div>}
                                         <Routes>
                                             <Route path="/" element={<DashboardPage />} />
