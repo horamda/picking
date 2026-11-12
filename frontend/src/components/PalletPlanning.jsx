@@ -69,19 +69,20 @@ export default function PalletPlanning({ truck, onClose }) {
         } catch (e) { setError(e.response?.data?.error || e.message || 'No se pudo calcular. Reintentá.') }
         finally { setBusy(false) }
     }
-    function updatePallets(pallets) {
-        setReviewed(false)
-        setResult(current => {
-            const loadPlans = current.load_plans.map(load => {
-                const own = pallets.filter(pallet => pallet.load_id === load.load_id)
-                return { ...load, mixed_count: own.length, total_pallets: load.full_count + own.length,
-                    pallet_ids: [...current.full_pallets.filter(pallet => pallet.load_id === load.load_id).map(pallet => pallet.id), ...own.map(pallet => pallet.id)] }
-            })
-            const total = current.full_count + pallets.length
-            return { ...current, mixed_pallets: pallets, mixed_count: pallets.length, total_pallets: total,
-                free_positions: Math.max(0, current.capacity - total), excess_positions: Math.max(0, total - current.capacity),
-                fits_estimate: total <= current.capacity, load_plans: loadPlans, manual_edition: true }
-        })
+    async function updatePallets(pallets) {
+        setReviewed(false); setBusy(true); setError('')
+        try {
+            const response = await api.post(`/load-control/trucks/${truck.id}/planning/simulate`, {
+                capacity: Number(capacity), mix_courts: mix, compact_load_ids: compact,
+                merge_allowed_load_ids: mergeAllowed, manual_edition: true, mixed_pallets: pallets,
+            }, { timeout: 15000 })
+            setResult(response.data)
+            return response.data
+        } catch (e) {
+            const detail = e.response?.data?.error || e.message || 'No se pudo validar el movimiento.'
+            setError(detail)
+            throw new Error(detail)
+        } finally { setBusy(false) }
     }
     const steps = ['Configurar', 'Revisar pallets', 'Aprobar y enviar']
     const resetReview = () => { setResult(null); setReviewed(false); setApproved(false) }

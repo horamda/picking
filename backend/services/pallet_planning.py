@@ -1,6 +1,5 @@
 """Read-only, deterministic pallet estimate. Never rewrites picking quantities."""
 from fractions import Fraction
-from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 
@@ -137,6 +136,26 @@ def public_metrics(metrics):
     return {key: value for key, value in metrics.items() if key not in ('height_fraction', 'weight_fraction')}
 
 
+def assembly_priority(item, bultos=None, unidades=None):
+    """Put the largest stable complete-floor base first, then retain configured criteria."""
+    cases = int(item.get('bultos', 0) if bultos is None else bultos)
+    units = int(item.get('unidades', 0) if unidades is None else unidades)
+    floor = item.get('bultos_por_piso')
+    full_floors = cases // floor if isinstance(floor, int) and floor > 0 else 0
+    eligible = bool(item.get('can_be_base') and item.get('stable') and not item.get('stacking_rule_pending')
+                    and full_floors > 0)
+    equivalent = Fraction(cases)
+    upb = item.get('unidades_por_bulto')
+    if isinstance(upb, int) and upb > 0:
+        equivalent += Fraction(units, upb)
+    return (0 if eligible else 1,
+            -equivalent if eligible else 0,
+            -full_floors if eligible else 0,
+            -int(item.get('size_rank') or 0),
+            -int(item.get('base_priority') or 0),
+            -equivalent if not eligible else 0)
+
+
 def prefers_complete_floors(reference):
     unit = str(reference.get('business_unit') or '').upper()
     caliber = str(reference.get('calibre') or '').upper()
@@ -258,13 +277,14 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
         for field, amount, size in [('bultos', remainder, Fraction(1, bpp)),
                                     ('unidades', row['unidades'], Fraction(1, bpp*upb))]:
             pieces.append((reference, field, amount, size))
-    # Stable/heavy configured bases are allocated first. Picking tasks retain source order.
+    # A stable configured base with a complete floor and more cases is allocated first.
     def piece_weight(piece):
         try:
             return fraction(piece[0].get('peso_por_bulto'), 'Peso') or Fraction(0)
         except ValueError:
             return Fraction(0)
-    pieces.sort(key=lambda p: (p[0]['load_id'], -p[0].get('size_rank', 0), -p[0].get('base_priority', 0),
+    pieces.sort(key=lambda p: (p[0]['load_id'], *assembly_priority(p[0], p[2] if p[1] == 'bultos' else 0,
+                                                                     p[2] if p[1] == 'unidades' else 0),
         -piece_weight(p) if config['weight_tiebreaker'] else 0,
         -p[3] if p[0]['load_id'] in compact else 0,
         p[0]['court'] if mix_courts or p[0]['load_id'] in compact else p[0]['order'], p[0]['order']))
@@ -387,20 +407,23 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
     if not isinstance(submitted, list) or not submitted:
         raise ValueError('El armado manual no contiene pallets de picking.')
 
-    def signature(item):
+    def identity(item):
         return (item.get('load_id'), item.get('order'), item.get('court'),
-                item.get('product_key') or str(item.get('sku')),
-                item.get('bultos'), item.get('unidades'))
+                item.get('product_key') or str(item.get('sku')))
 
     allowed = set(merge_allowed_load_ids or [])
     config = validate_configuration(plan.get('configuration'))
     originals = [item for pallet in plan['mixed_pallets'] for item in pallet['items']]
-    available = {}
+    available, expected = {}, {}
     for pallet in plan['mixed_pallets']:
         for item in pallet['items']:
-            available.setdefault(signature(item), []).append((item, pallet['id']))
-    expected = Counter(signature(item) for item in originals)
-    received, mixed, seen_ids = Counter(), [], set()
+            key = identity(item)
+            entry = available.setdefault(key, dict(template=item, source_pallet_ids=set()))
+            entry['source_pallet_ids'].add(pallet['id'])
+            totals = expected.setdefault(key, dict(bultos=0, unidades=0))
+            totals['bultos'] += item['bultos']
+            totals['unidades'] += item['unidades']
+    received, mixed, seen_ids = {}, [], set()
 
     for index, raw in enumerate(submitted, 1):
         if not isinstance(raw, dict) or not isinstance(raw.get('items'), list) or not raw['items']:
@@ -411,14 +434,18 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
         seen_ids.add(pallet_id)
         clean_items, source_pallet_ids = [], set()
         for candidate in raw['items']:
-            key = signature(candidate)
-            received[key] += 1
-            pool = available.get(key, [])
-            if received[key] > len(pool):
+            key = identity(candidate)
+            source = available.get(key)
+            bultos, unidades = candidate.get('bultos'), candidate.get('unidades')
+            if source is None or type(bultos) is not int or type(unidades) is not int or bultos < 0 or unidades < 0 or not (bultos or unidades):
                 raise ValueError('El armado manual modifica, duplica o agrega cantidades de productos.')
-            original, source_pallet_id = pool[received[key] - 1]
-            clean_items.append(dict(original))
-            source_pallet_ids.add(source_pallet_id)
+            totals = received.setdefault(key, dict(bultos=0, unidades=0))
+            totals['bultos'] += bultos
+            totals['unidades'] += unidades
+            if totals['bultos'] > expected[key]['bultos'] or totals['unidades'] > expected[key]['unidades']:
+                raise ValueError('El armado manual modifica, duplica o agrega cantidades de productos.')
+            clean_items.append(dict(source['template'], bultos=bultos, unidades=unidades))
+            source_pallet_ids.update(source['source_pallet_ids'])
         if len({item['load_id'] for item in clean_items}) != 1:
             raise ValueError('No se pueden mezclar repartos dentro de un mismo pallet.')
         if len(source_pallet_ids) > 1 and clean_items[0]['load_id'] not in allowed:
@@ -426,7 +453,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
         owner = raw.get('owner_court')
         if type(owner) is not int or owner not in {item['court'] for item in clean_items}:
             raise ValueError('La cancha responsable debe pertenecer al pallet de destino.')
-        clean_items.sort(key=lambda item: (-item.get('size_rank', 0), -item.get('base_priority', 0), item['order']))
+        clean_items.sort(key=lambda item: (*assembly_priority(item), item['order']))
         used = sum(Fraction(item['bultos'], item['bultos_por_pallet']) +
                    Fraction(item['unidades'], item['bultos_por_pallet'] * item['unidades_por_bulto'])
                    for item in clean_items)

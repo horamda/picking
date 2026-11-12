@@ -811,6 +811,9 @@ def simulate_truck(truck_id):
     try:
         result = plan_for_capacity(rows, data.get('capacity'), data.get('mix_courts', False),
                                    data.get('compact_load_ids', []), planning_configuration(truck.branch, truck.truck))
+        if data.get('manual_edition'):
+            result = apply_manual_pallets(result, data.get('mixed_pallets'), merge_allowed)
+            result['merge_allowed_load_ids'] = sorted(set(merge_allowed))
     except ValueError as exc:
         fail(str(exc))
     return jsonify(dict(result, merge_allowed_load_ids=sorted(set(merge_allowed)), fingerprint=plan_fingerprint(truck, result['capacity'], result['mix_courts'], result['compact_load_ids']), version=truck.version, truck=truck.truck, branch=truck.branch, date=truck.load_date))

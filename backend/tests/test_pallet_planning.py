@@ -165,6 +165,15 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(first['courts'], [1])
         self.assertEqual({item['sku'] for item in first['items']}, {'A', 'B'})
 
+    def test_largest_stable_complete_floor_has_priority_over_size_rank(self):
+        rows = [row(10, sku='RANGO-ALTO', rank=5000, floor=10),
+                row(30, sku='MAS-BULTOS', rank=100, floor=10)]
+        pallet = simulate_pallets(rows, 1)['mixed_pallets'][0]
+        self.assertEqual([item['sku'] for item in pallet['items']], ['MAS-BULTOS', 'RANGO-ALTO'])
+        rows[1]['stable'] = False
+        pallet = simulate_pallets(rows, 1)['mixed_pallets'][0]
+        self.assertEqual(pallet['items'][0]['sku'], 'RANGO-ALTO')
+
     def test_different_liter_geometry_stays_separate(self):
         rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
@@ -197,6 +206,27 @@ class PlanningTest(unittest.TestCase):
         first, second = plan['mixed_pallets']
         with self.assertRaisesRegex(ValueError, 'no permite'):
             apply_manual_pallets(plan, [dict(first, items=first['items'] + second['items'], owner_court=1)], [])
+
+    def test_supervisor_can_split_item_quantities_between_pallets(self):
+        plan = simulate_pallets([row(20, court=1, sku='COLA'), row(10, court=2, sku='AGUA')], 2, False)
+        first, second = plan['mixed_pallets']
+        cola = first['items'][0]
+        submitted = [dict(first, items=[dict(cola, bultos=8, unidades=0)], owner_court=1),
+                     dict(second, items=second['items'] + [dict(cola, bultos=12, unidades=0)], owner_court=2)]
+        edited = apply_manual_pallets(plan, submitted, [1])
+        cola_parts = [item['bultos'] for pallet in edited['mixed_pallets'] for item in pallet['items'] if item['sku'] == 'COLA']
+        self.assertEqual(sorted(cola_parts), [8, 12])
+        self.assertEqual(sum(cola_parts), 20)
+        self.assertEqual(edited['mixed_pallets'][1]['owner_court'], 2)
+
+    def test_manual_split_rejects_lost_or_duplicated_quantities(self):
+        plan = simulate_pallets([row(20)], 2, False)
+        original = plan['mixed_pallets'][0]
+        item = original['items'][0]
+        with self.assertRaisesRegex(ValueError, 'afuera|cantidades'):
+            apply_manual_pallets(plan, [dict(original, items=[dict(item, bultos=19)], owner_court=1)], [1])
+        with self.assertRaisesRegex(ValueError, 'duplica|cantidades'):
+            apply_manual_pallets(plan, [dict(original, items=[dict(item, bultos=21)], owner_court=1)], [1])
 
 
 class PhysicalLimitsTest(unittest.TestCase):
