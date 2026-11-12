@@ -25,7 +25,6 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
     const [selected, setSelected] = useState(null), [viewing, setViewing] = useState(null)
     const [history, setHistory] = useState([]), [notice, setNotice] = useState('')
     const loadIds = useMemo(() => [...new Set([...fullPallets, ...pallets].map(item => item.load_id))], [fullPallets, pallets])
-    const toneFor = loadId => `pallet-tone-${Math.max(0, loadIds.indexOf(loadId)) % 6}`
     const repartoFor = loadId => [...fullPallets, ...pallets].find(item => item.load_id === loadId)?.reparto
     const canMerge = pallet => mergeAllowedLoadIds.includes(pallet.load_id)
     useEffect(() => { setSelected(null); setHistory([]); setNotice('') }, [pallets.length && pallets[0]?.load_id])
@@ -57,11 +56,11 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
         const profiles = palletProfiles(items), mergeable = canMerge(pallet)
         const height = pallet.height_cm == null ? 'Sin dato' : `${pallet.height_cm} cm`
         const weight = pallet.weight_complete === false ? `${pallet.weight_kg ?? 0} kg parcial` : pallet.weight_kg == null ? 'Sin dato' : `${pallet.weight_kg} kg`
-        return <article key={pallet.cardId || pallet.id} draggable={!full && !disabled && mergeable} onDragStart={event => event.dataTransfer.setData('text/pallet-id', pallet.id)} onDragOver={event => { if (!full) event.preventDefault() }} onDrop={event => { if (!full) { event.preventDefault(); merge(event.dataTransfer.getData('text/pallet-id'), pallet.id) } }} className={`pallet-card pallet-tone ${toneFor(pallet.load_id)} flex flex-col rounded-2xl p-4 ${isSelected ? 'is-selected' : ''}`}>
+        return <article key={pallet.cardId || pallet.id} draggable={!full && !disabled && mergeable} onDragStart={event => event.dataTransfer.setData('text/pallet-id', pallet.id)} onDragOver={event => { if (!full) event.preventDefault() }} onDrop={event => { if (!full) { event.preventDefault(); merge(event.dataTransfer.getData('text/pallet-id'), pallet.id) } }} className={`pallet-card tile flex flex-col rounded-2xl p-4 ${isSelected ? 'is-selected' : ''}`}>
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <h4 className="text-base font-semibold leading-6">Pallet {pallet.cardId || pallet.id}</h4>
-                    <p className="text-muted flex items-center gap-1.5 text-[13px]"><span className="pallet-tone-dot h-2 w-2 shrink-0 rounded-full" />Carga {pallet.reparto} · Cancha {owner}</p>
+                    <p className="text-muted text-[13px]">Cancha {owner} · {full ? 'completo' : 'picking'}</p>
                 </div>
                 <p className={`text-right text-xl font-medium leading-6 tabular-nums ${pct >= 90 ? 'text-emerald-700' : 'text-amber-700'}`}>{decimal(pct, 2)}<span className="ml-0.5 text-sm font-normal">%</span></p>
             </div>
@@ -91,9 +90,8 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
     return <section className="space-y-4" aria-label="Editor de pallets de picking">
         <div>
             <h3 className="text-[15px] font-semibold">Ajustar pallets de picking</h3>
-            <p className="text-muted mt-1 text-[13px]">El color identifica cada carga. Solo se pueden unir pallets de la misma carga, con la unión habilitada y sin superar el 100 %.</p>
+            <p className="text-muted mt-1 text-[13px]">Los pallets están agrupados por carga. Solo se pueden unir pallets de la misma carga, con la unión habilitada y sin superar el 100 %.</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <div className="flex flex-wrap gap-x-4 gap-y-1" aria-label="Referencias de color por carga">{loadIds.map(loadId => <span key={loadId} className={`pallet-legend ${toneFor(loadId)} inline-flex items-center gap-1.5 text-[13px]`}><span className="pallet-tone-dot h-2 w-2 rounded-full" />Carga {repartoFor(loadId)}</span>)}</div>
                 <div className="ml-auto flex flex-wrap gap-2">
                     <button type="button" className="btn-quiet rounded-lg px-3 text-[13px] disabled:opacity-40" disabled={!history.length || disabled} onClick={undo}>Deshacer último cambio</button>
                     {selected && <button type="button" className="btn-quiet rounded-lg px-3 text-[13px]" onClick={() => setSelected(null)}>Cancelar selección</button>}
@@ -101,7 +99,14 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
             </div>
             {notice && <p role="status" className="note mt-3">{notice}</p>}
         </div>
-        <div className="pallet-grid grid items-start gap-3">{completeCards.map(item => card(item, true))}{pallets.map(item => card(item))}</div>
+        {loadIds.map(loadId => { const fullCards = completeCards.filter(item => item.load_id === loadId), picking = pallets.filter(item => item.load_id === loadId), total = fullCards.length + picking.length
+            return <section key={loadId} aria-label={`Carga ${repartoFor(loadId)}`}>
+                <div className="load-group-head flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
+                    <h4 className="text-sm font-semibold">Carga {repartoFor(loadId)}</h4>
+                    <p className="text-muted text-[13px] tabular-nums">{total} {total === 1 ? 'pallet' : 'pallets'} · {fullCards.length} completos + {picking.length} con picking{mergeAllowedLoadIds.includes(loadId) ? '' : ' · unión desactivada'}</p>
+                </div>
+                <div className="pallet-grid mt-3 grid items-start gap-3">{fullCards.map(item => card(item, true))}{picking.map(item => card(item))}</div>
+            </section> })}
         {viewing && <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`Artículos del pallet ${viewing.cardId || viewing.id}`} onMouseDown={event => { if (event.target === event.currentTarget) setViewing(null) }}>
             <div className="modal-panel thin-scroll max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-auto rounded-2xl">
                 <div className="panel-head sticky top-0 flex items-start justify-between gap-4 border-b px-5 py-4">

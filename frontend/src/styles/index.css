@@ -245,10 +245,9 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .stepper li.is-active .stepper-mark { background: var(--action); border-color: var(--action); color: #FFFFFF; }
 .stepper li.is-done .stepper-mark { border-color: var(--success); color: var(--success-text); }
 .pallet-grid { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
-.pallet-card.pallet-tone, html[data-theme="dark"] .pallet-card.pallet-tone { background: var(--surface); border: 1px solid var(--border); box-shadow: inset 0 3px 0 var(--pallet-tone); }
-.pallet-card.is-selected, html[data-theme="dark"] .pallet-card.is-selected { border-color: var(--brand-fg); box-shadow: inset 0 3px 0 var(--pallet-tone), 0 0 0 1px var(--brand-fg); }
-.pallet-card .pallet-tone-dot, .pallet-legend .pallet-tone-dot { box-shadow: none; }
-.pallet-legend.pallet-tone, html[data-theme="dark"] .pallet-legend.pallet-tone { background: none; border: 0; box-shadow: none; color: var(--text-muted); }
+.pallet-card.is-selected, .pallet-card.is-selected:hover { border-color: var(--brand-fg); box-shadow: 0 0 0 1px var(--brand-fg); }
+.pallet-card.tile:hover { border-color: var(--border); }
+.load-group-head { border-color: var(--border); }
 .pallet-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text-muted) 22%, transparent); overflow: hidden; }
 .pallet-bar > div { height: 100%; border-radius: 2px; background: var(--warning); }
 .pallet-bar > div.is-full { background: var(--success); }
