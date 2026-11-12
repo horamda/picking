@@ -9,6 +9,8 @@ const primary = 'btn-primary rounded-lg px-4 text-sm font-medium disabled:opacit
 const blank = rule => ({ business_unit: rule.business_unit, caliber: rule.caliber, can_be_base: false, stable: false, allow_incomplete_floor: false, size_rank: 0, enabled: true, units_per_case: '', length_cm: '', width_cm: '', height_cm: '', missing_physical: ['units_per_case', 'length_cm', 'width_cm'] })
 const PHYSICAL = { units_per_case: 'unidades/bulto', length_cm: 'largo', width_cm: 'ancho' }
 
+const COLUMNS = [['caliber', 'Calibre', 'text-left'], ['business_unit', 'Unidad', 'text-left'], ['articles', 'Artículos', 'text-center col-opt'], ['can_be_base', 'Base', 'text-center'], ['stable', 'Estable', 'text-center'], ['size_rank', 'Orden', 'text-center'], ['status', 'Estado', 'text-left']]
+
 function Badge({ rule }) {
     if (rule.missing_rule) return <span className="badge badge--danger">Falta configurar</span>
     if (rule.missing_floor) return <span className="badge badge--warning">Faltan pisos</span>
@@ -19,13 +21,14 @@ function Badge({ rule }) {
 function detail(rule) {
     if (rule.missing_floor) return `Falta piso en ${rule.missing_floor} artículo(s).`
     if (rule.missing_physical?.length) return `Falta completar: ${rule.missing_physical.map(item => PHYSICAL[item] || item).join(', ')}.`
-    return `Bulto: ${rule.length_cm} × ${rule.width_cm}${rule.height_cm ? ` × ${rule.height_cm}` : ''} cm · ${rule.units_per_case} un.`
+    return `${rule.length_cm} × ${rule.width_cm}${rule.height_cm ? ` × ${rule.height_cm}` : ''} cm · ${rule.units_per_case} un.`
 }
 
 export default function PalletRulesPage() {
     const [data, setData] = useState({ stacking_rules: [], pending_rules: [] })
     const [query, setQuery] = useState(''), [status, setStatus] = useState('all')
     const [editing, setEditing] = useState(null), [busy, setBusy] = useState(false)
+    const [sort, setSort] = useState({ key: '', dir: 1 })
     const [excelFile, setExcelFile] = useState(null), [excelResult, setExcelResult] = useState(null)
     const [error, setError] = useState(''), [message, setMessage] = useState('')
     async function load() { setData((await api.get('/pallet-rules')).data) }
@@ -81,6 +84,11 @@ export default function PalletRulesPage() {
         finally { setBusy(false) }
     }
 
+    const sortedRows = useMemo(() => {
+        const value = rule => sort.key === 'status' ? (rule.missing_rule ? 0 : rule.missing_floor ? 1 : rule.missing_physical?.length ? 2 : 3) : sort.key === 'can_be_base' || sort.key === 'stable' ? Number(Boolean(rule[sort.key])) : rule[sort.key]
+        if (!sort.key) return rows
+        return [...rows].sort((a, b) => { const x = value(a), y = value(b); return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''), 'es', { numeric: true })) * sort.dir })
+    }, [rows, sort])
     const isEditing = rule => editing?.business_unit === rule.business_unit && editing?.caliber === rule.caliber
     const summary = [['Combinaciones', allRows.length], ['Listas', counts.ready], ['Pendientes', counts.pending], ['Artículos incompletos', data.incomplete_articles || 0]]
     const filters = [['all', 'Todos', allRows.length], ['ready', 'Listos', counts.ready], ['pending', 'Pendientes', counts.pending]]
@@ -146,20 +154,32 @@ export default function PalletRulesPage() {
                     </div>
                 </div>
                 <p className="text-muted mt-3 text-[13px]">{rows.length} combinaciones visibles</p>
-                <div className="rule-grid mt-3 grid gap-3">
-                    {rows.map(rule => <article className={`tile flex flex-col rounded-2xl p-4 ${isEditing(rule) ? 'tile-selected' : ''}`} key={`${rule.business_unit}-${rule.caliber}`}>
-                        <div className="flex items-center justify-between gap-2"><Badge rule={rule} /><span className="text-muted whitespace-nowrap text-xs">{rule.articles || 0} art.</span></div>
-                        <h2 className="mt-3 text-base font-semibold leading-6">{rule.caliber}</h2>
-                        <p className="text-muted text-[13px] capitalize">{String(rule.business_unit || '').toLowerCase()}</p>
-                        <dl className="rule-facts mt-3 grid grid-cols-3 text-sm">
-                            <div><dt className="text-muted text-xs">Base</dt><dd className="font-medium">{rule.can_be_base ? 'Sí' : 'No'}</dd></div>
-                            <div><dt className="text-muted text-xs">Estable</dt><dd className="font-medium">{rule.stable ? 'Sí' : 'No'}</dd></div>
-                            <div><dt className="text-muted text-xs">Orden</dt><dd className="font-medium tabular-nums">{rule.size_rank}</dd></div>
-                        </dl>
-                        <p className="text-muted mb-3 mt-3 text-[13px] leading-[18px]">{detail(rule)}</p>
-                        <button className={`${button} mt-auto w-full`} onClick={() => setEditing({ ...rule })}>{rule.missing_rule ? 'Configurar regla' : 'Editar regla'}</button>
-                    </article>)}
-                    {!rows.length && <p className="text-muted col-span-full py-10 text-center text-sm">No hay resultados para estos filtros.</p>}
+                <div className="tile thin-scroll mt-3 overflow-x-auto rounded-2xl">
+                    <table className={`rule-table w-full border-collapse text-sm ${editing ? 'is-narrow' : ''}`}>
+                        <thead>
+                            <tr>
+                                {COLUMNS.map(([key, label, align]) => <th key={key} scope="col" aria-sort={sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'} className={align}>
+                                    <button type="button" className="rule-sort" onClick={() => setSort(current => ({ key, dir: current.key === key ? -current.dir : 1 }))}>{label}<span aria-hidden="true" className="w-2 text-[10px]">{sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button>
+                                </th>)}
+                                <th scope="col" className="col-opt text-left">Bulto</th>
+                                <th scope="col"><span className="sr-only">Acciones</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedRows.map(rule => <tr key={`${rule.business_unit}-${rule.caliber}`} className={isEditing(rule) ? 'is-selected' : ''} onClick={() => setEditing({ ...rule })}>
+                                <th scope="row" className="text-left font-medium">{rule.caliber}</th>
+                                <td className="text-muted text-left capitalize">{String(rule.business_unit || '').toLowerCase()}</td>
+                                <td className="col-opt text-center tabular-nums">{rule.articles || 0}</td>
+                                <td className="text-center">{rule.can_be_base ? 'Sí' : 'No'}</td>
+                                <td className="text-center">{rule.stable ? 'Sí' : 'No'}</td>
+                                <td className="text-center tabular-nums">{rule.size_rank}</td>
+                                <td className="text-left"><Badge rule={rule} /></td>
+                                <td className="col-opt text-muted text-left text-[13px] tabular-nums" title={detail(rule)}>{rule.missing_floor || rule.missing_physical?.length ? '—' : detail(rule)}</td>
+                                <td className="text-right"><button type="button" className="rule-edit" onClick={() => setEditing({ ...rule })}>{rule.missing_rule ? 'Configurar' : 'Editar'}</button></td>
+                            </tr>)}
+                            {!rows.length && <tr><td colSpan={9} className="text-muted py-10 text-center">No hay resultados para estos filtros.</td></tr>}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

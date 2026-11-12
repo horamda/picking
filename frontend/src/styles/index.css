@@ -201,3 +201,19 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .admin-shell input[type="checkbox"], .admin-shell input[type="radio"] { accent-color: var(--action); width: 1rem; height: 1rem; }
 .admin-shell.is-panel input[type="file"]::file-selector-button { margin-right: .75rem; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: 0 .875rem; font: inherit; font-size: .875rem; cursor: pointer; }
 .admin-shell.is-panel details > summary { list-style-position: inside; }
+
+/* Tabla compacta de reglas del mezclador. */
+.rule-table :is(th,td) { padding: .5rem .75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rule-table.is-narrow .col-opt { display: none; }
+@media (max-width: 767px) { .rule-table .col-opt { display: none; } }
+.rule-table thead th { font-size: .75rem; font-weight: 500; color: var(--text-muted); padding-block: .25rem; }
+.rule-table tbody tr:last-child :is(th,td) { border-bottom: 0; }
+.rule-table tbody tr:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.rule-table tbody tr.is-selected { background: var(--brand-soft); }
+.rule-table .rule-sort { display: inline-flex; align-items: center; gap: .25rem; min-height: 32px !important; color: inherit; font: inherit; }
+.rule-table .rule-sort:hover { color: var(--text); }
+.rule-table .rule-edit { min-height: 32px !important; padding: 0 .625rem; border-radius: 6px; color: var(--brand-fg); font-weight: 500; }
+.rule-table .rule-edit:hover { background: var(--brand-soft); }
+.rule-table tbody tr { cursor: pointer; }
+.rule-table.is-narrow :is(th,td) { padding-inline: .5rem; }
+.rule-table.is-narrow :is(th,td):first-child { padding-left: .75rem; }
