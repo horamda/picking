@@ -117,6 +117,9 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
         const items = full ? [pallet] : pallet.items, owner = pallet.owner_court || pallet.court || pallet.items?.[0]?.court
         const profiles = palletProfiles(items), mergeable = canMerge(pallet)
         const totalCases = items.reduce((sum, item) => sum + Number(item.bultos || 0), 0)
+        const equivalentCases = pallet.loose_units
+            ? items.reduce((sum, item) => sum + Number(item.bultos || 0) + Number(item.unidades || 0) / Math.max(1, Number(item.unidades_por_bulto || 1)), 0)
+            : totalCases
         const height = pallet.height_cm == null ? 'Sin dato' : `${pallet.height_cm} cm`
         const weight = pallet.weight_complete === false ? `${pallet.weight_kg ?? 0} kg parcial` : pallet.weight_kg == null ? 'Sin dato' : `${pallet.weight_kg} kg`
         return <article key={pallet.cardId || pallet.id} draggable={!full && !disabled && mergeable} onDragStart={event => event.dataTransfer.setData('text/pallet-id', pallet.id)} onDragOver={event => { if (!full) event.preventDefault() }} onDrop={event => { if (!full) { event.preventDefault(); merge(event.dataTransfer.getData('text/pallet-id'), pallet.id) } }} className={`pallet-card tile flex flex-col rounded-2xl p-4 ${isSelected ? 'is-selected' : ''}`}>
@@ -126,7 +129,7 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
                     <p className="text-muted text-[13px]">Cancha {owner} · {full ? 'completo' : pallet.loose_units ? 'picking de unidades' : 'picking'}</p>
                 </div>
                 <div className="flex shrink-0 items-baseline gap-3 text-right tabular-nums">
-                    <p><span className="text-lg font-semibold">{decimal(totalCases, 0)}</span><span className="text-muted ml-1 text-xs">bultos</span></p>
+                    <p><span className="text-lg font-semibold">{decimal(equivalentCases, pallet.loose_units ? 2 : 0)}</span><span className="text-muted ml-1 text-xs">{pallet.loose_units ? 'bultos eq.' : 'bultos'}</span></p>
                     <p className={`text-xl font-medium leading-6 ${pct >= 90 ? 'text-emerald-700' : 'text-amber-700'}`}>{decimal(pct, 2)}<span className="ml-0.5 text-sm font-normal">%</span></p>
                 </div>
             </div>
