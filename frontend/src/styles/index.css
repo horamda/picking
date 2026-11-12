@@ -229,3 +229,33 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .field-missing { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)) !important; }
 .rule-table tbody tr.is-off > :not(:last-child) { opacity: .55; }
 .rule-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+
+/* Planificación de cargas: avisos, etapas y tarjetas de pallet. */
+.note { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: .625rem .875rem; font-size: .875rem; line-height: 1.25rem; }
+.note--warning { border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); background: color-mix(in srgb, var(--warning-bg) 55%, var(--surface)); color: var(--warning-text); }
+.note--danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background: color-mix(in srgb, var(--danger-bg) 60%, var(--surface)); color: var(--danger-text); }
+.note--success { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); background: color-mix(in srgb, var(--success-bg) 55%, var(--surface)); color: var(--success-text); }
+.planning-back { color: var(--brand-fg); min-height: 0 !important; }
+.planning-back:hover { text-decoration: underline; }
+.stepper { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 0; font-size: .875rem; color: var(--text-muted); }
+.stepper li { display: flex; align-items: center; gap: .5rem; }
+.stepper li + li::before { content: ""; width: 2.5rem; height: 1px; margin-inline: .75rem; background: var(--border); }
+.stepper-mark { display: flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 1px solid var(--border); font-size: .75rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.stepper li.is-active { color: var(--text); font-weight: 500; }
+.stepper li.is-active .stepper-mark { background: var(--action); border-color: var(--action); color: #FFFFFF; }
+.stepper li.is-done .stepper-mark { border-color: var(--success); color: var(--success-text); }
+.pallet-grid { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+.pallet-card.pallet-tone, html[data-theme="dark"] .pallet-card.pallet-tone { background: var(--surface); border: 1px solid var(--border); box-shadow: inset 0 3px 0 var(--pallet-tone); }
+.pallet-card.is-selected, html[data-theme="dark"] .pallet-card.is-selected { border-color: var(--brand-fg); box-shadow: inset 0 3px 0 var(--pallet-tone), 0 0 0 1px var(--brand-fg); }
+.pallet-card .pallet-tone-dot, .pallet-legend .pallet-tone-dot { box-shadow: none; }
+.pallet-legend.pallet-tone, html[data-theme="dark"] .pallet-legend.pallet-tone { background: none; border: 0; box-shadow: none; color: var(--text-muted); }
+.pallet-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text-muted) 22%, transparent); overflow: hidden; }
+.pallet-bar > div { height: 100%; border-radius: 2px; background: var(--warning); }
+.pallet-bar > div.is-full { background: var(--success); }
+.pallet-mix { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pallet-mix :is(th,td) { padding: .375rem .25rem; text-align: center; vertical-align: top; border-top: 1px solid var(--border); }
+.pallet-mix thead th { border-top: 0; padding-top: 0; font-size: .75rem; font-weight: 500; color: var(--text-muted); }
+.pallet-mix :is(th,td):first-child { padding-left: 0; text-align: left; }
+.pallet-mix :is(th,td):last-child { padding-right: 0; }
+.pallet-facts { border-top: 1px solid var(--border); padding-top: .625rem; }
+.pallet-facts > * + * { border-left: 1px solid var(--border); }
