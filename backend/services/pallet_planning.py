@@ -1,6 +1,7 @@
 """Read-only, deterministic pallet estimate. Never rewrites picking quantities."""
 from fractions import Fraction
 from decimal import Decimal, InvalidOperation
+import re
 
 
 MODES = {'inform', 'block'}
@@ -162,6 +163,17 @@ def prefers_complete_floors(reference):
     return 'CERVEZA' in unit and any(size in caliber for size in ('975', '1000'))
 
 
+def separates_loose_units(reference):
+    """Loose units, except 975/1000 cc calibers, travel on dedicated picking pallets."""
+    sizes = set(re.findall(r'\d+', str(reference.get('calibre') or '')))
+    return bool(reference.get('unidades')) and not sizes.intersection({'975', '1000'})
+
+
+def loose_unit_pallet_compatible(pallet, reference):
+    """All eligible loose units of a load share their dedicated pallet while limits allow it."""
+    return not pallet['items'] or pallet['load_id'] == reference['load_id']
+
+
 def same_physical_format(left, right):
     """Articles with identical layer geometry can share the same pallet base."""
     fields = ('business_unit', 'bultos_por_piso', 'pisos_por_pallet', 'bultos_por_pallet')
@@ -276,14 +288,14 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
         # Place integer bultos first, then integer units. No fractional case is invented.
         for field, amount, size in [('bultos', remainder, Fraction(1, bpp)),
                                     ('unidades', row['unidades'], Fraction(1, bpp*upb))]:
-            pieces.append((reference, field, amount, size))
+            pieces.append((reference, field, amount, size, field == 'unidades' and separates_loose_units(row)))
     # A stable configured base with a complete floor and more cases is allocated first.
     def piece_weight(piece):
         try:
             return fraction(piece[0].get('peso_por_bulto'), 'Peso') or Fraction(0)
         except ValueError:
             return Fraction(0)
-    pieces.sort(key=lambda p: (p[0]['load_id'], *assembly_priority(p[0], p[2] if p[1] == 'bultos' else 0,
+    pieces.sort(key=lambda p: (p[0]['load_id'], p[4], *assembly_priority(p[0], p[2] if p[1] == 'bultos' else 0,
                                                                      p[2] if p[1] == 'unidades' else 0),
         -piece_weight(p) if config['weight_tiebreaker'] else 0,
         -p[3] if p[0]['load_id'] in compact else 0,
@@ -313,19 +325,22 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
                 high = middle - 1
         return low
 
-    for reference, field, amount, size in pieces:
+    for reference, field, amount, size, loose_units in pieces:
         order = reference['order']
         while amount:
             candidates = [(p, maximum_quantity(p, reference, field, amount, size)) for p in mixed
                 if p['load_id'] == reference['load_id']
-                and pallet_compatible(p, reference, mix_courts, compact)
+                and p.get('loose_units', False) == loose_units
+                and (loose_unit_pallet_compatible(p, reference) if loose_units
+                     else pallet_compatible(p, reference, mix_courts, compact))
                 and 1-p['used'] >= size]
             candidates = [(p, quantity) for p, quantity in candidates if quantity > 0]
             selected = max(candidates, key=lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used']), default=None)
             pallet, allowed_quantity = selected if selected else (None, 0)
             if pallet is None:
                 pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
-                    assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
+                    assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
+                    used=Fraction(0), items=[])
                 mixed.append(pallet)
                 allowed_quantity = maximum_quantity(pallet, reference, field, amount, size)
             # A single indivisible case/unit that exceeds a blocking limit is retained and flagged;
@@ -336,7 +351,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
                 quantity = quantity - quantity % floor
                 if not quantity:
                     pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
-                        assembly_mode=reference['assembly_mode'], court=reference['court'], used=Fraction(0), items=[])
+                        assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
+                        used=Fraction(0), items=[])
                     mixed.append(pallet)
                     quantity = min(amount, allowed_quantity or int(Fraction(1, 1) // size))
                     quantity -= quantity % floor
@@ -353,7 +369,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
         pallet['occupancy'] = round(float(pallet.pop('used')), 6)
         pallet['courts'] = sorted({i['court'] for i in pallet['items']})
         pallet['shared'] = len(pallet['courts']) > 1
-        pallet['owner_court'] = pallet['court']
+        pallet['owner_court'] = (max(pallet['items'], key=lambda item: (item['unidades'], -item['order']))['court']
+                                  if pallet.get('loose_units') else pallet['court'])
         pallet['layers'] = [dict(position=n+1, placement='base' if n == 0 else 'arriba', **item)
             for n, item in enumerate(pallet['items'])]
         pallet.update(public_metrics(pallet_metrics(pallet['items'], config)))
@@ -450,7 +467,12 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
             raise ValueError('No se pueden mezclar repartos dentro de un mismo pallet.')
         if len(source_pallet_ids) > 1 and clean_items[0]['load_id'] not in allowed:
             raise ValueError(f'El reparto {clean_items[0]["reparto"]} no permite unir pallets.')
-        owner = raw.get('owner_court')
+        loose_units = any(item['unidades'] and separates_loose_units(item) for item in clean_items)
+        if loose_units and any(item['bultos'] or not item['unidades'] or not separates_loose_units(item)
+                               for item in clean_items):
+            raise ValueError('Las unidades sueltas deben permanecer en un pallet exclusivo, excepto 975 y 1000 cc.')
+        owner = (max(clean_items, key=lambda item: (item['unidades'], -item['order']))['court']
+                 if loose_units else raw.get('owner_court'))
         if type(owner) is not int or owner not in {item['court'] for item in clean_items}:
             raise ValueError('La cancha responsable debe pertenecer al pallet de destino.')
         clean_items.sort(key=lambda item: (*assembly_priority(item), item['order']))
@@ -469,6 +491,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
             item['pallet_id'] = pallet_id
         mixed.append(dict(id=pallet_id, load_id=clean_items[0]['load_id'], reparto=clean_items[0]['reparto'],
                           assembly_mode=clean_items[0]['assembly_mode'], owner_court=owner,
+                          loose_units=loose_units,
                           occupancy=round(float(used), 6), courts=sorted({i['court'] for i in clean_items}),
                           shared=len({i['court'] for i in clean_items}) > 1, items=clean_items,
                           layers=[dict(position=n + 1, placement='base' if n == 0 else 'arriba', **item)

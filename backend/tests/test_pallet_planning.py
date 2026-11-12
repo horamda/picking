@@ -80,6 +80,29 @@ class PlanningTest(unittest.TestCase):
         self.assertTrue(all(p['occupancy'] <= 1 for p in result['mixed_pallets']))
         self.assertEqual([p['sku'] for p in result['picking_tasks']], ['BRAHMA', 'AGUA'])
 
+    def test_loose_units_use_a_dedicated_pallet_owned_by_largest_unit_source(self):
+        rows = [row(10, 6, court=1, sku='LATA-A', calibre='473 CC LATAS'),
+                row(10, 20, court=2, sku='LATA-B', calibre='710 CC LATAS')]
+        result = simulate_pallets(rows, 5, False)
+        unit_pallets = [p for p in result['mixed_pallets'] if p.get('loose_units')]
+        self.assertEqual(len(unit_pallets), 1)
+        pallet = unit_pallets[0]
+        self.assertEqual(pallet['owner_court'], 2)
+        self.assertEqual(pallet['courts'], [1, 2])
+        self.assertEqual(sum(item['unidades'] for item in pallet['items']), 26)
+        self.assertTrue(all(item['bultos'] == 0 for item in pallet['items']))
+        self.assertTrue(all(item['unidades'] == 0 for p in result['mixed_pallets'] if not p.get('loose_units') for item in p['items']))
+
+    def test_975_and_1000_cc_units_remain_with_their_product(self):
+        rows = [row(10, 6, court=1, sku='LITRO', calibre='1000 CC VIDRIO'),
+                row(10, 8, court=2, sku='RET-975', calibre='975 CC VIDRIO')]
+        result = simulate_pallets(rows, 4, False)
+        self.assertFalse(any(p.get('loose_units') for p in result['mixed_pallets']))
+        for sku in ('LITRO', 'RET-975'):
+            item = next(item for pallet in result['mixed_pallets'] for item in pallet['items'] if item['sku'] == sku)
+            self.assertGreater(item['bultos'], 0)
+            self.assertGreater(item['unidades'], 0)
+
     def test_exact_full_pallet_does_not_create_empty_mixed_pallet(self):
         self.assertEqual(simulate_pallets([row(100)], 2)['mixed_count'], 0)
 

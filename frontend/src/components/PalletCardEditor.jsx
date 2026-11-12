@@ -121,7 +121,7 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <h4 className="text-base font-semibold leading-6">Pallet {pallet.cardId || pallet.id}</h4>
-                    <p className="text-muted text-[13px]">Cancha {owner} · {full ? 'completo' : 'picking'}</p>
+                    <p className="text-muted text-[13px]">Cancha {owner} · {full ? 'completo' : pallet.loose_units ? 'picking de unidades' : 'picking'}</p>
                 </div>
                 <p className={`text-right text-xl font-medium leading-6 tabular-nums ${pct >= 90 ? 'text-emerald-700' : 'text-amber-700'}`}>{decimal(pct, 2)}<span className="ml-0.5 text-sm font-normal">%</span></p>
             </div>
