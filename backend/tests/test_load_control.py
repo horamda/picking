@@ -127,14 +127,19 @@ class ControlFlowTest(unittest.TestCase):
         payload = dict(business_unit='CERVEZAS CMQ', caliber='1000 CC VIDRIO',
             can_be_base=True, stable=True, allow_incomplete_floor=False,
             size_rank=1000, enabled=True, units_per_case=12, length_cm=40.5, width_cm=30,
-            height_cm=None)
+            height_cm=32)
         self.assertEqual(self.client.put('/api/pallet-rules/stacking', headers=headers, json=payload).status_code, 200)
         listing = self.client.get('/api/pallet-rules', headers=headers).json
         self.assertEqual(listing['stacking_rules'][0]['size_rank'], 1000)
         self.assertTrue(listing['stacking_rules'][0]['can_be_base'])
         self.assertEqual(listing['stacking_rules'][0]['units_per_case'], 12)
         self.assertEqual(listing['stacking_rules'][0]['length_cm'], 40.5)
+        self.assertEqual(listing['stacking_rules'][0]['height_cm'], 32.0)
         self.assertEqual(listing['stacking_rules'][0]['missing_physical'], [])
+        payload['height_cm'] = 0.32
+        rejected = self.client.put('/api/pallet-rules/stacking', headers=headers, json=payload)
+        self.assertEqual(rejected.status_code, 400)
+        self.assertIn('entero positivo', rejected.json['error'])
 
     def test_stacking_rules_excel_round_trip_preserves_existing_values(self):
         headers = {'Authorization':'Bearer '+self.tokens['admin']}

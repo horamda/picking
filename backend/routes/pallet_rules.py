@@ -138,7 +138,7 @@ def xlsx_rows(raw):
         parsed = dict(business_unit=business_unit, caliber=caliber)
         for field, label, integer in (
                 ('units_per_case', 'Unidades por bulto', True), ('length_cm', 'Largo', False),
-                ('width_cm', 'Ancho', False), ('height_cm', 'Alto', False)):
+                ('width_cm', 'Ancho', False), ('height_cm', 'Alto', True)):
             raw_value = values_by_name[field]
             parsed[field] = getattr(current, field) if raw_value in (None, '') and current else optional_positive(raw_value, label, integer)
         for field, label in (('can_be_base', 'Puede ser base'), ('stable', 'Estable'),
@@ -316,7 +316,7 @@ def update_stacking_rule():
             'units_per_case': getattr(row, 'units_per_case', None) if 'units_per_case' not in data else optional_positive(data.get('units_per_case'), 'Unidades por bulto', True),
             'length_cm': getattr(row, 'length_cm', None) if 'length_cm' not in data else optional_positive(data.get('length_cm'), 'Largo'),
             'width_cm': getattr(row, 'width_cm', None) if 'width_cm' not in data else optional_positive(data.get('width_cm'), 'Ancho'),
-            'height_cm': getattr(row, 'height_cm', None) if 'height_cm' not in data else optional_positive(data.get('height_cm'), 'Alto'),
+            'height_cm': getattr(row, 'height_cm', None) if 'height_cm' not in data else optional_positive(data.get('height_cm'), 'Alto', True),
         }
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
