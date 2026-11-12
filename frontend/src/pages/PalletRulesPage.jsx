@@ -8,7 +8,17 @@ const button = 'btn-quiet rounded-lg px-4 text-sm font-medium disabled:opacity-4
 const primary = 'btn-primary rounded-lg px-4 text-sm font-medium disabled:opacity-40'
 const blank = rule => ({ business_unit: rule.business_unit, caliber: rule.caliber, can_be_base: false, stable: false, allow_incomplete_floor: false, size_rank: 0, enabled: true, units_per_case: '', length_cm: '', width_cm: '', height_cm: '', missing_physical: ['units_per_case', 'length_cm', 'width_cm'] })
 
-const COLUMNS = [['caliber', 'Calibre', 'text-left'], ['business_unit', 'Unidad', 'text-left'], ['articles', 'Artículos', 'text-center col-opt'], ['can_be_base', 'Base', 'text-center'], ['stable', 'Estable', 'text-center'], ['size_rank', 'Orden', 'text-center'], ['units_per_case', 'Un./bulto', 'text-center col-opt'], ['length_cm', 'Largo', 'text-center col-opt'], ['width_cm', 'Ancho', 'text-center col-opt'], ['height_cm', 'Alto', 'text-center col-opt'], ['status', 'Estado', 'text-left']]
+const COLUMNS = [
+    ['caliber', 'Calibre', 'text-left'], ['business_unit', 'Unidad', 'text-left'], ['articles', 'Art.', 'text-center col-opt', 'Artículos'],
+    ['can_be_base', 'Base', 'text-center', 'Puede formar la base'], ['stable', 'Estable', 'text-center', 'Soporta productos arriba'], ['allow_incomplete_floor', 'Piso inc.', 'text-center col-opt', 'Permite piso incompleto'],
+    ['size_rank', 'Orden', 'text-center', 'Orden físico: el mayor va debajo'],
+    ['units_per_case', 'Un./bulto', 'text-center col-opt', 'Unidades por bulto'], ['length_cm', 'Largo', 'text-center col-opt', 'Largo en cm'], ['width_cm', 'Ancho', 'text-center col-opt', 'Ancho en cm'], ['height_cm', 'Alto', 'text-center col-opt', 'Alto en cm (opcional)'],
+    ['enabled', 'Activa', 'text-center', 'Regla activa'], ['status', 'Estado', 'text-left'],
+]
+const BOOLEAN_COLUMNS = ['can_be_base', 'stable', 'allow_incomplete_floor', 'enabled']
+const REQUIRED_PHYSICAL = ['units_per_case', 'length_cm', 'width_cm']
+const missing = value => value === '' || value == null
+const yesNo = value => <span className={value ? '' : 'text-muted'}>{value ? 'Sí' : 'No'}</span>
 const PHYSICAL_COLUMNS = ['units_per_case', 'length_cm', 'width_cm', 'height_cm']
 const measure = value => value === '' || value == null ? '—' : Number(value).toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
@@ -88,7 +98,7 @@ export default function PalletRulesPage() {
     }
 
     const sortedRows = useMemo(() => {
-        const value = rule => sort.key === 'status' ? (rule.missing_rule ? 0 : rule.missing_floor ? 1 : rule.missing_physical?.length ? 2 : 3) : sort.key === 'can_be_base' || sort.key === 'stable' ? Number(Boolean(rule[sort.key])) : rule[sort.key]
+        const value = rule => sort.key === 'status' ? (rule.missing_rule ? 0 : rule.missing_floor ? 1 : rule.missing_physical?.length ? 2 : 3) : BOOLEAN_COLUMNS.includes(sort.key) ? Number(Boolean(rule[sort.key])) : rule[sort.key]
         if (!sort.key) return rows
         const empty = item => item === '' || item == null
         return [...rows].sort((a, b) => { const x = value(a), y = value(b); if (empty(x) || empty(y)) return empty(x) - empty(y); return (PHYSICAL_COLUMNS.includes(sort.key) || (typeof x === 'number' && typeof y === 'number') ? Number(x) - Number(y) : String(x).localeCompare(String(y), 'es', { numeric: true })) * sort.dir })
@@ -162,25 +172,27 @@ export default function PalletRulesPage() {
                     <table className="rule-table w-full border-collapse text-sm">
                         <thead>
                             <tr>
-                                {COLUMNS.map(([key, label, align]) => <th key={key} scope="col" aria-sort={sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'} className={align}>
+                                {COLUMNS.map(([key, label, align, hint]) => <th key={key} scope="col" title={hint} aria-sort={sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'} className={align}>
                                     <button type="button" className="rule-sort" onClick={() => setSort(current => ({ key, dir: current.key === key ? -current.dir : 1 }))}>{label}<span aria-hidden="true" className="text-[10px]">{sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button>
                                 </th>)}
                                 <th scope="col"><span className="sr-only">Acciones</span></th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedRows.map(rule => <tr key={`${rule.business_unit}-${rule.caliber}`} className={isEditing(rule) ? 'is-selected' : ''} onClick={() => setEditing({ ...rule })}>
+                            {sortedRows.map(rule => <tr key={`${rule.business_unit}-${rule.caliber}`} className={`${isEditing(rule) ? 'is-selected' : ''} ${rule.enabled === false ? 'is-off' : ''}`} onClick={() => setEditing({ ...rule })}>
                                 <th scope="row" className="text-left font-medium">{rule.caliber}</th>
                                 <td className="text-muted text-left capitalize">{String(rule.business_unit || '').toLowerCase()}</td>
                                 <td className="col-opt text-center tabular-nums">{rule.articles || 0}</td>
-                                <td className="text-center">{rule.can_be_base ? 'Sí' : 'No'}</td>
-                                <td className="text-center">{rule.stable ? 'Sí' : 'No'}</td>
+                                <td className="text-center">{yesNo(rule.can_be_base)}</td>
+                                <td className="text-center">{yesNo(rule.stable)}</td>
+                                <td className="col-opt text-center">{yesNo(rule.allow_incomplete_floor)}</td>
                                 <td className="text-center tabular-nums">{rule.size_rank}</td>
-                                {PHYSICAL_COLUMNS.map(key => <td key={key} className={`col-opt text-center tabular-nums ${rule[key] === '' || rule[key] == null ? 'text-muted' : ''}`}>{measure(rule[key])}</td>)}
+                                {PHYSICAL_COLUMNS.map(key => { const empty = rule[key] === '' || rule[key] == null; return <td key={key} className={`col-opt text-center tabular-nums ${empty ? (REQUIRED_PHYSICAL.includes(key) ? 'cell-missing' : 'text-muted') : ''}`} title={empty && REQUIRED_PHYSICAL.includes(key) ? 'Dato obligatorio sin cargar' : undefined}>{empty && REQUIRED_PHYSICAL.includes(key) ? 'Falta' : measure(rule[key])}</td> })}
+                                <td className="text-center">{yesNo(rule.enabled !== false)}</td>
                                 <td className="text-left"><Badge rule={rule} /></td>
-                                <td className="text-right"><button type="button" className="rule-edit" onClick={() => setEditing({ ...rule })}>{rule.missing_rule ? 'Configurar' : 'Editar'}</button></td>
+                                <td className="text-right"><button type="button" className="rule-edit" onClick={event => { event.stopPropagation(); setEditing({ ...rule }) }}>{rule.missing_rule ? 'Configurar' : 'Editar'}</button></td>
                             </tr>)}
-                            {!rows.length && <tr><td colSpan={12} className="text-muted py-10 text-center">No hay resultados para estos filtros.</td></tr>}
+                            {!rows.length && <tr><td colSpan={14} className="text-muted py-10 text-center">No hay resultados para estos filtros.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -200,9 +212,9 @@ export default function PalletRulesPage() {
                     <fieldset>
                         <legend className="text-sm font-medium">Medidas del bulto</legend>
                         <div className="mt-2 grid grid-cols-2 gap-3">
-                            <label className="text-muted text-[13px]">Unidades por bulto<input className={`${field} mt-1`} type="number" min="1" step="1" value={editing.units_per_case ?? ''} onChange={event => setEditing({ ...editing, units_per_case: event.target.value })} /></label>
-                            <label className="text-muted text-[13px]">Largo (cm)<input className={`${field} mt-1`} type="number" min="0.01" step="0.01" value={editing.length_cm ?? ''} onChange={event => setEditing({ ...editing, length_cm: event.target.value })} /></label>
-                            <label className="text-muted text-[13px]">Ancho (cm)<input className={`${field} mt-1`} type="number" min="0.01" step="0.01" value={editing.width_cm ?? ''} onChange={event => setEditing({ ...editing, width_cm: event.target.value })} /></label>
+                            <label className="text-muted text-[13px]">Unidades por bulto{missing(editing.units_per_case) && <span className="cell-missing ml-1.5">Falta</span>}<input className={`${field} mt-1 ${missing(editing.units_per_case) ? 'field-missing' : ''}`} type="number" min="1" step="1" value={editing.units_per_case ?? ''} onChange={event => setEditing({ ...editing, units_per_case: event.target.value })} /></label>
+                            <label className="text-muted text-[13px]">Largo (cm){missing(editing.length_cm) && <span className="cell-missing ml-1.5">Falta</span>}<input className={`${field} mt-1 ${missing(editing.length_cm) ? 'field-missing' : ''}`} type="number" min="0.01" step="0.01" value={editing.length_cm ?? ''} onChange={event => setEditing({ ...editing, length_cm: event.target.value })} /></label>
+                            <label className="text-muted text-[13px]">Ancho (cm){missing(editing.width_cm) && <span className="cell-missing ml-1.5">Falta</span>}<input className={`${field} mt-1 ${missing(editing.width_cm) ? 'field-missing' : ''}`} type="number" min="0.01" step="0.01" value={editing.width_cm ?? ''} onChange={event => setEditing({ ...editing, width_cm: event.target.value })} /></label>
                             <label className="text-muted text-[13px]">Alto opcional (cm)<input className={`${field} mt-1`} type="number" min="0.01" step="0.01" value={editing.height_cm ?? ''} onChange={event => setEditing({ ...editing, height_cm: event.target.value })} /></label>
                         </div>
                     </fieldset>

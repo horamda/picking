@@ -224,3 +224,8 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 /* Formularios que se abren sobre la pantalla. */
 .modal-backdrop { background: rgb(5 9 15 / 55%); backdrop-filter: blur(2px); }
 .modal-panel { background: var(--surface); border: 1px solid var(--border); color: var(--text); box-shadow: 0 24px 64px rgb(0 0 0 / 28%); }
+
+.cell-missing { color: var(--warning-text); font-size: .75rem; font-weight: 500; }
+.field-missing { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)) !important; }
+.rule-table tbody tr.is-off > :not(:last-child) { opacity: .55; }
+.rule-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
