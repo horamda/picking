@@ -185,7 +185,7 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .admin-shell.is-panel :is(button,a):is(.bg-slate-900,.bg-slate-950,.bg-brand-600,.bg-brand-700,.bg-brand-800):not(:disabled):hover { background: var(--action-hover); }
 
 /* Piezas compartidas del panel: franja de indicadores, control segmentado, paneles y listas. */
-.stat-strip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.stat-strip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; text-align: center; }
 .stat-strip > * { box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
 .segmented { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .segmented button { display: inline-flex; align-items: center; gap: .5rem; border-radius: 6px; padding: 0 .75rem; font-size: .875rem; color: var(--text-muted); min-height: 34px !important; }
@@ -194,8 +194,8 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .tile-selected, .tile-selected:hover { border-color: var(--brand-fg); background: color-mix(in srgb, var(--brand-soft) 45%, var(--surface)); }
 .panel-head { background: var(--surface); border-color: var(--border); }
 .rule-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.rule-facts { border-block: 1px solid var(--border); padding-block: .625rem; }
-.rule-facts > * + * { border-left: 1px solid var(--border); padding-left: .75rem; }
+.rule-facts { border-block: 1px solid var(--border); padding-block: .625rem; text-align: center; }
+.rule-facts > * + * { border-left: 1px solid var(--border); }
 .check-list > * + * { border-top: 1px solid var(--border); }
 .thin-scroll, .admin-sidebar { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-muted) 40%, transparent) transparent; }
 .admin-shell input[type="checkbox"], .admin-shell input[type="radio"] { accent-color: var(--action); width: 1rem; height: 1rem; }
