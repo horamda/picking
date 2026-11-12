@@ -174,6 +174,12 @@ def loose_unit_pallet_compatible(pallet, reference):
     return not pallet['items'] or pallet['load_id'] == reference['load_id']
 
 
+def floor_remainder_compatible(pallet, reference):
+    if not pallet['items'] or any(item.get('order') == reference.get('order') for item in pallet['items']):
+        return True
+    return same_physical_format(pallet['items'][0], reference)
+
+
 def same_physical_format(left, right):
     """Articles with identical layer geometry can share the same pallet base."""
     fields = ('business_unit', 'bultos_por_piso', 'pisos_por_pallet', 'bultos_por_pallet')
@@ -237,15 +243,22 @@ def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None, c
     if type(mix_courts) is not bool:
         raise ValueError('La mezcla entre canchas debe ser verdadero o falso.')
     rows = list(rows)
-    separate = simulate_pallets(rows, capacity, False, compact_load_ids, configuration)
+    separate = simulate_pallets(rows, capacity, False, compact_load_ids, configuration, False)
     required = not separate['fits_estimate']
-    result = simulate_pallets(rows, capacity, True, compact_load_ids, configuration) if mix_courts or required else separate
+    if required:
+        regular = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, False)
+        ordered = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, True)
+        result = min((regular, ordered), key=lambda plan: (not plan['fits_estimate'], plan['total_pallets'],
+                                                            plan['excess_positions'], plan is regular))
+    else:
+        result = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, False) if mix_courts else separate
     result.update(separate_pallets=separate['total_pallets'], automatic_mix=required,
                   saved_positions=separate['total_pallets'] - result['total_pallets'])
     return result
 
 
-def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, configuration=None):
+def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, configuration=None,
+                     optimize_complete_floors=False):
     if type(capacity) is not int or capacity <= 0:
         raise ValueError('La capacidad debe ser una cantidad entera positiva de pallets físicos.')
     if type(mix_courts) is not bool:
@@ -285,17 +298,43 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
             full.append(dict(reference, id=f'F{len(full)+1:03}', pallets=count, bultos=count*bpp, bultos_por_pallet=bpp))
             full_count += count
         tasks.append(dict(reference, bultos=remainder, unidades=row['unidades']))
-        # Place integer bultos first, then integer units. No fractional case is invented.
-        for field, amount, size in [('bultos', remainder, Fraction(1, bpp)),
-                                    ('unidades', row['unidades'], Fraction(1, bpp*upb))]:
-            pieces.append((reference, field, amount, size, field == 'unidades' and separates_loose_units(row)))
+        # Stable base products contribute complete floors first. Their remainder is kept
+        # out of those pallets so it cannot break an already completed floor.
+        floor_ready = bool(optimize_complete_floors and reference.get('can_be_base') and reference.get('stable')
+                           and not reference.get('stacking_rule_pending') and isinstance(floor, int) and floor > 0)
+        complete_floor_cases = remainder - remainder % floor if floor_ready else 0
+        if complete_floor_cases:
+            pieces.append((dict(reference, floor_complete=True), 'bultos', complete_floor_cases,
+                           Fraction(1, bpp), False, True, False))
+        if remainder - complete_floor_cases:
+            pieces.append((reference, 'bultos', remainder - complete_floor_cases,
+                           Fraction(1, bpp), False, False, floor_ready))
+        pieces.append((reference, 'unidades', row['unidades'], Fraction(1, bpp*upb),
+                       separates_loose_units(row), False, False))
+    floor_pieces = [piece for piece in pieces if piece[5]]
+    floor_mix_orders = set()
+    for left in floor_pieces:
+        for right in floor_pieces:
+            if left[0]['order'] == right[0]['order'] or left[0]['load_id'] != right[0]['load_id']:
+                continue
+            fake = dict(load_id=left[0]['load_id'], court=left[0]['court'], items=[left[0]])
+            if pallet_compatible(fake, right[0], True, compact):
+                floor_mix_orders.update((left[0]['order'], right[0]['order']))
+    # Without a compatible partner there is no benefit in isolating the remainder.
+    # Excluded 975/1000 cc units stay with their product's complete-floor pallet.
+    pieces = [(reference, field, amount, size, loose_units,
+               (floor_build and reference['order'] in floor_mix_orders)
+               or (field == 'unidades' and not loose_units and reference['order'] in floor_mix_orders),
+               floor_remainder and reference['order'] in floor_mix_orders)
+              for reference, field, amount, size, loose_units, floor_build, floor_remainder in pieces]
     # A stable configured base with a complete floor and more cases is allocated first.
     def piece_weight(piece):
         try:
             return fraction(piece[0].get('peso_por_bulto'), 'Peso') or Fraction(0)
         except ValueError:
             return Fraction(0)
-    pieces.sort(key=lambda p: (p[0]['load_id'], p[4], *assembly_priority(p[0], p[2] if p[1] == 'bultos' else 0,
+    pieces.sort(key=lambda p: (p[0]['load_id'], p[4], 0 if p[5] else 1,
+        *assembly_priority(p[0], p[2] if p[1] == 'bultos' else 0,
                                                                      p[2] if p[1] == 'unidades' else 0),
         -piece_weight(p) if config['weight_tiebreaker'] else 0,
         -p[3] if p[0]['load_id'] in compact else 0,
@@ -330,42 +369,50 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
         sequence = sum(1 for pallet in mixed if str(pallet['id']).startswith(prefix)) + 1
         return f'{prefix}{sequence:03}'
 
-    for reference, field, amount, size, loose_units in pieces:
+    for reference, field, amount, size, loose_units, floor_build, floor_remainder in pieces:
         order = reference['order']
         while amount:
             candidates = [(p, maximum_quantity(p, reference, field, amount, size)) for p in mixed
                 if p['load_id'] == reference['load_id']
                 and p.get('loose_units', False) == loose_units
+                and p.get('floor_build', False) == floor_build
+                and p.get('floor_remainder', False) == floor_remainder
                 and (loose_unit_pallet_compatible(p, reference) if loose_units
-                     else pallet_compatible(p, reference, mix_courts, compact))
+                     else floor_remainder_compatible(p, reference) if floor_remainder
+                     else pallet_compatible(p, reference, True if floor_build else mix_courts, compact))
                 and 1-p['used'] >= size]
+            if floor_build and field == 'bultos':
+                floor = reference['bultos_por_piso']
+                candidates = [(p, quantity - quantity % floor) for p, quantity in candidates]
             candidates = [(p, quantity) for p, quantity in candidates if quantity > 0]
             selected = max(candidates, key=lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used']), default=None)
             pallet, allowed_quantity = selected if selected else (None, 0)
             if pallet is None:
                 pallet = dict(id=next_mixed_id(loose_units), load_id=reference['load_id'], reparto=reference['reparto'],
                     assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
-                    used=Fraction(0), items=[])
+                    floor_build=floor_build, floor_remainder=floor_remainder, used=Fraction(0), items=[])
                 mixed.append(pallet)
                 allowed_quantity = maximum_quantity(pallet, reference, field, amount, size)
             # A single indivisible case/unit that exceeds a blocking limit is retained and flagged;
             # otherwise the loop could neither conserve quantities nor produce a reviewable plan.
             quantity = allowed_quantity or min(amount, 1)
             floor = reference.get('bultos_por_piso')
-            if field == 'bultos' and prefers_complete_floors(reference) and floor and amount >= floor:
+            if floor_build and field == 'bultos':
                 quantity = quantity - quantity % floor
                 if not quantity:
                     pallet = dict(id=next_mixed_id(loose_units), load_id=reference['load_id'], reparto=reference['reparto'],
                         assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
-                        used=Fraction(0), items=[])
+                        floor_build=True, floor_remainder=False, used=Fraction(0), items=[])
                     mixed.append(pallet)
-                    quantity = min(amount, allowed_quantity or int(Fraction(1, 1) // size))
+                    quantity = min(amount, maximum_quantity(pallet, reference, field, amount, size)
+                                   or int(Fraction(1, 1) // size))
                     quantity -= quantity % floor
                     if not quantity:
-                        quantity = min(amount, 1)
+                        quantity = min(amount, floor)
             item = next((i for i in pallet['items'] if i['order'] == order), None)
             if item is None:
-                item = dict(reference, bultos=0, unidades=0)
+                item = dict(reference, bultos=0, unidades=0, floor_build=floor_build,
+                            floor_remainder=floor_remainder)
                 pallet['items'].append(item)
             item[field] += quantity
             pallet['used'] += quantity*size
@@ -431,7 +478,8 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
 
     def identity(item):
         return (item.get('load_id'), item.get('order'), item.get('court'),
-                item.get('product_key') or str(item.get('sku')))
+                item.get('product_key') or str(item.get('sku')), bool(item.get('floor_build')),
+                bool(item.get('floor_remainder')))
 
     allowed = set(merge_allowed_load_ids or [])
     config = validate_configuration(plan.get('configuration'))
@@ -476,6 +524,18 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
         if loose_units and any(item['bultos'] or not item['unidades'] or not separates_loose_units(item)
                                for item in clean_items):
             raise ValueError('Las unidades sueltas deben permanecer en un pallet exclusivo, excepto 975 y 1000 cc.')
+        floor_modes = {bool(item.get('floor_build')) for item in clean_items}
+        if len(floor_modes) > 1:
+            raise ValueError('Los restos no pueden mezclarse con pallets reservados para pisos completos.')
+        floor_build = floor_modes == {True}
+        if floor_build and any(item['bultos'] % item['bultos_por_piso'] for item in clean_items):
+            raise ValueError('Cada producto debe conservar pisos completos en este pallet.')
+        remainder_modes = {bool(item.get('floor_remainder')) for item in clean_items}
+        if len(remainder_modes) > 1:
+            raise ValueError('Los restos deben permanecer en sus pallets compatibles.')
+        floor_remainder = remainder_modes == {True}
+        if floor_remainder and any(not same_physical_format(clean_items[0], item) for item in clean_items[1:]):
+            raise ValueError('Solo se pueden agrupar restos con la misma geometría de piso.')
         owner = (max(clean_items, key=lambda item: (item['unidades'], -item['order']))['court']
                  if loose_units else raw.get('owner_court'))
         if type(owner) is not int or owner not in {item['court'] for item in clean_items}:
@@ -496,7 +556,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
             item['pallet_id'] = pallet_id
         mixed.append(dict(id=pallet_id, load_id=clean_items[0]['load_id'], reparto=clean_items[0]['reparto'],
                           assembly_mode=clean_items[0]['assembly_mode'], owner_court=owner,
-                          loose_units=loose_units,
+                          loose_units=loose_units, floor_build=floor_build, floor_remainder=floor_remainder,
                           occupancy=round(float(used), 6), courts=sorted({i['court'] for i in clean_items}),
                           shared=len({i['court'] for i in clean_items}) > 1, items=clean_items,
                           layers=[dict(position=n + 1, placement='base' if n == 0 else 'arriba', **item)

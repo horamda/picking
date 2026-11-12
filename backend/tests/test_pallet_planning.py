@@ -199,6 +199,35 @@ class PlanningTest(unittest.TestCase):
         pallet = simulate_pallets(rows, 1)['mixed_pallets'][0]
         self.assertEqual(pallet['items'][0]['sku'], 'RANGO-ALTO')
 
+    def test_compatible_complete_floors_mix_across_courts_and_remainders_stay_apart(self):
+        rows = [row(24, court=1, sku='RET-1000', calibre='1000 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
+                row(36, court=2, sku='RET-975', calibre='975 CC VIDRIO', floor=10,
+                    bottom=True, priority=100, business_unit='CERVEZAS CMQ')]
+        plan = simulate_pallets(rows, 2, False, configuration=None, optimize_complete_floors=True)
+        floor_pallet = next(pallet for pallet in plan['mixed_pallets'] if pallet.get('floor_build'))
+        self.assertEqual({(item['sku'], item['bultos']) for item in floor_pallet['items']},
+                         {('RET-975', 30), ('RET-1000', 20)})
+        self.assertEqual(floor_pallet['courts'], [1, 2])
+        self.assertEqual(floor_pallet['occupancy'], 1)
+        self.assertEqual(floor_pallet['owner_court'], 2)
+        remainders = {item['sku']: item['bultos'] for pallet in plan['mixed_pallets']
+                      if not pallet.get('floor_build') for item in pallet['items']}
+        self.assertEqual(remainders, {'RET-1000': 4, 'RET-975': 6})
+        self.assertTrue(all(item['bultos'] % item['bultos_por_piso'] == 0 for item in floor_pallet['items']))
+
+    def test_complete_floor_optimization_only_runs_when_normal_plan_exceeds_capacity(self):
+        rows = [row(20, court=1, sku='BASE-A', floor=10),
+                row(30, court=2, sku='BASE-B', floor=10)]
+        roomy = plan_for_capacity(rows, 2)
+        self.assertFalse(roomy['automatic_mix'])
+        self.assertFalse(any(pallet.get('floor_build') for pallet in roomy['mixed_pallets']))
+        tight = plan_for_capacity(rows, 1)
+        self.assertTrue(tight['automatic_mix'])
+        self.assertTrue(tight['fits_estimate'])
+        self.assertEqual(tight['total_pallets'], 1)
+        self.assertTrue(tight['mixed_pallets'][0]['floor_build'])
+
     def test_different_liter_geometry_stays_separate(self):
         rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
                     bottom=True, priority=100, business_unit='CERVEZAS CMQ'),
