@@ -7,21 +7,16 @@ const field = 'w-full rounded-lg border bg-white px-3 py-2'
 const button = 'btn-quiet rounded-lg px-4 text-sm font-medium disabled:opacity-40'
 const primary = 'btn-primary rounded-lg px-4 text-sm font-medium disabled:opacity-40'
 const blank = rule => ({ business_unit: rule.business_unit, caliber: rule.caliber, can_be_base: false, stable: false, allow_incomplete_floor: false, size_rank: 0, enabled: true, units_per_case: '', length_cm: '', width_cm: '', height_cm: '', missing_physical: ['units_per_case', 'length_cm', 'width_cm'] })
-const PHYSICAL = { units_per_case: 'unidades/bulto', length_cm: 'largo', width_cm: 'ancho' }
 
-const COLUMNS = [['caliber', 'Calibre', 'text-left'], ['business_unit', 'Unidad', 'text-left'], ['articles', 'Artículos', 'text-center col-opt'], ['can_be_base', 'Base', 'text-center'], ['stable', 'Estable', 'text-center'], ['size_rank', 'Orden', 'text-center'], ['status', 'Estado', 'text-left']]
+const COLUMNS = [['caliber', 'Calibre', 'text-left'], ['business_unit', 'Unidad', 'text-left'], ['articles', 'Artículos', 'text-center col-opt'], ['can_be_base', 'Base', 'text-center'], ['stable', 'Estable', 'text-center'], ['size_rank', 'Orden', 'text-center'], ['units_per_case', 'Un./bulto', 'text-center col-opt'], ['length_cm', 'Largo', 'text-center col-opt'], ['width_cm', 'Ancho', 'text-center col-opt'], ['height_cm', 'Alto', 'text-center col-opt'], ['status', 'Estado', 'text-left']]
+const PHYSICAL_COLUMNS = ['units_per_case', 'length_cm', 'width_cm', 'height_cm']
+const measure = value => value === '' || value == null ? '—' : Number(value).toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
 function Badge({ rule }) {
     if (rule.missing_rule) return <span className="badge badge--danger">Falta configurar</span>
     if (rule.missing_floor) return <span className="badge badge--warning">Faltan pisos</span>
     if (rule.missing_physical?.length) return <span className="badge badge--warning">Faltan medidas</span>
     return <span className="badge badge--success">Listo</span>
-}
-
-function detail(rule) {
-    if (rule.missing_floor) return `Falta piso en ${rule.missing_floor} artículo(s).`
-    if (rule.missing_physical?.length) return `Falta completar: ${rule.missing_physical.map(item => PHYSICAL[item] || item).join(', ')}.`
-    return `${rule.length_cm} × ${rule.width_cm}${rule.height_cm ? ` × ${rule.height_cm}` : ''} cm · ${rule.units_per_case} un.`
 }
 
 export default function PalletRulesPage() {
@@ -31,6 +26,14 @@ export default function PalletRulesPage() {
     const [sort, setSort] = useState({ key: '', dir: 1 })
     const [excelFile, setExcelFile] = useState(null), [excelResult, setExcelResult] = useState(null)
     const [error, setError] = useState(''), [message, setMessage] = useState('')
+    useEffect(() => {
+        if (!editing) return
+        const onKey = event => { if (event.key === 'Escape') setEditing(null) }
+        document.addEventListener('keydown', onKey)
+        const previous = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = previous }
+    }, [Boolean(editing)])
     async function load() { setData((await api.get('/pallet-rules')).data) }
     useEffect(() => { load().catch(() => setError('No se pudieron cargar los criterios.')) }, [])
 
@@ -87,7 +90,8 @@ export default function PalletRulesPage() {
     const sortedRows = useMemo(() => {
         const value = rule => sort.key === 'status' ? (rule.missing_rule ? 0 : rule.missing_floor ? 1 : rule.missing_physical?.length ? 2 : 3) : sort.key === 'can_be_base' || sort.key === 'stable' ? Number(Boolean(rule[sort.key])) : rule[sort.key]
         if (!sort.key) return rows
-        return [...rows].sort((a, b) => { const x = value(a), y = value(b); return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''), 'es', { numeric: true })) * sort.dir })
+        const empty = item => item === '' || item == null
+        return [...rows].sort((a, b) => { const x = value(a), y = value(b); if (empty(x) || empty(y)) return empty(x) - empty(y); return (PHYSICAL_COLUMNS.includes(sort.key) || (typeof x === 'number' && typeof y === 'number') ? Number(x) - Number(y) : String(x).localeCompare(String(y), 'es', { numeric: true })) * sort.dir })
     }, [rows, sort])
     const isEditing = rule => editing?.business_unit === rule.business_unit && editing?.caliber === rule.caliber
     const summary = [['Combinaciones', allRows.length], ['Listas', counts.ready], ['Pendientes', counts.pending], ['Artículos incompletos', data.incomplete_articles || 0]]
@@ -145,7 +149,7 @@ export default function PalletRulesPage() {
             </div>}
         </section>
 
-        <section className={`grid items-start gap-6 ${editing ? 'lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]' : ''}`}>
+        <section>
             <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-3">
                     <label className="min-w-0 flex-1 basis-64"><span className="sr-only">Buscar reglas</span><input className={field} value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar unidad de negocio o calibre" /></label>
@@ -153,15 +157,14 @@ export default function PalletRulesPage() {
                         {filters.map(([key, label, count]) => <button type="button" key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}<span className="tabular-nums opacity-70">{count}</span></button>)}
                     </div>
                 </div>
-                <p className="text-muted mt-3 text-[13px]">{rows.length} combinaciones visibles</p>
+                <p className="text-muted mt-3 text-[13px]">{rows.length} combinaciones visibles · medidas en centímetros</p>
                 <div className="tile thin-scroll mt-3 overflow-x-auto rounded-2xl">
-                    <table className={`rule-table w-full border-collapse text-sm ${editing ? 'is-narrow' : ''}`}>
+                    <table className="rule-table w-full border-collapse text-sm">
                         <thead>
                             <tr>
                                 {COLUMNS.map(([key, label, align]) => <th key={key} scope="col" aria-sort={sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'} className={align}>
-                                    <button type="button" className="rule-sort" onClick={() => setSort(current => ({ key, dir: current.key === key ? -current.dir : 1 }))}>{label}<span aria-hidden="true" className="w-2 text-[10px]">{sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button>
+                                    <button type="button" className="rule-sort" onClick={() => setSort(current => ({ key, dir: current.key === key ? -current.dir : 1 }))}>{label}<span aria-hidden="true" className="text-[10px]">{sort.key === key ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button>
                                 </th>)}
-                                <th scope="col" className="col-opt text-left">Bulto</th>
                                 <th scope="col"><span className="sr-only">Acciones</span></th>
                             </tr>
                         </thead>
@@ -173,17 +176,17 @@ export default function PalletRulesPage() {
                                 <td className="text-center">{rule.can_be_base ? 'Sí' : 'No'}</td>
                                 <td className="text-center">{rule.stable ? 'Sí' : 'No'}</td>
                                 <td className="text-center tabular-nums">{rule.size_rank}</td>
+                                {PHYSICAL_COLUMNS.map(key => <td key={key} className={`col-opt text-center tabular-nums ${rule[key] === '' || rule[key] == null ? 'text-muted' : ''}`}>{measure(rule[key])}</td>)}
                                 <td className="text-left"><Badge rule={rule} /></td>
-                                <td className="col-opt text-muted text-left text-[13px] tabular-nums" title={detail(rule)}>{rule.missing_floor || rule.missing_physical?.length ? '—' : detail(rule)}</td>
                                 <td className="text-right"><button type="button" className="rule-edit" onClick={() => setEditing({ ...rule })}>{rule.missing_rule ? 'Configurar' : 'Editar'}</button></td>
                             </tr>)}
-                            {!rows.length && <tr><td colSpan={9} className="text-muted py-10 text-center">No hay resultados para estos filtros.</td></tr>}
+                            {!rows.length && <tr><td colSpan={12} className="text-muted py-10 text-center">No hay resultados para estos filtros.</td></tr>}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {editing && <form onSubmit={save} className="tile thin-scroll rounded-2xl lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto" aria-label={`Editar regla ${editing.caliber}`}>
+            {editing && <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4" onMouseDown={event => { if (event.target === event.currentTarget) setEditing(null) }}><form onSubmit={save} role="dialog" aria-modal="true" className="modal-panel thin-scroll max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl" aria-label={`Editar regla ${editing.caliber}`}>
                 <div className="panel-head sticky top-0 z-10 flex items-start justify-between gap-3 rounded-t-2xl border-b px-5 py-4">
                     <div className="min-w-0">
                         <p className="text-muted text-xs">Editando regla</p>
@@ -193,7 +196,7 @@ export default function PalletRulesPage() {
                     <button type="button" aria-label="Cerrar editor" className="btn-quiet flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" onClick={() => setEditing(null)}><NavIcon name="close" size={16} /></button>
                 </div>
                 <div className="space-y-5 px-5 py-5">
-                    <label className="block text-sm font-medium">Orden físico del calibre<span className="text-muted mt-0.5 block text-xs font-normal">Los valores mayores se colocan debajo.</span><input className={`${field} mt-2`} type="number" min="0" required value={editing.size_rank} onChange={event => setEditing({ ...editing, size_rank: event.target.value })} /></label>
+                    <label className="block text-sm font-medium">Orden físico del calibre<span className="text-muted mt-0.5 block text-xs font-normal">Los valores mayores se colocan debajo.</span><input className={`${field} mt-2`} type="number" min="0" required autoFocus value={editing.size_rank} onChange={event => setEditing({ ...editing, size_rank: event.target.value })} /></label>
                     <fieldset>
                         <legend className="text-sm font-medium">Medidas del bulto</legend>
                         <div className="mt-2 grid grid-cols-2 gap-3">
@@ -211,7 +214,7 @@ export default function PalletRulesPage() {
                     <button disabled={busy} className={`${primary} flex-1`}>{busy ? 'Guardando…' : 'Guardar criterio'}</button>
                     <button type="button" className={button} onClick={() => setEditing(null)}>Cancelar</button>
                 </div>
-            </form>}
+            </form></div>}
         </section>
     </div>
 }

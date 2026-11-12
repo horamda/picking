@@ -203,7 +203,7 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .admin-shell.is-panel details > summary { list-style-position: inside; }
 
 /* Tabla compacta de reglas del mezclador. */
-.rule-table :is(th,td) { padding: .5rem .75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rule-table :is(th,td) { padding: .5rem .375rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .rule-table.is-narrow .col-opt { display: none; }
 @media (max-width: 767px) { .rule-table .col-opt { display: none; } }
 .rule-table thead th { font-size: .75rem; font-weight: 500; color: var(--text-muted); padding-block: .25rem; }
@@ -217,3 +217,10 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .rule-table tbody tr { cursor: pointer; }
 .rule-table.is-narrow :is(th,td) { padding-inline: .5rem; }
 .rule-table.is-narrow :is(th,td):first-child { padding-left: .75rem; }
+.rule-table :is(th,td):first-child { padding-left: .75rem; }
+.rule-table :is(th,td):last-child { padding-right: .5rem; }
+.rule-table .rule-sort { gap: .125rem; }
+
+/* Formularios que se abren sobre la pantalla. */
+.modal-backdrop { background: rgb(5 9 15 / 55%); backdrop-filter: blur(2px); }
+.modal-panel { background: var(--surface); border: 1px solid var(--border); color: var(--text); box-shadow: 0 24px 64px rgb(0 0 0 / 28%); }
