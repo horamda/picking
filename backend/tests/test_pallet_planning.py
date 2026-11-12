@@ -87,6 +87,8 @@ class PlanningTest(unittest.TestCase):
         unit_pallets = [p for p in result['mixed_pallets'] if p.get('loose_units')]
         self.assertEqual(len(unit_pallets), 1)
         pallet = unit_pallets[0]
+        self.assertEqual(pallet['id'], 'U001')
+        self.assertTrue(all(p['id'].startswith('M') for p in result['mixed_pallets'] if not p.get('loose_units')))
         self.assertEqual(pallet['owner_court'], 2)
         self.assertEqual(pallet['courts'], [1, 2])
         self.assertEqual(sum(item['unidades'] for item in pallet['items']), 26)

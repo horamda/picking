@@ -325,6 +325,11 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
                 high = middle - 1
         return low
 
+    def next_mixed_id(loose_units):
+        prefix = 'U' if loose_units else 'M'
+        sequence = sum(1 for pallet in mixed if str(pallet['id']).startswith(prefix)) + 1
+        return f'{prefix}{sequence:03}'
+
     for reference, field, amount, size, loose_units in pieces:
         order = reference['order']
         while amount:
@@ -338,7 +343,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
             selected = max(candidates, key=lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used']), default=None)
             pallet, allowed_quantity = selected if selected else (None, 0)
             if pallet is None:
-                pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
+                pallet = dict(id=next_mixed_id(loose_units), load_id=reference['load_id'], reparto=reference['reparto'],
                     assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
                     used=Fraction(0), items=[])
                 mixed.append(pallet)
@@ -350,7 +355,7 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
             if field == 'bultos' and prefers_complete_floors(reference) and floor and amount >= floor:
                 quantity = quantity - quantity % floor
                 if not quantity:
-                    pallet = dict(id=f'M{len(mixed)+1:03}', load_id=reference['load_id'], reparto=reference['reparto'],
+                    pallet = dict(id=next_mixed_id(loose_units), load_id=reference['load_id'], reparto=reference['reparto'],
                         assembly_mode=reference['assembly_mode'], court=reference['court'], loose_units=loose_units,
                         used=Fraction(0), items=[])
                     mixed.append(pallet)

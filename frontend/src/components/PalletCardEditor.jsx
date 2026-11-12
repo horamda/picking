@@ -96,8 +96,9 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
         let next = pallets.filter(p => p.id !== source.id).map(p => ({ ...p, items: p.items.map(item => ({ ...item })) }))
         if (remaining.items.length) next.push(remaining)
         if (moving.targetId === 'new') {
-            const max = pallets.reduce((value, pallet) => Math.max(value, Number(String(pallet.id).replace(/\D/g, '')) || 0), 0)
-            next.push(rebuild({ ...source, id: `M${String(max + 1).padStart(3, '0')}`, items: transfers }))
+            const prefix = source.loose_units ? 'U' : 'M'
+            const max = pallets.filter(pallet => String(pallet.id).startsWith(prefix)).reduce((value, pallet) => Math.max(value, Number(String(pallet.id).replace(/\D/g, '')) || 0), 0)
+            next.push(rebuild({ ...source, id: `${prefix}${String(max + 1).padStart(3, '0')}`, items: transfers }))
         } else {
             const target = next.find(p => p.id === moving.targetId)
             if (!target || target.load_id !== source.load_id) { setNotice('El destino debe pertenecer a la misma carga.'); return }
