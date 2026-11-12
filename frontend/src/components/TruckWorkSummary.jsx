@@ -2,7 +2,7 @@ const number = value => value == null ? 'Pendiente' : Number(value).toLocaleStri
 export default function TruckWorkSummary({ summary: s, waiting = false }) {
     if (!s) return null
     const mine = s.mine
-    return <section className="my-3 space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+    return <section className="truck-summary my-3 space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
         <h3 className="font-semibold">Resumen de este camión</h3>
         {s.separation_policy === 'reparto_v1' && <p className="font-semibold">Armá cada reparto por separado. No mezcles repartos en un pallet.</p>}
         {!!s.load_plans?.length && <ul className="space-y-2 text-sm">{s.load_plans.map(p => <li key={p.load_id}><b>Reparto {p.reparto}</b>: {p.total_pallets} pallets estimados · {p.assembly_mode === 'compact' ? 'Supermercado / autoelevador: armado compacto separado' : 'Normal, separado'}</li>)}</ul>}

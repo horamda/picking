@@ -32,7 +32,7 @@ export default function PreviousLoadsPage() {
     }
 
     return <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-8">
-        <header><Link className="text-brand-600 underline" to="/administracion">Volver a administración</Link><h1 className="mt-3 text-2xl font-bold">Cargas anteriores</h1><p className="mt-2 text-slate-600">Cargas con fecha anterior a hoy. Anular conserva todo el historial, pero retira la tarea de picking, pallets completos y controles.</p></header>
+        <header><h1 className="text-2xl font-bold">Cargas anteriores</h1><p className="mt-2 text-slate-600">Cargas con fecha anterior a hoy. Anular conserva todo el historial, pero retira la tarea de picking, pallets completos y controles.</p></header>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{error}</p>}
         <div className="flex flex-wrap gap-2">{[['open', 'Pendientes'], ['in_progress', 'Armado incompleto'], ['completed', 'Completas'], ['cancelled', 'Anuladas'], ['all', 'Todas']].map(([value, text]) => <button key={value} className={`min-h-11 rounded-xl border px-4 ${filter === value ? 'bg-brand-500 text-white' : 'bg-white'}`} onClick={() => setFilter(value)}>{text}</button>)}</div>
         <p className="text-sm text-slate-500">{visible.length} cargas</p>

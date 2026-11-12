@@ -23,13 +23,13 @@ export default function ControlTruckCard({ truck: t, manager, pickingOnly = fals
         </div>)}
     </article>
     return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {manager && t.id && <div className="px-5 pt-4"><button className={secondary} onClick={onPlan}>Planificar pallets</button></div>}
+        
         <div className="space-y-4 p-4 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
-                <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Camión</p><h2 className="text-2xl font-bold text-slate-900">{t.truck || 'Sin identificar'}</h2><p className="mt-1 text-sm text-slate-500">{t.load_date || 'Sin fecha'} · {t.branch || 'Sin depósito'}</p></div>
-                <span className={`rounded-full px-3 py-2 text-xs font-semibold ${t.released ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{title}</span>
+                <div><h2 className="text-lg font-semibold text-slate-900">Camión {t.truck || 'Sin identificar'}</h2><p className="mt-1 text-sm text-slate-500">{t.load_date || 'Sin fecha'} · {t.branch || 'Sin depósito'}</p></div>
+                <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-2 text-xs font-semibold ${t.released ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{title}</span>{manager && t.id && <button className={secondary} onClick={onPlan}>Planificar pallets</button>}</div>
             </div>
-            <div><div className="mb-2 flex justify-between gap-2 text-sm"><b>{t.total} {t.total === 1 ? 'carga' : 'cargas'}</b><span>{t.completed} de {t.total} con doble control</span></div><progress value={t.completed} max={t.total || 1} aria-label={`Cargas controladas del camión ${t.truck}`} className="h-2 w-full accent-emerald-600" /></div>
+            <div><div className="mb-2 flex justify-between gap-2 text-sm"><b>{t.total} {t.total === 1 ? 'carga' : 'cargas'}</b><span>{t.completed} de {t.total} con doble control</span></div><div className="pallet-bar" role="progressbar" aria-valuenow={t.completed} aria-valuemin={0} aria-valuemax={t.total || 1} aria-label={`Cargas controladas del camión ${t.truck}`}><div className="is-full" style={{ width: `${t.total ? Math.round(t.completed / t.total * 100) : 0}%` }} /></div></div>
             {!t.released && (next || t.pending.length > 0) && <button className={`${action} w-full sm:w-auto`} disabled={Boolean(t.status.released_at)} onClick={() => next ? onOpen(next.id) : onActivate(t.pending[0].id)}>Ingresar a la siguiente carga</button>}
             {t.status.released_at && !t.released && <p role="alert" className="text-sm text-red-700">La liberación anterior no cubre las cargas pendientes actuales. Requiere revisión del supervisor.</p>}
         </div>
@@ -47,7 +47,7 @@ export default function ControlTruckCard({ truck: t, manager, pickingOnly = fals
             </ol>
         </details>
         {!pickingOnly && <div className="space-y-3 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Salida del camión</h3>
+            <h3 className="text-sm font-semibold">Salida del camión</h3>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm"><span>{pending ? `${pending} cargas pendientes` : 'Todas las cargas controladas'}</span><span>Activos: {t.status.assets ? 'confirmados' : 'pendientes'}</span><span>{unapproved ? `${unapproved} faltantes por autorizar` : 'Sin autorizaciones pendientes'}</span></div>
             <div className="flex flex-wrap gap-2">{t.status.complete && !t.status.assets && <button className={action} onClick={onAssets}>Registrar activos y completar salida</button>}{manager && t.id && <button className={secondary} onClick={onAudit}>Trazabilidad</button>}</div>
             {t.status.assets && <details className="text-sm"><summary className="min-h-12 cursor-pointer py-3">Ver activos registrados</summary><div className="grid gap-1 sm:grid-cols-2">{Object.entries(t.status.assets.quantities).map(([name, count]) => <p key={name}>{name}: <b>{count}</b></p>)}</div></details>}

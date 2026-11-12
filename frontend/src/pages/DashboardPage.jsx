@@ -68,8 +68,7 @@ function OperationsCenter({ data, lastUpdated }) {
     return <section className="mb-8">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
-                <p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Centro de operaciones</p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">Seguimiento de preparación real</h2>
+                <h2 className="text-xl font-semibold text-slate-900">Seguimiento de preparación real</h2>
                 <p className="mt-1 text-sm text-slate-500">Datos confirmados por el servidor. No incluye los controles como producción adicional.</p>
             </div>
             <div className="text-right text-xs text-slate-500">
@@ -108,7 +107,7 @@ function ProductivityPanel({ data }) {
     const rate = value => value == null ? 'No medido' : `${formatNumber(value)} b/h`
     return <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Productividad</p><h2 className="mt-1 text-xl font-semibold text-slate-900">Rendimiento por operario</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Bultos confirmados por hora activa. Picking y pallets completos se muestran separados porque su complejidad no es equivalente.</p></div>
+            <div><h2 className="text-xl font-semibold text-slate-900">Rendimiento por operario</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Bultos confirmados por hora activa. Picking y pallets completos se muestran separados porque su complejidad no es equivalente.</p></div>
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">Las diferencias de stock no se atribuyen al operario.</p>
         </div>
         <div className="mt-5 overflow-x-auto">
@@ -145,7 +144,7 @@ function QualityPanel({ data }) {
     ]
     return <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-brand-600">Calidad y diferencias</p><h2 className="mt-1 text-xl font-semibold text-slate-900">Exactitud, causas y revisiones</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Los errores atribuibles al picking se muestran separados de las diferencias de stock. Una confirmación correcta de faltante no penaliza al segundo control.</p></div>
+            <div><h2 className="text-xl font-semibold text-slate-900">Exactitud, causas y revisiones</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Los errores atribuibles al picking se muestran separados de las diferencias de stock. Una confirmación correcta de faltante no penaliza al segundo control.</p></div>
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">La exactitud actual es por productos respondidos, no por líneas originales del PDF.</p>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{cards.map(([label, value]) => <article key={label} className="rounded-xl bg-slate-50 p-4 text-center"><p className={`text-2xl font-semibold ${value == null ? 'text-slate-400' : 'text-slate-900'}`}>{percentage(value)}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p></article>)}</div>

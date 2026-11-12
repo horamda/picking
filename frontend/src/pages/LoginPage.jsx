@@ -27,21 +27,19 @@ function LoginPage() {
     }
 
     return (
-        <div className="login-page relative flex min-h-screen items-center justify-center overflow-hidden px-4">
-            <div className="pointer-events-none absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#FFB020]/10 blur-3xl" />
-            <div className="pointer-events-none absolute -right-24 bottom-20 h-80 w-80 rounded-full bg-brand-400/20 blur-3xl" />
+        <div className="login-page flex min-h-screen items-center justify-center px-4">
             <div className="w-full max-w-sm">
-                <div className="relative mb-6 flex justify-center">
-                    <img src="/brand/lockup-negro-1x.png" srcSet="/brand/lockup-negro-1x.png 1x, /brand/lockup-negro-3x.png 3x" width="340" height="100" alt="PickearYa" className="theme-dark-only h-20 w-auto rounded-2xl bg-[#0B0F17] px-4 py-2 shadow-xl" />
-                    <img src="/brand/pickearya-horizontal.png" width="340" height="100" alt="PickearYa" className="theme-light-only h-20 w-auto object-contain" />
+                <div className="mb-6 flex items-center justify-center gap-2.5">
+                    <img src="/brand/pickearya-icon.png" width="36" height="36" alt="" className="h-9 w-9 rounded-lg" />
+                    <span className="text-xl font-semibold tracking-tight">PickearYa</span>
                 </div>
 
-                <div className="login-card relative rounded-3xl border p-8 shadow-2xl">
-                    <p className="text-xs font-bold uppercase tracking-[.2em] text-brand-600">Picking por voz</p>
-                    <h1 className="mb-6 mt-1 text-2xl font-semibold text-slate-900">Ingresar a PickearYa</h1>
+                <div className="login-card rounded-2xl border p-7">
+                    <h1 className="text-xl font-semibold">Ingresar</h1>
+                    <p className="text-muted mb-6 mt-1 text-sm">Picking por voz</p>
 
                     {error && (
-                        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                        <div role="alert" className="note note--danger mb-4 flex items-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                             </svg>
@@ -56,7 +54,7 @@ function LoginPage() {
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 autoComplete="username"
-                                className="mt-1.5 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
                         </label>
                         <label className="block">
@@ -66,13 +64,13 @@ function LoginPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 autoComplete="current-password"
-                                className="mt-1.5 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                                className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
                         </label>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full rounded-2xl bg-brand-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-60"
+                            className="btn-primary min-h-10 w-full rounded-lg px-4 text-sm font-medium disabled:opacity-60"
                         >
                             {loading ? 'Ingresando...' : 'Ingresar'}
                         </button>

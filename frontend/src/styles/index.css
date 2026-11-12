@@ -54,9 +54,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter Variable',
 html[data-theme="light"] .theme-dark-only { display: none; }
 html[data-theme="light"] .theme-light-only { display: block; }
 
-.login-page { background: linear-gradient(135deg, #071A3B 0%, #0B3D91 55%, #0B0F17 100%); }
+.login-page { background: var(--bg); color: var(--text); }
 .login-card { background: var(--surface); border-color: var(--border); color: var(--text); }
-html[data-theme="light"] .login-page { background: radial-gradient(circle at 15% 20%, rgb(255 176 32 / 16%), transparent 28rem), linear-gradient(135deg, #F5F7FB 0%, #E8EEF8 55%, #D9E1EE 100%); }
 
 * {
   @apply outline-none;
@@ -258,3 +257,43 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .pallet-mix :is(th,td):last-child { padding-right: 0; }
 .pallet-facts { border-top: 1px solid var(--border); padding-top: .625rem; }
 .pallet-facts > * + * { border-left: 1px solid var(--border); }
+
+/* Criterio visual común del panel: se aplica a todas las pantallas administrativas. */
+.admin-shell.is-panel h1 { font-size: 1.625rem; line-height: 2rem; font-weight: 600; }
+.admin-shell.is-panel h1 + p { color: var(--text-muted); font-size: .9375rem; line-height: 1.375rem; }
+.admin-shell.is-panel .uppercase { text-transform: none; letter-spacing: 0; }
+.admin-shell.is-panel [class*="tracking-["], .admin-shell.is-panel :is(.tracking-wide,.tracking-wider,.tracking-widest) { letter-spacing: 0; }
+.admin-shell.is-panel :is(th,dt,p,span).uppercase::first-letter { text-transform: uppercase; }
+.admin-shell.is-panel :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),select,textarea) { font-size: .875rem; line-height: 1.25rem; border-radius: 8px; padding: .5rem .75rem; }
+.admin-shell.is-panel :is(.border-2,.border-4) { border-width: 1px; }
+.admin-shell.is-panel :is(.shadow-lg,.shadow-xl,.shadow-2xl) { box-shadow: none; }
+.admin-shell.is-panel :is(.text-3xl,.text-4xl,.text-5xl):is(.font-bold,.font-semibold), .admin-shell.is-panel :is(b,strong):is(.text-xl,.text-2xl,.text-3xl,.text-4xl) { font-weight: 500; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+.admin-shell.is-panel table thead :is(th,tr) { font-weight: 500; }
+@media (pointer: fine) {
+  .admin-shell.is-panel :is(button,a,select,input:not([type="checkbox"]):not([type="radio"]),summary,label):is(.min-h-11,.min-h-12,.min-h-14) { min-height: 40px; }
+  .admin-shell.is-panel :is(button,a):is(.py-3,.py-2\.5) { padding-top: .5rem; padding-bottom: .5rem; }
+}
+.admin-shell.is-panel :is(button,a[class*="rounded"]) { font-size: .875rem; }
+/* Acciones: un solo color principal; las demás son discretas. */
+.admin-shell.is-panel :is(button,a):is(.bg-brand-500,.bg-blue-600,.bg-blue-700,.bg-emerald-600,.bg-emerald-700,.bg-green-600,.bg-green-700):not(:disabled) { background: var(--action); color: #FFFFFF; }
+.admin-shell.is-panel :is(button,a):is(.bg-brand-500,.bg-blue-600,.bg-blue-700,.bg-emerald-600,.bg-emerald-700,.bg-green-600,.bg-green-700):not(:disabled):hover { background: var(--action-hover); }
+.admin-shell.is-panel :is(button,a).font-semibold, .admin-shell.is-panel :is(button,a).font-bold { font-weight: 500; }
+/* Estados: punto de color y texto en lugar de pastillas rellenas. */
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:not(.badge), .admin-shell.is-panel span[class*="rounded-md"][class*="px-2"][class*="text-xs"]:not(.badge) { display: inline-flex; align-items: center; gap: .375rem; background: transparent !important; border: 1px solid var(--border); border-radius: 999px; padding: .0625rem .5rem; font-size: .75rem; line-height: 1.125rem; font-weight: 500; white-space: nowrap; }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:not(.badge)::before, .admin-shell.is-panel span[class*="rounded-md"][class*="px-2"][class*="text-xs"]:not(.badge)::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: currentColor; flex: none; }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"].text-white { color: var(--text); }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:is([class*="bg-emerald-6"],[class*="bg-emerald-7"],[class*="bg-green-6"]) { color: var(--success-text); }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:is([class*="bg-amber-6"],[class*="bg-orange-6"]) { color: var(--warning-text); }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:is([class*="bg-red-6"],[class*="bg-red-7"]) { color: var(--danger-text); }
+.admin-shell.is-panel span[class*="rounded-full"][class*="px-"]:is([class*="bg-brand-5"],[class*="bg-blue-6"]) { color: var(--brand-fg); }
+.admin-shell.is-panel main > div:not(.border-b) { padding: 2rem 2rem 3.5rem; }
+@media (max-width: 639px) { .admin-shell.is-panel main > div:not(.border-b) { padding: 1.25rem 1rem 3rem; } }
+
+.sticky-bar { background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); backdrop-filter: blur(8px); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
+.admin-shell.is-panel label { font-size: .875rem; }
+.admin-shell.is-panel .truck-summary { margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent !important; padding: 1rem 1.5rem; font-size: .875rem; }
+.admin-shell.is-panel .truck-summary :is(.font-semibold,b) { font-weight: 500; }
+.admin-shell.is-panel :is(h2,h3,h4).font-bold, .admin-shell.is-panel :is(h2,h3,h4).font-semibold { font-weight: 600; }
+.admin-shell.is-panel h2:is(.text-xl,.text-2xl) { font-size: 1.125rem; line-height: 1.625rem; }
+.admin-shell.is-panel b:not([class*="text-"]), .admin-shell.is-panel strong:not([class*="text-"]) { font-weight: 500; }
+html[data-theme="dark"] [class*="divide-slate-"] > * + * { border-color: var(--border); }
