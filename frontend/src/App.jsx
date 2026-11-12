@@ -42,7 +42,7 @@ function App() {
                     path="/*"
                     element={
                         <ProtectedRoute>
-                            <div className="admin-shell flex min-h-screen">
+                            <div className={`admin-shell flex min-h-screen ${worker ? 'is-worker' : monitor ? 'is-monitor' : 'is-panel'}`}>
                                 <a href="#main-content" className="fixed left-3 top-2 z-50 -translate-y-20 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">Saltar al contenido</a>
                                 {!monitor && !worker && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
                                 {sidebarOpen && !worker && (

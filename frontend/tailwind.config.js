@@ -2,6 +2,8 @@ module.exports = {
     content: ['./index.html', './src/**/*.{js,jsx}'],
     theme: {
         extend: {
+            fontFamily: { sans: ['"Inter Variable"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+            borderRadius: { lg: '8px', xl: '8px', '2xl': '10px', '3xl': '12px' },
             colors: {
                 brand: {
                     50: '#eef4ff',

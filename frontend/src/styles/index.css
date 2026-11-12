@@ -5,12 +5,18 @@
 :root {
   --brand-primary: #0B3D91;
   --brand-accent: #FFB020;
-  --bg: #0B0F17;
-  --surface: #141B2A;
-  --surface-subtle: #0F1523;
-  --border: #22304A;
-  --text: #E8EEF8;
-  --text-muted: #A9B6CC;
+  --bg: #0B1017;
+  --surface: #111822;
+  --surface-subtle: #0E141D;
+  --border: #1E2938;
+  --text: #E7ECF4;
+  --text-muted: #98A5BA;
+  --brand-fg: #A9C4FF;
+  --brand-soft: rgb(88 143 245 / 14%);
+  --action: #2A5FC4;
+  --action-hover: #3A6FD4;
+  --focus: #8EB7FF;
+  --radius: 8px;
   --success: #2BB673;
   --success-text: #6EE7B7;
   --success-bg: #10382E;
@@ -23,12 +29,17 @@
 }
 
 html[data-theme="light"] {
-  --bg: #F5F7FB;
+  --bg: #F7F8FA;
   --surface: #FFFFFF;
-  --surface-subtle: #F5F7FB;
-  --border: #D9E1EE;
+  --surface-subtle: #F7F8FA;
+  --border: #E6E9EF;
   --text: #0F1B33;
-  --text-muted: #4A5873;
+  --text-muted: #5A6578;
+  --brand-fg: #0B3D91;
+  --brand-soft: #EEF3FB;
+  --action: #0B3D91;
+  --action-hover: #0B3478;
+  --focus: #2868D7;
   --success-text: #047857;
   --success-bg: #E7F7EF;
   --warning-text: #B45309;
@@ -37,7 +48,7 @@ html[data-theme="light"] {
   --danger-bg: #FDECEA;
 }
 
-body { background: var(--bg); color: var(--text); @apply antialiased; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; font-feature-settings: 'cv11', 'ss01'; @apply antialiased; }
 
 .theme-light-only { display: none; }
 html[data-theme="light"] .theme-dark-only { display: none; }
@@ -58,7 +69,7 @@ html[data-theme="light"] .login-page { background: radial-gradient(circle at 15%
 
 html { color-scheme: dark; }
 html[data-theme="light"] { color-scheme: light; }
-.admin-sidebar { background: linear-gradient(180deg, #0B3D91 0%, #071A3B 100%); }
+.admin-sidebar { background: var(--surface); border-right: 1px solid var(--border); color: var(--text); }
 .app-toolbar { background: var(--surface); border-color: var(--border); color: var(--text); }
 :is(input,select,textarea) { background-color: var(--surface-subtle); border-color: var(--border); color: var(--text); }
 ::placeholder { color: var(--text-muted); }
@@ -80,7 +91,7 @@ html[data-theme="dark"] :is(.text-emerald-700,.text-emerald-800,.text-green-700,
 html[data-theme="dark"] :is(.text-red-700,.text-red-800) { color: var(--danger-text); }
 html[data-theme="dark"] :is(.text-amber-600,.text-amber-700,.text-amber-800,.text-amber-900,.text-amber-950,.text-orange-700,.text-orange-800) { color: var(--warning-text); }
 html[data-theme="dark"] .hover\:bg-slate-100:hover { background-color: #1B2940; }
-:is(button,input,select,textarea,summary):focus-visible { outline: 3px solid var(--brand-accent); outline-offset: 2px; }
+:is(a,button,input,select,textarea,summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* El monitor conserva sus estados operativos, pero cambia superficies y textos con el tema. */
 html[data-theme="light"] .depot-monitor { background: var(--bg); color: var(--text); }
@@ -116,6 +127,14 @@ html[data-theme="light"] .depot-monitor .ring-white { --tw-ring-color: var(--bra
 /* Reglas transversales del panel administrativo. */
 .admin-shell :is(.text-xs,.text-\[10px\],.text-\[11px\],.text-\[12px\],.text-\[13px\]) { font-size: .875rem; line-height: 1.25rem; }
 .admin-shell :is(button,summary,select,input:not([type="checkbox"]):not([type="radio"]),textarea) { min-height: 44px; }
+/* Panel de escritorio: texto auxiliar y controles más livianos; en pantallas táctiles se conservan los 44 px. */
+.admin-shell.is-panel :is(.text-xs,.text-\[10px\],.text-\[11px\],.text-\[12px\],.text-\[13px\]) { font-size: .8125rem; line-height: 1.125rem; }
+@media (pointer: fine) {
+  .admin-shell.is-panel :is(button,summary,select,input:not([type="checkbox"]):not([type="radio"]),textarea) { min-height: 40px; }
+}
+.admin-shell.is-panel .font-bold { font-weight: 600; }
+.admin-shell.is-panel :is(.shadow-sm,.shadow,.shadow-md) { box-shadow: none; }
+.admin-shell.is-panel :is(h1,h2) { letter-spacing: -0.015em; }
 .admin-shell button { white-space: normal; text-wrap: balance; }
 .admin-shell :is(button,summary,[role="button"]):disabled { color: var(--text-muted); cursor: not-allowed; opacity: .65; }
 .admin-shell table { font-variant-numeric: tabular-nums; }
@@ -140,3 +159,27 @@ html[data-theme="light"] .depot-monitor .ring-white { --tw-ring-color: var(--bra
 .pallet-tone-dot { background: var(--pallet-tone); box-shadow: 0 0 0 2px white; }
 html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); background: color-mix(in srgb, var(--pallet-tone) 22%, #182235); box-shadow: inset 0 6px 0 var(--pallet-tone), 0 3px 8px rgb(0 0 0 / 35%); }
 .monitor-process-card { display: flex; min-height: 7.75rem; flex-direction: column; border-left-width: 4px; border-radius: .6rem; padding: .55rem .65rem; }
+
+/* Sistema visual del panel: menú, insignias y acciones comparten los tokens del tema. */
+.nav-group-title { color: var(--text-muted); }
+.nav-item { color: color-mix(in srgb, var(--text) 82%, var(--text-muted)); }
+.nav-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+.nav-item[aria-current="page"] { background: var(--brand-soft); color: var(--brand-fg); font-weight: 500; }
+.nav-footer { border-color: var(--border); }
+.btn-primary { background: var(--action); color: #FFFFFF; }
+.btn-primary:hover { background: var(--action-hover); color: #FFFFFF; }
+.btn-quiet { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.btn-quiet:hover { background: var(--surface-subtle); border-color: color-mix(in srgb, var(--text-muted) 45%, var(--border)); }
+.tile { background: var(--surface); border: 1px solid var(--border); color: var(--text); transition: border-color .15s; }
+.tile:hover { border-color: color-mix(in srgb, var(--brand-fg) 45%, var(--border)); }
+.tile-icon { background: var(--surface-subtle); color: var(--brand-fg); }
+.text-muted { color: var(--text-muted); }
+.badge { display: inline-flex; align-items: center; gap: .375rem; border: 1px solid var(--border); border-radius: 999px; padding: .0625rem .5rem; font-size: .75rem; line-height: 1.125rem; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+.badge::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: currentColor; }
+.badge--success { color: var(--success-text); }
+.badge--warning { color: var(--warning-text); }
+.badge--danger { color: var(--danger-text); }
+.badge--info { color: var(--brand-fg); }
+/* Las acciones principales del panel usan un único color en ambos temas. */
+.admin-shell.is-panel :is(button,a):is(.bg-slate-900,.bg-slate-950,.bg-brand-600,.bg-brand-700,.bg-brand-800):not(:disabled) { background: var(--action); color: #FFFFFF; }
+.admin-shell.is-panel :is(button,a):is(.bg-slate-900,.bg-slate-950,.bg-brand-600,.bg-brand-700,.bg-brand-800):not(:disabled):hover { background: var(--action-hover); }

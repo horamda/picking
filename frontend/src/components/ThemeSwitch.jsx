@@ -30,15 +30,15 @@ export default function ThemeSwitch() {
     return <div className="app-toolbar sticky top-0 z-40 flex min-h-12 items-center justify-between gap-3 border-b px-4 py-1.5">
         <div className="min-w-0">
             {user ? <div className="flex min-w-0 items-center gap-2 text-sm">
-                <Link to={home} className="shrink-0 font-semibold text-brand-600 hover:underline">PickearYa</Link>
+                <Link to={home} className="shrink-0 font-medium text-slate-500 hover:underline">PickearYa</Link>
                 <span className="text-slate-400" aria-hidden="true">/</span>
                 {currentGroup && <><span className="hidden text-slate-500 md:inline">{currentGroup}</span><span className="hidden text-slate-400 md:inline" aria-hidden="true">/</span></>}
                 <span className="truncate font-medium">{currentEntry?.label || 'Panel operativo'}</span>
             </div> : <span className="text-sm font-semibold">PickearYa</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-            {user && <label className="hidden items-center gap-2 text-sm font-medium lg:flex"><span className="text-slate-500">Ir a</span><select aria-label="Ir a otra página" className="min-h-9 max-w-64 rounded-lg border px-3" value={currentEntry?.path || ''} onChange={event => event.target.value && navigate(event.target.value)}><option value="" disabled>Seleccionar página</option>{groups.map(([title, keys]) => <optgroup key={title} label={title}>{keys.map(key => NAVIGATION[key]).map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</optgroup>)}</select></label>}
-            <label className="flex items-center gap-2 text-sm font-medium"><span className="hidden sm:inline">Apariencia</span><select aria-label="Apariencia" className="min-h-9 rounded-lg border px-3" value={theme} onChange={event => {
+            {user && <label className="hidden items-center gap-2 text-sm lg:flex"><span className="text-slate-500">Ir a</span><select aria-label="Ir a otra página" className="min-h-9 max-w-64 rounded-lg border px-3" value={currentEntry?.path || ''} onChange={event => event.target.value && navigate(event.target.value)}><option value="" disabled>Seleccionar página</option>{groups.map(([title, keys]) => <optgroup key={title} label={title}>{keys.map(key => NAVIGATION[key]).map(item => <option key={item.path} value={item.path}>{item.label}</option>)}</optgroup>)}</select></label>}
+            <label className="flex items-center gap-2 text-sm"><span className="hidden text-slate-500 sm:inline">Apariencia</span><select aria-label="Apariencia" className="min-h-9 rounded-lg border px-3" value={theme} onChange={event => {
                 const nextTheme = event.target.value === 'light' ? 'light' : 'dark'
                 try { localStorage.setItem('picking-theme', nextTheme) } catch (_) { /* El selector funciona durante la sesión. */ }
                 document.documentElement.dataset.theme = nextTheme
