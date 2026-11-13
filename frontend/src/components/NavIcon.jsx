@@ -3,6 +3,7 @@ const PATHS = {
     adminHome: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
     supervision: 'M3 12h4l3-8 4 16 3-8h4',
     planning: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h4',
+    simulator3d: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5',
     shortages: 'M12 4 2.5 20h19zM12 10v4M12 17v.5',
     resources: 'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM20 20v-1.5a3.5 3.5 0 0 0-2.5-3.3M15.5 4.2a3.5 3.5 0 0 1 0 6.6',
     monitor: 'M3 5h18v11H3zM8 20h8M12 16v4',

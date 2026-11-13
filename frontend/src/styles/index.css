@@ -297,3 +297,8 @@ html[data-theme="dark"] .pallet-tone { border-color: var(--pallet-tone); backgro
 .admin-shell.is-panel h2:is(.text-xl,.text-2xl) { font-size: 1.125rem; line-height: 1.625rem; }
 .admin-shell.is-panel b:not([class*="text-"]), .admin-shell.is-panel strong:not([class*="text-"]) { font-weight: 500; }
 html[data-theme="dark"] [class*="divide-slate-"] > * + * { border-color: var(--border); }
+
+/* Simulador 3D. */
+.tile.is-static:hover { border-color: var(--border); }
+.scene3d canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.scene3d canvas:active { cursor: grabbing; }

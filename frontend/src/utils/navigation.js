@@ -2,6 +2,7 @@ export const NAVIGATION = {
     adminHome: { path: '/administracion', label: 'Inicio administrativo', description: 'Accesos y estado general de la configuración del sistema.' },
     supervision: { path: '/supervision', label: 'Seguimiento en vivo', description: 'Ver el avance actual de operarios, canchas y camiones.' },
     planning: { path: '/supervision/cargas', label: 'Planificar cargas', description: 'Seleccionar repartos, simular pallets y aprobar el trabajo.' },
+    simulator3d: { path: '/supervision/simulador-3d', label: 'Simulador 3D de carga', description: 'Ver en 3D cómo quedan armados los pallets de un camión.' },
     shortages: { path: '/supervision/faltantes', label: 'Faltantes y autorizaciones', description: 'Revisar diferencias y autorizar salidas con faltantes.' },
     resources: { path: '/supervision/equipo', label: 'Asignar recursos', description: 'Planificar canchas semanales y refuerzos del día.' },
     monitor: { path: '/monitor', label: 'Pantalla del depósito', description: 'Tablero de avance para mostrar en una pantalla grande.' },
@@ -22,7 +23,7 @@ export const NAVIGATION = {
 
 export const ADMIN_GROUPS = [
     ['Inicio', ['adminHome']],
-    ['Operación y supervisión', ['supervision', 'planning', 'shortages', 'resources', 'monitor', 'timing']],
+    ['Operación y supervisión', ['supervision', 'planning', 'simulator3d', 'shortages', 'resources', 'monitor', 'timing']],
     ['Personas y configuración', ['people', 'trucks', 'articles', 'voice', 'pallets', 'exclusions']],
     ['Carga de datos', ['imports']],
     ['Reportes e historial', ['reports', 'dashboard', 'capacityReports', 'previousLoads', 'history']],
@@ -30,7 +31,7 @@ export const ADMIN_GROUPS = [
 
 export const SUPERVISOR_GROUPS = [
     ['Inicio', ['supervision']],
-    ['Operación', ['planning', 'shortages', 'resources', 'monitor', 'timing']],
+    ['Operación', ['planning', 'simulator3d', 'shortages', 'resources', 'monitor', 'timing']],
     ['Datos de consulta', ['articles', 'imports']],
     ['Reportes e historial', ['reports', 'dashboard', 'capacityReports', 'history']],
 ]

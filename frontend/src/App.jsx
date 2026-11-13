@@ -23,6 +23,7 @@ const VoiceTemplatesPage = lazy(() => import('./pages/VoiceTemplatesPage'))
 const PalletRulesPage = lazy(() => import('./pages/PalletRulesPage'))
 const PreviousLoadsPage = lazy(() => import('./pages/PreviousLoadsPage'))
 const CapacityReportsPage = lazy(() => import('./pages/CapacityReportsPage'))
+const Simulator3DPage = lazy(() => import('./pages/Simulator3DPage'))
 
 function App() {
     const monitor = useLocation().pathname === "/monitor"
@@ -91,6 +92,7 @@ function App() {
                                             <Route path="/control-cargas" element={<Navigate to="/operacion?tab=control" replace />} />
                                             <Route path="/historial" element={<HistoryPage />} />
                                             <Route path="/capacidad-reportes" element={<CapacityReportsPage />} />
+                                            <Route path="/supervision/simulador-3d" element={<Simulator3DPage />} />
                                             <Route path="/articulos" element={<ArticlesPage />} />
                                             <Route path="/exclusiones" element={<ExclusionsPage />} />
                                             <Route path="*" element={<Navigate to="/" replace />} />
