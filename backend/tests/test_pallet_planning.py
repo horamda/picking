@@ -229,8 +229,9 @@ class PlanningTest(unittest.TestCase):
         self.assertTrue(tight['fits_estimate'])
         self.assertEqual(tight['total_pallets'], 1)
         self.assertIn(tight['optimization_strategy'], {'mezcla_por_cancha', 'mezcla_mejor_ajuste',
-                                                       'pisos_por_cancha', 'pisos_mejor_ajuste'})
-        self.assertEqual(len(tight['optimization_alternatives']), 4)
+                                                       'pisos_por_cancha', 'pisos_mejor_ajuste',
+                                                       'capas_compartidas', 'pisos_y_capas_compartidas'})
+        self.assertEqual(len(tight['optimization_alternatives']), 6)
 
     def test_different_liter_geometry_stays_separate(self):
         rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,
@@ -310,6 +311,15 @@ class PhysicalLimitsTest(unittest.TestCase):
         self.assertEqual(shared['mixed_pallets'][0]['height_cm'], 30)
         different = [row(5, sku='A', weight=1), row(4, sku='B', floor=8, bpp=48, weight=1)]
         self.assertEqual(simulate_pallets(different, 2, configuration=self.config(max_pallet_height_cm=40, share_floor_remainders=True))['mixed_count'], 2)
+
+    def test_overcapacity_optimizer_can_share_compatible_layers(self):
+        rows = [row(5, sku=f'RESTO-{index}', weight=1) for index in range(4)]
+        plan = plan_for_capacity(rows, 1, configuration=self.config(max_pallet_height_cm=70))
+        self.assertTrue(plan['automatic_mix'])
+        self.assertTrue(plan['fits_estimate'])
+        self.assertEqual(plan['total_pallets'], 1)
+        self.assertIn(plan['optimization_strategy'], {'capas_compartidas', 'pisos_y_capas_compartidas'})
+        self.assertTrue(plan['configuration']['share_floor_remainders'])
 
     def test_lower_height_limit_reduces_mixed_pallet_layers(self):
         plan = simulate_pallets([row(40, weight=1)], 3, configuration=self.config(max_pallet_height_cm=70))

@@ -106,15 +106,16 @@ def pallet_metrics(items, configuration):
             continue
         floor_height = (reference_height - base_height) / floors
         if configuration['share_floor_remainders']:
-            key = (per_floor, floors)
-            current = height_groups.setdefault(key, dict(amount=Fraction(0), floor_height=floor_height))
+            key = (item.get('business_unit'), item.get('bultos_por_pallet'), per_floor, floors)
+            current = height_groups.setdefault(key, dict(amount=Fraction(0), floor_height=floor_height,
+                                                          per_floor=per_floor))
             current['amount'] += amount
         else:
             key = (item.get('order'), item.get('sku'))
             height_groups[key] = dict(amount=amount, floor_height=floor_height, per_floor=per_floor)
     if height is not None:
         for key, group in height_groups.items():
-            per_floor = key[0] if configuration['share_floor_remainders'] else group['per_floor']
+            per_floor = group['per_floor']
             occupied = group['amount'] / per_floor
             layers = (occupied.numerator + occupied.denominator - 1) // occupied.denominator
             height += layers * group['floor_height']
@@ -247,10 +248,14 @@ def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None, c
     required = not separate['fits_estimate']
     if required:
         alternatives = []
-        for strategy, complete_floors, best_fit in (
-                ('mezcla_por_cancha', False, False), ('mezcla_mejor_ajuste', False, True),
-                ('pisos_por_cancha', True, False), ('pisos_mejor_ajuste', True, True)):
-            proposal = simulate_pallets(rows, capacity, True, compact_load_ids, configuration,
+        for strategy, complete_floors, best_fit, shared_layers in (
+                ('mezcla_por_cancha', False, False, False), ('mezcla_mejor_ajuste', False, True, False),
+                ('pisos_por_cancha', True, False, False), ('pisos_mejor_ajuste', True, True, False),
+                ('capas_compartidas', False, True, True), ('pisos_y_capas_compartidas', True, True, True)):
+            candidate_configuration = dict(configuration or {})
+            if shared_layers:
+                candidate_configuration['share_floor_remainders'] = True
+            proposal = simulate_pallets(rows, capacity, True, compact_load_ids, candidate_configuration,
                                         complete_floors, best_fit)
             proposal['optimization_strategy'] = strategy
             alternatives.append(proposal)

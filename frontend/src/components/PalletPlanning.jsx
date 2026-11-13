@@ -103,7 +103,7 @@ export default function PalletPlanning({ truck, onClose }) {
         [result.excess_positions ? 'Posiciones que faltan' : 'Posiciones libres', result.excess_positions || result.free_positions, result.excess_positions ? 'bad' : ''],
         ['Peso del camión', result.weight_complete ? `${result.truck_weight_kg} kg` : `${result.truck_weight_known_kg} kg`, result.truck_weight_exceeded ? 'bad' : '', result.weight_complete ? (result.truck_weight_limit_kg != null ? `límite ${result.truck_weight_limit_kg} kg` : '') : 'incompleto'],
     ] : []
-    const optimizationLabels = { mezcla_por_cancha: 'mezcla priorizando canchas', mezcla_mejor_ajuste: 'mezcla por mejor ocupación', pisos_por_cancha: 'pisos completos priorizando canchas', pisos_mejor_ajuste: 'pisos completos por mejor ocupación' }
+    const optimizationLabels = { mezcla_por_cancha: 'mezcla priorizando canchas', mezcla_mejor_ajuste: 'mezcla por mejor ocupación', pisos_por_cancha: 'pisos completos priorizando canchas', pisos_mejor_ajuste: 'pisos completos por mejor ocupación', capas_compartidas: 'mejor ocupación compartiendo capas compatibles', pisos_y_capas_compartidas: 'pisos completos y capas compatibles compartidas' }
 
     return <section className="planning space-y-6" aria-label="Simulación de pallets">
         <header className="flex flex-wrap items-end justify-between gap-4">
