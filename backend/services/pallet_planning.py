@@ -196,6 +196,12 @@ def pallet_compatible(pallet, reference, mix_courts, compact):
     if same_item:
         return True
     base = pallet['items'][0]
+    # Compact/supermarket loads are assembled by forklift. Inside the same load,
+    # occupancy is the physical limit and courts do not split an otherwise valid pallet.
+    # Unknown rules remain isolated because their compatibility cannot be proven.
+    if reference['load_id'] in compact:
+        return not reference.get('stacking_rule_pending') and not any(
+            item.get('stacking_rule_pending') for item in pallet['items'])
     compacting = mix_courts or reference['load_id'] in compact
     # Retornables de litro se arman desde la base por pisos. Un resto de piso
     # queda concentrado y no se utiliza como apoyo para otro artículo.

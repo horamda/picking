@@ -37,6 +37,17 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(len({p['id'] for p in result['mixed_pallets']}),3)
         with self.assertRaises(ValueError):plan_for_capacity(rows,8,False,[999])
 
+    def test_compact_load_uses_occupancy_across_courts_and_calibers(self):
+        rows = [row(11, court=4, sku='LATA', bpp=100, calibre='473 CC LATAS', rank=473),
+                row(20, court=5, sku='PET-GRANDE', bpp=60, calibre='2250 CC PET', rank=2250),
+                row(28, court=3, sku='PET-MEDIO', bpp=110, calibre='1500 CC PET', rank=1500)]
+        plan = simulate_pallets(rows, 1, False, [1])
+        self.assertEqual(plan['mixed_count'], 1)
+        pallet = plan['mixed_pallets'][0]
+        self.assertEqual(pallet['courts'], [3, 4, 5])
+        self.assertLessEqual(pallet['occupancy'], 1)
+        self.assertEqual({item['sku'] for item in pallet['items']}, {'LATA', 'PET-GRANDE', 'PET-MEDIO'})
+
     def test_capacity_drives_combination_without_changing_work(self):
         rows = [row(25, court=i, sku=str(i)) for i in range(1, 10)]
         plan = plan_for_capacity(rows, 8)
