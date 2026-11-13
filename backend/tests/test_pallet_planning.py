@@ -226,7 +226,9 @@ class PlanningTest(unittest.TestCase):
         self.assertTrue(tight['automatic_mix'])
         self.assertTrue(tight['fits_estimate'])
         self.assertEqual(tight['total_pallets'], 1)
-        self.assertTrue(tight['mixed_pallets'][0]['floor_build'])
+        self.assertIn(tight['optimization_strategy'], {'mezcla_por_cancha', 'mezcla_mejor_ajuste',
+                                                       'pisos_por_cancha', 'pisos_mejor_ajuste'})
+        self.assertEqual(len(tight['optimization_alternatives']), 4)
 
     def test_different_liter_geometry_stays_separate(self):
         rows = [row(20, sku='RET-A', calibre='1000 CC VIDRIO', floor=10,

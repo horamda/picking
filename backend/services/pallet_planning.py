@@ -246,10 +246,32 @@ def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None, c
     separate = simulate_pallets(rows, capacity, False, compact_load_ids, configuration, False)
     required = not separate['fits_estimate']
     if required:
-        regular = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, False)
-        ordered = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, True)
-        result = min((regular, ordered), key=lambda plan: (not plan['fits_estimate'], plan['total_pallets'],
-                                                            plan['excess_positions'], plan is regular))
+        alternatives = []
+        for strategy, complete_floors, best_fit in (
+                ('mezcla_por_cancha', False, False), ('mezcla_mejor_ajuste', False, True),
+                ('pisos_por_cancha', True, False), ('pisos_mejor_ajuste', True, True)):
+            proposal = simulate_pallets(rows, capacity, True, compact_load_ids, configuration,
+                                        complete_floors, best_fit)
+            proposal['optimization_strategy'] = strategy
+            alternatives.append(proposal)
+        def quality(plan):
+            floor_breaks = 0
+            for pallet in plan['mixed_pallets']:
+                complete = any(item.get('bultos_por_piso') and item['bultos'] >= item['bultos_por_piso']
+                               and item['bultos'] % item['bultos_por_piso'] == 0 for item in pallet['items'])
+                remainder = any(item.get('bultos_por_piso') and item['bultos'] % item['bultos_por_piso']
+                                for item in pallet['items'])
+                floor_breaks += int(complete and remainder)
+            low_occupancy = sum(pallet['occupancy'] < .5 for pallet in plan['mixed_pallets'])
+            wasted = round(sum(1 - pallet['occupancy'] for pallet in plan['mixed_pallets']), 6)
+            shared = sum(pallet['shared'] for pallet in plan['mixed_pallets'])
+            blocked = sum(bool(value) for value in plan['blocking_excesses'].values())
+            return (not plan['fits_estimate'], plan['total_pallets'], blocked, floor_breaks,
+                    low_occupancy, shared, wasted)
+        result = min(alternatives, key=quality)
+        result['optimization_alternatives'] = [dict(strategy=plan['optimization_strategy'],
+            total_pallets=plan['total_pallets'], fits=plan['fits_estimate'], score=list(quality(plan)))
+            for plan in alternatives]
     else:
         result = simulate_pallets(rows, capacity, True, compact_load_ids, configuration, False) if mix_courts else separate
     result.update(separate_pallets=separate['total_pallets'], automatic_mix=required,
@@ -258,7 +280,7 @@ def plan_for_capacity(rows, capacity, mix_courts=False, compact_load_ids=None, c
 
 
 def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, configuration=None,
-                     optimize_complete_floors=False):
+                     optimize_complete_floors=False, prefer_best_fit=False):
     if type(capacity) is not int or capacity <= 0:
         raise ValueError('La capacidad debe ser una cantidad entera positiva de pallets físicos.')
     if type(mix_courts) is not bool:
@@ -385,7 +407,11 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
                 floor = reference['bultos_por_piso']
                 candidates = [(p, quantity - quantity % floor) for p, quantity in candidates]
             candidates = [(p, quantity) for p, quantity in candidates if quantity > 0]
-            selected = max(candidates, key=lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used']), default=None)
+            selected = max(candidates, key=(lambda pair: (pair[0]['used'], pair[1],
+                                                           pair[0]['court'] == reference['court']))
+                           if prefer_best_fit else
+                           (lambda pair: (pair[0]['court'] == reference['court'], pair[0]['used'], pair[1])),
+                           default=None)
             pallet, allowed_quantity = selected if selected else (None, 0)
             if pallet is None:
                 pallet = dict(id=next_mixed_id(loose_units), load_id=reference['load_id'], reparto=reference['reparto'],

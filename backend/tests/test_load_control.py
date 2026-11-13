@@ -425,13 +425,13 @@ class ControlFlowTest(unittest.TestCase):
     def test_automatic_combination_preview_matches_approved_plan(self):
         second, _, _ = self.dispatch_sources()
         self.select_dispatch([self.source.id, second.id])
-        self.call('put', '/settings', data=dict(branch='Central', truck='ABC123', capacity=4, mix_courts_default=False))
+        self.call('put', '/settings', data=dict(branch='Central', truck='ABC123', capacity=5, mix_courts_default=False))
         preview = self.call('post', '/dispatch/preview', data=dict(source_ids=[self.source.id, second.id]))
         endpoint = f'/trucks/{self.truck_id}/planning'
-        plan = self.call('post', endpoint+'/simulate', data=dict(capacity=4, mix_courts=False))
+        plan = self.call('post', endpoint+'/simulate', data=dict(capacity=5, mix_courts=False))
         self.assertTrue(plan['automatic_mix'])
         self.assertTrue(plan['mix_courts'])
-        self.assertEqual((plan['separate_pallets'], plan['total_pallets']), (5, 4))
+        self.assertEqual((plan['separate_pallets'], plan['total_pallets']), (6, 5))
         self.assertEqual(preview['pallets'], plan['total_pallets'])
         self.assertTrue(preview['automatic_mix'])
         self.call('post', endpoint+'/approve', data=dict(plan, physical_review=True))

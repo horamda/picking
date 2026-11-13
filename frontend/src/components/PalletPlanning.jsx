@@ -102,6 +102,7 @@ export default function PalletPlanning({ truck, onClose }) {
         [result.excess_positions ? 'Posiciones que faltan' : 'Posiciones libres', result.excess_positions || result.free_positions, result.excess_positions ? 'bad' : ''],
         ['Peso del camión', result.weight_complete ? `${result.truck_weight_kg} kg` : `${result.truck_weight_known_kg} kg`, result.truck_weight_exceeded ? 'bad' : '', result.weight_complete ? (result.truck_weight_limit_kg != null ? `límite ${result.truck_weight_limit_kg} kg` : '') : 'incompleto'],
     ] : []
+    const optimizationLabels = { mezcla_por_cancha: 'mezcla priorizando canchas', mezcla_mejor_ajuste: 'mezcla por mejor ocupación', pisos_por_cancha: 'pisos completos priorizando canchas', pisos_mejor_ajuste: 'pisos completos por mejor ocupación' }
 
     return <section className="planning space-y-6" aria-label="Simulación de pallets">
         <header className="flex flex-wrap items-end justify-between gap-4">
@@ -187,6 +188,7 @@ export default function PalletPlanning({ truck, onClose }) {
                 </div>)}
             </div>
             <p className="text-muted text-[13px]">{result.automatic_mix ? `Sin combinar canchas normales: ${result.separate_pallets} pallets. Superan la capacidad de ${result.capacity}; combinando canchas dentro de cada reparto: ${result.total_pallets} pallets.` : 'Los supermercados combinan canchas dentro de su propio reparto. En los repartos normales, las canchas se mantienen separadas salvo que elijas combinarlas.'}</p>
+            {result.automatic_mix && result.optimization_strategy && <p className="note note--success"><span className="font-medium">Optimización seleccionada:</span> {optimizationLabels[result.optimization_strategy] || result.optimization_strategy}. Se compararon {result.optimization_alternatives?.length || 1} alternativas y se ahorraron {result.saved_positions} posiciones.</p>}
             {!!result.missing_caliber_rules?.length && <p role="alert" className="note note--warning"><span className="font-medium">Criterios físicos pendientes:</span> {result.missing_caliber_rules.join(', ')}. Esos productos no se combinan automáticamente. <Link className="underline" to="/reglas-pallets">Revisar criterios</Link>.</p>}
             {!!result.missing_weights?.length && <p role="alert" className="note note--warning"><span className="font-medium">Pesos faltantes:</span> {result.missing_weights.join(', ')}. El peso total queda incompleto.</p>}
             {!!result.missing_dimensions?.length && <p role="alert" className="note note--warning"><span className="font-medium">Geometría faltante:</span> {result.missing_dimensions.join(', ')}. Revisá pisos y bultos por piso.</p>}
