@@ -374,7 +374,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
             items.append(item)
         item[field] += quantity
         metrics = pallet_metrics(items, config)
-        if config['height_excess_mode'] == 'block' and metrics['height_exceeded']:
+        if (pallet.get('assembly_mode') != 'compact' and config['height_excess_mode'] == 'block'
+                and metrics['height_exceeded']):
             return False
         if config['pallet_weight_excess_mode'] == 'block' and metrics['weight_exceeded']:
             return False
@@ -456,11 +457,19 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
                                   if pallet.get('loose_units') else pallet['court'])
         pallet['layers'] = [dict(position=n+1, placement='base' if n == 0 else 'arriba', **item)
             for n, item in enumerate(pallet['items'])]
-        pallet.update(public_metrics(pallet_metrics(pallet['items'], config)))
+        metrics = public_metrics(pallet_metrics(pallet['items'], config))
+        if pallet.get('assembly_mode') == 'compact' and pallet['occupancy'] <= 1:
+            metrics.update(height_cm=None, height_complete=False, height_exceeded=False,
+                           height_excess_cm=0, missing_dimensions=[], height_check='occupancy')
+        pallet.update(metrics)
         del pallet['court']
     for pallet in full:
         one = dict(pallet, bultos=pallet['bultos_por_pallet'], unidades=0)
-        pallet.update(public_metrics(pallet_metrics([one], config)))
+        metrics = public_metrics(pallet_metrics([one], config))
+        if pallet.get('assembly_mode') == 'compact':
+            metrics.update(height_cm=None, height_complete=False, height_exceeded=False,
+                           height_excess_cm=0, missing_dimensions=[], height_check='occupancy')
+        pallet.update(metrics)
     position_pallets = [pallet for pallet in mixed if not pallet.get('loose_units')]
     unit_pallet_count = len(mixed) - len(position_pallets)
     total = full_count + len(position_pallets)
@@ -584,10 +593,15 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
         if used > 1:
             raise ValueError(f'El pallet {pallet_id} supera el 100% de capacidad.')
         metrics = pallet_metrics(clean_items, config)
-        if config['height_excess_mode'] == 'block' and metrics['height_exceeded']:
+        if (clean_items[0]['assembly_mode'] != 'compact' and config['height_excess_mode'] == 'block'
+                and metrics['height_exceeded']):
             raise ValueError(f'El pallet {pallet_id} supera la altura máxima permitida.')
         if config['pallet_weight_excess_mode'] == 'block' and metrics['weight_exceeded']:
             raise ValueError(f'El pallet {pallet_id} supera el peso máximo permitido.')
+        public = public_metrics(metrics)
+        if clean_items[0]['assembly_mode'] == 'compact' and used <= 1:
+            public.update(height_cm=None, height_complete=False, height_exceeded=False,
+                          height_excess_cm=0, missing_dimensions=[], height_check='occupancy')
         for item in clean_items:
             item['assigned_court'] = owner
             item['pallet_id'] = pallet_id
@@ -597,7 +611,7 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
                           occupancy=round(float(used), 6), courts=sorted({i['court'] for i in clean_items}),
                           shared=len({i['court'] for i in clean_items}) > 1, items=clean_items,
                           layers=[dict(position=n + 1, placement='base' if n == 0 else 'arriba', **item)
-                                  for n, item in enumerate(clean_items)], **public_metrics(metrics)))
+                                  for n, item in enumerate(clean_items)], **public))
     if received != expected:
         raise ValueError('El armado manual deja productos afuera o altera sus cantidades.')
 

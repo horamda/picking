@@ -120,7 +120,7 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
         const equivalentCases = pallet.loose_units
             ? items.reduce((sum, item) => sum + Number(item.bultos || 0) + Number(item.unidades || 0) / Math.max(1, Number(item.unidades_por_bulto || 1)), 0)
             : totalCases
-        const height = pallet.height_cm == null ? 'Sin dato' : `${pallet.height_cm} cm`
+        const height = pallet.height_check === 'occupancy' ? 'No aplica' : pallet.height_cm == null ? 'Sin dato' : `${pallet.height_cm} cm`
         const weight = pallet.weight_complete === false ? `${pallet.weight_kg ?? 0} kg parcial` : pallet.weight_kg == null ? 'Sin dato' : `${pallet.weight_kg} kg`
         return <article key={pallet.cardId || pallet.id} draggable={!full && !disabled && mergeable} onDragStart={event => event.dataTransfer.setData('text/pallet-id', pallet.id)} onDragOver={event => { if (!full) event.preventDefault() }} onDrop={event => { if (!full) { event.preventDefault(); merge(event.dataTransfer.getData('text/pallet-id'), pallet.id) } }} className={`pallet-card tile flex flex-col rounded-2xl p-4 ${isSelected ? 'is-selected' : ''}`}>
             <div className="flex items-start justify-between gap-3">

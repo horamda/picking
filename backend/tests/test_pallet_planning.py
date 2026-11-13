@@ -326,6 +326,17 @@ class PhysicalLimitsTest(unittest.TestCase):
         self.assertEqual(plan['mixed_count'], 2)
         self.assertTrue(all(p['height_cm'] <= 70 for p in plan['mixed_pallets']))
 
+    def test_compact_load_uses_occupancy_instead_of_merchandise_height(self):
+        rows = [row(20, court=1, sku='A', weight=1), row(20, court=2, sku='B', weight=1)]
+        normal = simulate_pallets(rows, 2, True, configuration=self.config(max_pallet_height_cm=30))
+        compact = simulate_pallets(rows, 1, False, [1], self.config(max_pallet_height_cm=30))
+        self.assertGreater(normal['mixed_count'], 1)
+        self.assertEqual(compact['mixed_count'], 1)
+        self.assertTrue(compact['fits_estimate'])
+        self.assertEqual(compact['mixed_pallets'][0]['occupancy'], .8)
+        self.assertEqual(compact['mixed_pallets'][0]['height_check'], 'occupancy')
+        self.assertIsNone(compact['mixed_pallets'][0]['height_cm'])
+
     def test_weight_limit_and_margin_split_a_pallet(self):
         no_margin = simulate_pallets([row(40, weight=10)], 2,
             configuration=self.config(max_pallet_weight_kg=420, height_excess_mode='inform'))
