@@ -455,6 +455,50 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
             item[field] += quantity
             pallet['used'] += quantity*size
             amount -= quantity
+
+    # Greedy placement can leave two compact pallets separated by internal floor/remainder
+    # categories even when their final combined occupancy is valid. Compact loads use a
+    # last consolidation pass because the forklift assembles them by total occupancy.
+    changed = True
+    while changed:
+        changed = False
+        for left_index, left in enumerate(mixed):
+            if left['load_id'] not in compact or left.get('loose_units'):
+                continue
+            for right_index in range(left_index + 1, len(mixed)):
+                right = mixed[right_index]
+                if right['load_id'] != left['load_id'] or right.get('loose_units'):
+                    continue
+                if left['used'] + right['used'] > 1:
+                    continue
+                combined = [dict(item) for item in left['items']]
+                for candidate in right['items']:
+                    item = next((current for current in combined
+                                 if current['order'] == candidate['order']), None)
+                    if item:
+                        item['bultos'] += candidate['bultos']
+                        item['unidades'] += candidate['unidades']
+                    else:
+                        combined.append(dict(candidate))
+                if any(item.get('stacking_rule_pending') for item in combined):
+                    continue
+                metrics = pallet_metrics(combined, config)
+                if config['pallet_weight_excess_mode'] == 'block' and metrics['weight_exceeded']:
+                    continue
+                combined.sort(key=lambda item: (*assembly_priority(item), item['order']))
+                for item in combined:
+                    item['floor_build'] = False
+                    item['floor_remainder'] = False
+                left['items'] = combined
+                left['used'] += right['used']
+                left['court'] = combined[0]['court']
+                left['floor_build'] = False
+                left['floor_remainder'] = False
+                mixed.pop(right_index)
+                changed = True
+                break
+            if changed:
+                break
     for pallet in mixed:
         pallet['occupancy'] = round(float(pallet.pop('used')), 6)
         pallet['courts'] = sorted({i['court'] for i in pallet['items']})

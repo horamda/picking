@@ -48,6 +48,14 @@ class PlanningTest(unittest.TestCase):
         self.assertLessEqual(pallet['occupancy'], 1)
         self.assertEqual({item['sku'] for item in pallet['items']}, {'LATA', 'PET-GRANDE', 'PET-MEDIO'})
 
+    def test_compact_final_pass_merges_floor_categories_under_one_hundred_percent(self):
+        rows = [row(20, court=4, sku='PISO', bpp=100, floor=10, calibre='473 CC LATAS'),
+                row(5, court=5, sku='RESTO', bpp=60, floor=10, calibre='2250 CC PET')]
+        plan = simulate_pallets(rows, 1, False, [1], optimize_complete_floors=True)
+        self.assertEqual(plan['mixed_count'], 1)
+        self.assertAlmostEqual(plan['mixed_pallets'][0]['occupancy'], 20/100 + 5/60, places=6)
+        self.assertEqual(plan['mixed_pallets'][0]['courts'], [4, 5])
+
     def test_capacity_drives_combination_without_changing_work(self):
         rows = [row(25, court=i, sku=str(i)) for i in range(1, 10)]
         plan = plan_for_capacity(rows, 8)
