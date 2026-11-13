@@ -98,6 +98,7 @@ export default function PalletPlanning({ truck, onClose }) {
         ['Pallets finales', result.total_pallets],
         ['Completos', result.full_count],
         ['Con picking', result.mixed_count],
+        ['Operativos U', result.unit_pallet_count || 0, '', 'no ocupan posición'],
         ['Capacidad', result.capacity],
         [result.excess_positions ? 'Posiciones que faltan' : 'Posiciones libres', result.excess_positions || result.free_positions, result.excess_positions ? 'bad' : ''],
         ['Peso del camión', result.weight_complete ? `${result.truck_weight_kg} kg` : `${result.truck_weight_known_kg} kg`, result.truck_weight_exceeded ? 'bad' : '', result.weight_complete ? (result.truck_weight_limit_kg != null ? `límite ${result.truck_weight_limit_kg} kg` : '') : 'incompleto'],
@@ -169,7 +170,7 @@ export default function PalletPlanning({ truck, onClose }) {
                     <h3 className="text-[15px] font-semibold">Resultado del camión</h3>
                     <span className={`badge ${result.fits_estimate ? 'badge--success' : 'badge--danger'}`}>{result.fits_estimate ? 'Entra en el camión' : 'Supera un límite'}</span>
                 </div>
-                <div className="stat-strip grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+                <div className="stat-strip grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7">
                     {summary.map(([label, value, tone, hint]) => <div key={label} className="px-4 py-4">
                         <p className="text-muted text-[13px]">{label}</p>
                         <p className={`mt-1 text-[24px] font-medium leading-8 tabular-nums ${tone === 'bad' ? 'text-red-700' : ''}`}>{value}</p>
@@ -183,7 +184,7 @@ export default function PalletPlanning({ truck, onClose }) {
             <div className="grid gap-3 sm:grid-cols-2">
                 {result.load_plans?.map(p => <div className="tile rounded-2xl p-4" key={p.load_id}>
                     <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">Reparto {p.reparto}</h3><span className="text-sm tabular-nums">{p.total_pallets} {p.total_pallets === 1 ? 'pallet' : 'pallets'}</span></div>
-                    <p className="text-muted mt-1 text-[13px]">{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'} · {p.full_count} completos + {p.mixed_count} de picking</p>
+                    <p className="text-muted mt-1 text-[13px]">{p.assembly_mode === 'compact' ? 'Supermercado / autoelevador · armado compacto' : 'Reparto normal'} · {p.full_count} completos + {p.mixed_count} de picking + {p.unit_pallet_count || 0} operativos U</p>
                     <p className="text-muted mt-1 text-[13px]">Pallets: {p.pallet_ids.join(', ') || 'sin pallets'}</p>
                 </div>)}
             </div>

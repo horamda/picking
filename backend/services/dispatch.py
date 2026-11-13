@@ -119,11 +119,13 @@ def truck_summary(truck, catalog, courts=None, stage=0, valid=True, user_id=None
     selected_ids = {load.id for load in selected_loads(truck)}
     full = [item for item in (plan or {}).get('full_pallets', []) if item.get('load_id') in selected_ids]
     mixed = [item for item in (plan or {}).get('mixed_pallets', []) if item.get('load_id') in selected_ids]
-    summary.update(pallets=sum(item.get('pallets', 0) for item in full) + len(mixed) if plan else None,
+    position_mixed = [item for item in mixed if not item.get('loose_units')]
+    summary.update(pallets=sum(item.get('pallets', 0) for item in full) + len(position_mixed) if plan else None,
                    separation_policy=plan.get('separation_policy') if plan else None,
                    load_plans=[item for item in plan.get('load_plans', []) if item.get('load_id') in selected_ids] if plan else [],
                    full_pallets=sum(item.get('pallets', 0) for item in full) if plan else None,
-                   picking_pallets=len(mixed) if plan else None,
+                   picking_pallets=len(position_mixed) if plan else None,
+                   unit_pallets=len(mixed) - len(position_mixed) if plan else None,
                    capacity=plan['capacity'] if plan else None)
     if courts is None:
         return summary

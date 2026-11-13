@@ -456,14 +456,19 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
     for pallet in full:
         one = dict(pallet, bultos=pallet['bultos_por_pallet'], unidades=0)
         pallet.update(public_metrics(pallet_metrics([one], config)))
-    total = full_count + len(mixed)
+    position_pallets = [pallet for pallet in mixed if not pallet.get('loose_units')]
+    unit_pallet_count = len(mixed) - len(position_pallets)
+    total = full_count + len(position_pallets)
     load_plans = []
     for load_id in dict.fromkeys(r['load_id'] for r in rows):
         own_full = [p for p in full if p['load_id'] == load_id]
         own_mixed = [p for p in mixed if p['load_id'] == load_id]
+        own_positions = [p for p in own_mixed if not p.get('loose_units')]
+        own_units = len(own_mixed) - len(own_positions)
         load_plans.append(dict(load_id=load_id, reparto=next(r['reparto'] for r in rows if r['load_id']==load_id),
             assembly_mode='compact' if load_id in compact else 'normal', full_count=sum(p['pallets'] for p in own_full),
-            mixed_count=len(own_mixed), total_pallets=sum(p['pallets'] for p in own_full)+len(own_mixed),
+            mixed_count=len(own_positions), unit_pallet_count=own_units,
+            total_pallets=sum(p['pallets'] for p in own_full)+len(own_positions),
             pallet_ids=[p['id'] for p in own_full+own_mixed]))
     missing_rules = sorted({f"{r.get('business_unit') or 'SIN UNIDAD'} / {r.get('calibre') or 'SIN CALIBRE'}"
         for r in rows if (r.get('bultos') or r.get('unidades')) and r.get('stacking_rule_pending')})
@@ -483,7 +488,8 @@ def simulate_pallets(rows, capacity, mix_courts=False, compact_load_ids=None, co
     return dict(capacity=capacity, mix_courts=mix_courts, full_pallets=full,
                 separation_policy='reparto_v1', compact_load_ids=sorted(compact), load_plans=load_plans,
                 picking_tasks=tasks, mixed_pallets=mixed, full_count=full_count,
-                mixed_count=len(mixed), total_pallets=total, free_positions=max(0, capacity-total),
+                mixed_count=len(position_pallets), unit_pallet_count=unit_pallet_count,
+                total_pallets=total, free_positions=max(0, capacity-total),
                 excess_positions=max(0, total-capacity), fits_estimate=fits,
                 configuration=config_result, missing_weights=missing_weights,
                 missing_dimensions=missing_dimensions, weight_complete=weight_complete,
@@ -606,8 +612,10 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
     original_mixed_count = plan['mixed_count']
     plan['mixed_pallets'] = mixed
     plan['picking_tasks'] = sorted(tasks.values(), key=lambda item: (item['load_id'], item['order'], item['sku']))
-    plan['mixed_count'] = len(mixed)
-    plan['total_pallets'] = plan['full_count'] + len(mixed)
+    position_pallets = [pallet for pallet in mixed if not pallet.get('loose_units')]
+    plan['mixed_count'] = len(position_pallets)
+    plan['unit_pallet_count'] = len(mixed) - len(position_pallets)
+    plan['total_pallets'] = plan['full_count'] + len(position_pallets)
     plan['free_positions'] = max(0, plan['capacity'] - plan['total_pallets'])
     plan['excess_positions'] = max(0, plan['total_pallets'] - plan['capacity'])
     all_pallets = [(p, p['pallets']) for p in plan['full_pallets']] + [(p, 1) for p in mixed]
@@ -630,11 +638,13 @@ def apply_manual_pallets(plan, submitted, merge_allowed_load_ids=None):
                              and not pallet_weight_blocked and not truck_weight_blocked)
     for load_plan in plan['load_plans']:
         own = [p for p in mixed if p['load_id'] == load_plan['load_id']]
-        load_plan['mixed_count'] = len(own)
-        load_plan['total_pallets'] = load_plan['full_count'] + len(own)
+        own_positions = [p for p in own if not p.get('loose_units')]
+        load_plan['mixed_count'] = len(own_positions)
+        load_plan['unit_pallet_count'] = len(own) - len(own_positions)
+        load_plan['total_pallets'] = load_plan['full_count'] + len(own_positions)
         load_plan['pallet_ids'] = ([p['id'] for p in plan['full_pallets'] if p['load_id'] == load_plan['load_id']] +
                                    [p['id'] for p in own])
     plan['manual_edition'] = True
     plan['merge_allowed_load_ids'] = sorted(allowed)
-    plan['manual_saved_positions'] = original_mixed_count - len(mixed)
+    plan['manual_saved_positions'] = original_mixed_count - len(position_pallets)
     return plan

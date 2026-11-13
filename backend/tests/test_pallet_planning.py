@@ -94,6 +94,8 @@ class PlanningTest(unittest.TestCase):
         self.assertEqual(sum(item['unidades'] for item in pallet['items']), 26)
         self.assertTrue(all(item['bultos'] == 0 for item in pallet['items']))
         self.assertTrue(all(item['unidades'] == 0 for p in result['mixed_pallets'] if not p.get('loose_units') for item in p['items']))
+        self.assertEqual((result['mixed_count'], result['unit_pallet_count'], result['total_pallets']), (2, 1, 2))
+        self.assertEqual(len(result['mixed_pallets']), 3)
 
     def test_975_and_1000_cc_units_remain_with_their_product(self):
         rows = [row(10, 6, court=1, sku='LITRO', calibre='1000 CC VIDRIO'),

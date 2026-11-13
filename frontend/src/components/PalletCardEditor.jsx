@@ -173,11 +173,11 @@ export default function PalletCardEditor({ pallets, fullPallets = [], mergeAllow
             </div>
             {notice && <p role="status" className="note mt-3">{notice}</p>}
         </div>
-        {loadIds.map(loadId => { const fullCards = completeCards.filter(item => item.load_id === loadId), picking = pallets.filter(item => item.load_id === loadId), total = fullCards.length + picking.length
+        {loadIds.map(loadId => { const fullCards = completeCards.filter(item => item.load_id === loadId), picking = pallets.filter(item => item.load_id === loadId), units = picking.filter(item => item.loose_units).length, total = fullCards.length + picking.length - units
             return <section key={loadId} aria-label={`Carga ${repartoFor(loadId)}`}>
                 <div className="load-group-head flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
                     <h4 className="text-sm font-semibold">Carga {repartoFor(loadId)}</h4>
-                    <p className="text-muted text-[13px] tabular-nums">{total} {total === 1 ? 'pallet' : 'pallets'} · {fullCards.length} completos + {picking.length} con picking{mergeAllowedLoadIds.includes(loadId) ? '' : ' · unión desactivada'}</p>
+                    <p className="text-muted text-[13px] tabular-nums">{total} {total === 1 ? 'posición' : 'posiciones'} · {fullCards.length} completos + {picking.length - units} con picking + {units} operativos U{mergeAllowedLoadIds.includes(loadId) ? '' : ' · unión desactivada'}</p>
                 </div>
                 <div className="pallet-grid mt-3 grid items-start gap-3">{fullCards.map(item => card(item, true))}{picking.map(item => card(item))}</div>
             </section> })}
